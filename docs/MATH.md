@@ -304,11 +304,80 @@ This is **conditioning, not implementation**: no formula can do better in a sing
 disk coordinate itself has no more to give. The library's own round-trip error tracks
 `ε/(1 − tanh(d/2))` to within a factor of about two, which is the floor.
 
-An atlas removes the problem structurally. Each tile's data is stored relative to its own centre, so
-every stored number is small; and a tile's frame is built by *multiplying generator matrices*, so its
-entries grow like `e^{d/2}` (about 2 × 10⁴ at `d = 20`) and are never derived from a
-nearly-degenerate coordinate. Rendering composes view × frame and applies that to small local
-numbers.
+An atlas removes the problem structurally, but only if it is built the right way — and the first
+attempt here was not, which is worth spelling out because the wrong version looks correct.
+
+### The composition to avoid
+
+The obvious design stores each tile's data relative to its own centre (so every stored number is
+small), gives each tile a frame `F_k` carrying tile-local coordinates into the world, and renders
+with
+
+```
+net = V · F_k
+```
+
+Every stored coordinate is indeed small. But `F_k` has entries of order `cosh(d/2)` — **1.08 × 10⁷⁵**
+for binary cell `(500, 0)` — and `V` is equally large and opposite, because the camera is looking at
+that tile. Their product is `O(1)`. That is catastrophic cancellation: the answer is small, both
+factors are astronomical, and the digits that survive are the digits they had in common. Measured, the
+set of visible tiles stopped being a function of the view alone past `d ≈ 28`, and a couple of minutes
+of dragging reaches `d ≈ 39`.
+
+Splitting the *data* into tiles is not enough. The *frames* must never be global either.
+
+### The anchored composition
+
+Let `c` be the **camera tile** — the tile containing the view centre. Define
+
+```
+V_c   = V · F_c            the view, expressed in the camera tile's own frame
+R_c→k = F_c⁻¹ · F_k        tile k's frame relative to the camera
+net   = V_c · R_c→k
+```
+
+Neither `V` nor `F_k` ever exists numerically. Both factors of `net` are `O(1)` for every tile that
+can be on screen, and the relative frame is built by multiplying **one constant generator per step of
+a walk from the camera** — never from the two tiles' absolute addresses.
+
+Three facts make it work, all proved in `tools/audit_atlas_math.py`:
+
+| | |
+|---|---|
+| appending a generator multiplies on the right, `F_{c·g} = F_c · G_g` | so a neighbour's relative frame *is* that generator, and a walk telescopes to a plain product |
+| **re-anchoring**: crossing into `c' = c·g` gives `V_{c'} = V_c · G_g` | one small multiply, so whenever the view would drift far from its tile the *tile* changes instead and the matrix never grows |
+| for the binary tiling every neighbour step is a position-independent **constant** | all `lat` and `lon` cancel symbolically: `S = 1, T = ±√2/2` laterally, `S = ½, T = ∓√2/8` to a child, `S = 2, T = ±√2/4` to a parent |
+
+The last row has a trap in it. The *general* relative frame between two binary cells is
+
+```
+S = 2^(lat − lat₀),    T = (√2/4)·( 2^Δlat·(2·lon + 1) − (2·lon₀ + 1) )
+```
+
+which still contains both absolute longitudes. It must never be used. Only the neighbour steps are
+constant, so a relative frame has to be *composed along a path* rather than computed from addresses.
+
+### What that buys, measured
+
+- The rendered picture is **byte-identical** at 1, 5, 50, 500 and 5000 tiles from the origin, across
+  nine tilings — which is the acceptance criterion: a regular tiling is homogeneous, so however far you
+  scroll it must look exactly as it did at the start.
+- Screen-position error against a 60-digit `mpmath` reference is **flat in distance**: `3 × 10⁻¹⁶` to
+  `1.3 × 10⁻¹⁵` disk units, the same at 5000 tiles as at 0 (worst growth factor 1.0). The *flatness* is
+  the property; the magnitude is just float64 epsilon. On the same inputs the global route errs by
+  `10⁻² … 10²⁷³` at 500 tiles and overflows to NaN at 5000 on eight of the nine tilings.
+- Frame time is flat out to 200,000 tiles (about 150,000 hyperbolic units).
+- `stats.maxViewEntry` stays near 1 forever; it is the invariant made visible.
+
+### The one thing that is still not canonical
+
+Tile *identity*, for regular tilings only. A `{p, q}` address is a word over the generators, reduced
+only freely (`g g⁻¹ → e`). The group also has braid relations, so two words can name one tile: for
+`{5, 4}`, `"2.3"` and `"1.0"` are the same tile, their centres agreeing to `2.8 × 10⁻¹⁷`. The walk
+therefore deduplicates geometrically as well, and picking resolves against the tiles actually drawn so
+that it agrees with what is on screen. The binary tiling has no such problem — its `(lat, lon)` are
+canonical integers (`BigInt`, since descending doubles the longitude). `notes/open-questions.md`
+records the Coxeter shortlex automaton that would make `{p, q}` addresses canonical too.
 
 <details>
 <summary>What the 2011 code did, and how badly it failed</summary>
@@ -331,6 +400,9 @@ All three are fixed here, and each has a regression test that fails against the 
 
 <details>
 <summary>The ceilings, for completeness</summary>
+
+These apply to a SINGLE patch — the non-atlas mode. An anchored atlas has no such ceiling, because it
+never forms the quantities below.
 
 Even with matrices, a single patch in double precision runs out eventually:
 

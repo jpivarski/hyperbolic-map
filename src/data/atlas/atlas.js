@@ -116,7 +116,9 @@ export class Atlas {
         // Cache the failure as empty so a broken tile is not retried every frame.
         this.cache.set(keyString, { drawables: [], withinTile: true });
         if (this.onTileError) this.onTileError(tile, err);
-        else if (typeof console !== "undefined") console.error(`hyperbolic-map: tile ${keyString} failed`, err);
+        // `tile.id` is the readable address, not `keyString`: cache keys are folded hashes for speed,
+        // and "tile 9303484400662374000 failed" tells a caller nothing they can act on.
+        else if (typeof console !== "undefined") console.error(`hyperbolic-map: tile ${tile.id} failed`, err);
       });
     this.pending.set(keyString, p);
     return null;

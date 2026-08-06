@@ -2604,7 +2604,9 @@ class Atlas {
         // Cache the failure as empty so a broken tile is not retried every frame.
         this.cache.set(keyString, { drawables: [], withinTile: true });
         if (this.onTileError) this.onTileError(tile, err);
-        else if (typeof console !== "undefined") console.error(`hyperbolic-map: tile ${keyString} failed`, err);
+        // `tile.id` is the readable address, not `keyString`: cache keys are folded hashes for speed,
+        // and "tile 9303484400662374000 failed" tells a caller nothing they can act on.
+        else if (typeof console !== "undefined") console.error(`hyperbolic-map: tile ${tile.id} failed`, err);
       });
     this.pending.set(keyString, p);
     return null;
@@ -3095,11 +3097,13 @@ class HyperbolicViewport {
     const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
     this.stats.frameMs = t1 - t0;
     // How far the view centre has travelled from the data origin, in hyperbolic units. Exposed
-    // because it is the single number that predicts precision trouble: a float64 SU(1,1) matrix has
-    // entries of order cosh(d/2), so by d ~ 37 the entries reach 1e8, |a|^2 reaches 1e16, and one
-    // ULP of that is larger than the spacing between adjacent tiles. Past there the tiling walk can
-    // no longer tell distinct tiles apart and the picture starts to depend on the route taken.
-    // See notes/open-questions.md for the floating-origin design that would remove the limit.
+    // because in SINGLE-PATCH mode it is the one number that predicts precision trouble: a float64
+    // SU(1,1) matrix has entries of order cosh(d/2), so by d ~ 37 the entries reach 1e8, |a|^2 reaches
+    // 1e16, and one ULP of that exceeds the spacing between adjacent tiles.
+    //
+    // In ATLAS mode that ceiling does not apply, because no global quantity is ever formed: the
+    // distance travelled is carried by the tile ADDRESS and the matrix stays camera-relative. See
+    // docs/MATH.md section 6.
     if (this.atlas) {
       // In atlas mode the view matrix is camera-relative, so its "distance" is a local quantity of
       // order the visible radius -- not the distance travelled, which is now unbounded and is carried

@@ -972,3 +972,42 @@ every generator is its own inverse and consecutive different indices do not canc
 Fixed with a shared `advanceAddress` helper that never steps straight back, plus an assertion that the
 address actually reached the expected depth. A test that cannot fail is worse than no test, and the only
 reason this surfaced is that a *different* test's arithmetic did not add up.
+
+## 2026-08-06 (later) — closing out the anchored atlas: docs, degenerate inputs, teardown
+
+`docs/MATH.md` section 6 rewritten. It still described the *superseded* design as if it were current
+("a tile's frame is built by multiplying generator matrices, so its entries grow like e^{d/2}" — which
+was exactly the bug). Now it names the composition to avoid (`net = V·F_k`), the anchored one that
+replaced it, the three identities behind it, the binary-tiling trap (the *general* relative frame still
+carries absolute longitudes; only the neighbour steps are constant), the measured payoff, and the one
+remaining non-canonicality in `{p,q}` addressing. The single-patch overflow ceilings kept, now labelled
+as single-patch only.
+
+`notes/math-audit.md` gained the Layer 2 section, which had been run but never written down.
+
+Re-ran the compound-scroll stress on all nine tilings against the current code (cons-cell addresses,
+hash cache keys, `rebase`, `tileAtScreen`), since the last nine-tiling run predated all of those.
+**354 gestures each, 3,186 total, zero findings, zero path-dependent tiles**, `max|V|` 1.02–1.16,
+`maxRel` 2.5–5.5 — matching the pre-change baseline. Addresses reach length 3,203 on {3,7} with 2,250
+re-anchors, and the picture is still a function of the camera alone.
+
+One harness trap worth recording: the resumable driver's ink check is an ABSOLUTE floor of 0.25,
+written for the `fill` motif that covers the tiling. Driving it with the `asym` motif (thin strokes,
+ink ≈ 0.016) produces a finding on every single step. Eight "disk nearly empty" reports, all spurious,
+all mine. The harness is not motif-agnostic; drive it with `fill`.
+
+Degenerate inputs, none of which had been exercised: `maxTiles: 1`, `maxTiles: 0`, `drawRadius: 0`, and
+`tileData` returning `null`, `undefined`, `{drawables: []}`, throwing, or returning a rejected promise.
+All eight survive a drag with no thrown error, no unhandled rejection, and a finite view matrix.
+
+Teardown in atlas mode: 60 build/destroy cycles leak no canvas; destroying with **41 tile requests in
+flight** then resolving them all drains `pending` to 0 with no error and no frame scheduled (both
+`invalidate()` and `render()` guard on `destroyed`); `destroy()` is idempotent; `render()` after
+`destroy()` is a no-op.
+
+**One real fix.** The no-callback tile-failure path logged the *cache key*, which became a folded hash
+when keys were changed for speed — `hyperbolic-map: tile 9303484400662374000 failed`. Now logs
+`tile.id`, the readable address. `onTileError` itself was already correct and receives the full tile.
+
+Also removed a stale comment in `render()` that still presented the `d ~ 37` precision ceiling as a
+live limit in atlas mode; it applies to single-patch mode only.

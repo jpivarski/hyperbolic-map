@@ -281,3 +281,50 @@ repeats: the first run reported **13 failures and every one was spurious**.
 And a fourth, in the reporting rather than the checking: the flag distinguishing "proved symbolically"
 from "verified numerically" was keyed off a variable that was always `None`, so numeric fallbacks were
 silently presented as proofs. In an audit harness. Fixed; claims 11c and 12 are now labelled.
+
+## Layer 2 — numerical, far from the origin (2026-08-06)
+
+Run after implementation, since far-field sampling needs something to sample. Re-runnable as
+`python3 tools/audit_atlas_numeric.py` (60-digit mpmath; about a minute). **7/7 pass.**
+
+**Stage 0 first, and this ordering is the point.** The oracle is built and cross-validated *before* it
+is allowed to judge any code, three independent ways — global frames composed as a half-plane quotient,
+the same composed directly in SU(1,1), and the relative-frame route — agreeing to **1.6e-57** and
+**1.8e-56**. Only then does a disagreement with the JS mean the JS is wrong. (Layer 1's first run had
+13 failures and all 13 were harness bugs; assuming the reference is right is how that happens.)
+
+**Stage 1 — why 60 digits are needed at all.** The global frame the old design had to materialise,
+after walking N tiles:
+
+| tiling | 500 tiles | 5000 tiles |
+|---|---|---|
+| {8,3} m=4 | 7.1e53 | 8.9e563 — **overflows float64** |
+| {8,3} | 3.9e61 | 1.1e571 — overflows |
+| {7,3} | 1.7e27 | 7.9e305 |
+| {5,4} | 1.3e39 | 2.6e407 — overflows |
+| {4,5} | 4.1e29 | 2.7e286 |
+| {6,4} | 7.4e77 | 6.7e730 — overflows |
+| {3,7} | 2.1e7 | 1.8e90 |
+| {12,3} | 3.6e144 | 1.0e1440 — overflows |
+| binary (lateral) | 1.0e6 | 3.0e68 |
+
+**Stage 2 — the anchored path against the oracle.** The assertion is on the *trend*, not the
+magnitude: worst screen error is **identical to three digits at 0, 1, 5, 50, 500 and 5000 tiles** for
+every tiling (worst growth factor 1.0 across 5000 tiles). Range 3.0e-16 ({12,3}) to 1.3e-15 ({7,3})
+disk units — float64 epsilon, i.e. below one pixel at any zoom. The generator tables the JS built match
+the 60-digit ones to 1.2e-15, a few ULPs; a construction error would be orders larger.
+
+**Stage 3 — the contrast, so stage 2 is known to be measuring something.** The same quantity by the
+old global route in float64:
+
+| tiling | 0 | 50 | 500 | 5000 |
+|---|---|---|---|---|
+| {8,3} m=4 | 6.3e-17 | 6.0e-02 | 1.8e+92 | LOST |
+| {12,3} | 6.6e-17 | 1.5e+11 | 9.7e+273 | LOST |
+| {3,7} | 1.2e-17 | 5.7e-14 | 5.4e-01 | 2.8e+166 |
+| binary | 9.4e-17 | 2.3e-12 | 1.4e-02 | 7.9e+122 |
+
+At 5000 tiles all nine lose the old route entirely (overflow, NaN, or error above 1e-3) while the
+anchored path holds at 1.3e-15. Note {3,7}: its tiles are small, so it degrades *later* in tile count
+and its 500-tile error of 0.54 disk units is still catastrophic — the failure tracks hyperbolic
+distance, not tile count.
