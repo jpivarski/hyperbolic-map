@@ -84,7 +84,9 @@ export class Atlas {
       // existing demos and any user code destructure it. Same object, two names, one meaning.
       address: address,
       key: address,
-      id: keyString,
+      // The readable identifier, for filenames and logging. Built here, on a cache miss, rather than
+      // per frame.
+      id: this.tiling.addressToString(address),
       relativeFrame: rel.clone(),
       centreRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
     };
@@ -137,13 +139,24 @@ export class Atlas {
     const out = [];
     this.lastTiles = [];
     for (const t of tiles) {
-      const keyString = this.tiling.addressToString(t.address);
+      // `addressKey` is the CACHE key: O(1) per tile. The human-readable string is built only on a
+      // miss, inside request(), because far from the origin it is thousands of characters long and
+      // producing 200 of them per frame cost ~20 ms.
+      const keyString = this.tiling.addressKey(t.address);
       const entry = this.request(t.address, keyString, t.rel, onReady);
       if (!entry || entry.drawables.length === 0) continue;
       // The composition the whole rewrite is about: camera-relative view times camera-relative tile
       // frame. Both factors O(1); no world frame is ever formed.
       const net = Vc.mul(t.rel);
-      this.lastTiles.push({ address: t.address, id: keyString, net: net, rel: t.rel });
+      // `id` is LAZY. Overlays and diagnostics want the readable string, but most frames never look at
+      // it, and building 200 of them costs ~20 ms once the words are thousands of symbols long.
+      const tiling = this.tiling;
+      this.lastTiles.push({
+        address: t.address,
+        get id() { return tiling.addressToString(this.address); },
+        net: net,
+        rel: t.rel,
+      });
       const wantClip =
         this.clip === CLIP_ALWAYS || (this.clip === CLIP_AUTO && !entry.withinTile);
       out.push({

@@ -166,10 +166,16 @@ export class Anchor {
     const dupCosh = Math.cosh(spacing / 4);
     const geometric = !tiling.addressesAreCanonical;
 
+    // For tilings whose addresses are canonical (the binary one) the string IS the identity, so keying
+    // on it is both cheap and complete. For word-addressed tilings it is neither: two words can name one
+    // tile, so a geometric check is needed anyway, and stringifying every candidate the walk dequeues
+    // cost 57 ms per frame at 5,000 tiles from the origin. So: string key only where it is the answer.
     const alreadySeen = (rel, key) => {
-      if (seenAddress.has(key)) return true;
-      seenAddress.add(key);
-      if (!geometric) return false;
+      if (!geometric) {
+        if (seenAddress.has(key)) return true;
+        seenAddress.add(key);
+        return false;
+      }
       rel.applyToDisk(0, 0, buf);
       const zx = buf[0];
       const zy = buf[1];
@@ -225,7 +231,8 @@ export class Anchor {
         break;
       }
       const node = queue.shift();
-      const key = tiling.addressToString(node.address);
+      // Only stringify when the string is what deduplicates -- see alreadySeen.
+      const key = geometric ? null : tiling.addressToString(node.address);
       if (alreadySeen(node.rel, key)) continue;
       const ch = coshHalfTo(node.rel);
       if (ch > walkCosh) continue;

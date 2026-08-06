@@ -75,6 +75,9 @@ function sameIsometry(a, b, tol = 1e-12) {
   return Math.min(plus, minus) < tol;
 }
 
+// The shared root of every word address. `str` is pre-filled so the memoisation has a base case.
+const REGULAR_ROOT = { gen: -1, prev: null, len: 0, str: "root", h1: 2166136261, h2: 987654321 };
+
 export class RegularTiling {
   // `frameSymmetry` (m, a divisor of p) is the rotational symmetry the tile art is promised to have.
   // It selects the walk group so that the tile stabiliser is C_m, which is what makes "the same data
@@ -168,17 +171,65 @@ export class RegularTiling {
   }
 
   // ---- addressing ----
+  //
+  // A word address is a CONS CELL, not an array: { gen, prev, len } with the string form memoised.
+  //
+  // The array version was correct but quadratic in the wrong place. `neighbours()` is called for every
+  // candidate the walk dequeues, and `concat` copies the whole word each time, while `addressToString`
+  // rebuilt it from scratch. Measured at 5,000 tiles from the origin (word length 3,796): one
+  // `addressToString` cost 43 microseconds and one `neighbours` 9.8, so a single frame's enumeration
+  // spent 57 ms on address bookkeeping alone and the frame time went from 17 ms to 84 ms. The geometry
+  // was already distance-independent; only the labelling was not.
+  //
+  // With a cons cell, extending is O(1) and the prefix that every tile in a frame shares -- the camera's
+  // own address -- is stringified once and then reused.
 
   originAddress() {
-    return [];
+    return REGULAR_ROOT;
+  }
+
+  // A cheap, collision-resistant key for cache lookups. O(1) per address, because it is folded from the
+  // parent's hash when the cell is created.
+  //
+  // The string form cannot serve this purpose far from the origin: a word address is one symbol per tile
+  // crossed, so at 50,000 tiles it is ~38,000 characters, and using it as a Map key forces the rope to
+  // flatten. Measured, that put 200 such keys at ~20 ms per frame even though enumeration itself stayed
+  // at 0.26 ms. Two independent 32-bit folds give ~53 bits, so a collision across millions of tiles is
+  // negligible -- and a collision would only mean two tiles sharing a cache slot, which for the
+  // position-independent data an atlas usually carries is invisible anyway.
+  addressKey(address) {
+    return address.h1 * 4294967296 + address.h2;
   }
 
   addressToString(address) {
-    return address.length === 0 ? "root" : address.join(".");
+    if (address.str !== null) return address.str;
+    // Walk back to the nearest ancestor whose string is already known, then build forward. Iterative
+    // rather than recursive: a word can be thousands of symbols long and recursion would overflow.
+    const pending = [];
+    let node = address;
+    while (node.str === null) {
+      pending.push(node);
+      node = node.prev;
+    }
+    let s = node.str;
+    for (let i = pending.length - 1; i >= 0; i--) {
+      s = s === "root" ? String(pending[i].gen) : `${s}.${pending[i].gen}`;
+      pending[i].str = s;
+    }
+    return address.str;
   }
 
   addressEquals(a, b) {
-    return a.length === b.length && a.every((v, i) => v === b[i]);
+    if (a === b) return true;
+    if (a.len !== b.len) return false;
+    let x = a;
+    let y = b;
+    while (x !== y && x.len > 0) {
+      if (x.gen !== y.gen) return false;
+      x = x.prev;
+      y = y.prev;
+    }
+    return true;
   }
 
   // Append a generator, cancelling it against the last one if they are mutual inverses. Free
@@ -188,13 +239,13 @@ export class RegularTiling {
   // tile. That is why the walk deduplicates geometrically as well, and why notes/open-questions.md
   // records the Coxeter shortlex automaton as the rigorous upgrade.
   extendAddress(address, gen) {
-    const n = address.length;
-    if (n > 0 && this.inverseIndex[address[n - 1]] === gen) return address.slice(0, n - 1);
-    return address.concat([gen]);
+    if (address.len > 0 && this.inverseIndex[address.gen] === gen) return address.prev;
+    // Fold the hash forward as the cell is built, so addressKey is O(1) forever after.
+    const h1 = (Math.imul(address.h1 ^ (gen + 1), 16777619) >>> 0);
+    const h2 = (Math.imul(address.h2 + gen * 2654435761, 2246822519) >>> 0) ^ (h1 >>> 13);
+    return { gen, prev: address, len: address.len + 1, str: null, h1, h2: h2 >>> 0 };
   }
 
-  // Built in generator order, so an index into this list is also a generator index. `stepToward`
-  // returns an index into it.
   neighbours(address) {
     const out = [];
     for (let g = 0; g < this.generators.length; g++) {
@@ -293,9 +344,14 @@ export class RegularTiling {
   // near-origin regime where the naive one is still trustworthy, and so the mpmath oracle has
   // something to check. Deliberately named to be greppable.
   globalFrameForTesting(address) {
+    // The word runs newest-first through the cons chain, but the frame is a product read oldest-first,
+    // so collect and reverse.
+    const gens = [];
+    for (let node = address; node.len > 0; node = node.prev) gens.push(node.gen);
+    gens.reverse();
     let m = Isom.identity();
-    for (let i = 0; i < address.length; i++) {
-      m = m.mul(this.generators[address[i]]);
+    for (let i = 0; i < gens.length; i++) {
+      m = m.mul(this.generators[gens[i]]);
       if ((i & 7) === 7) m.normalize();
     }
     return m.normalize();
@@ -407,7 +463,16 @@ export class BinaryTiling {
   }
 
   addressToString(address) {
-    return `${address.lat},${address.lon}`;
+    // Memoised on the address object. BigInt toString is not free, and a deep descent makes the
+    // longitude very long indeed -- the same cost that made word addresses expensive far out.
+    if (address.str === undefined || address.str === null) {
+      address.str = `${address.lat},${address.lon}`;
+    }
+    return address.str;
+  }
+
+  addressKey(address) {
+    return this.addressToString(address);
   }
 
   addressEquals(a, b) {

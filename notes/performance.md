@@ -186,3 +186,74 @@ The full interaction sweep was re-run on all pages afterwards and is unchanged: 
 worst signature difference 0 except the known first-gesture canvas-promotion artefact, which came
 back with the identical value (11.36 on escher, 9.73 on the escher atlas) -- the same deterministic
 Chrome behaviour, not something introduced here. 94 unit tests pass.
+
+
+## 2026-08-06 — The anchored atlas: cost independent of position
+
+Machine idle throughout: one-minute load average 0.27-0.42 on 16 cores, nothing running but this
+session's own Chrome and tooling. Re-checked after each run.
+
+### A measurement trap worth recording
+
+The first post-rewrite numbers looked like a 2.5x regression: escher 57.9 ms against 46.2 before, clock
+36.8 against 14.8. They were wrong, and the way they were wrong is a lesson.
+
+The render counters were IDENTICAL to the previous session -- 38,640 drawables, 217,560 points
+projected, 50,400 canvas calls, 90,997 vertices decimated -- so the *work* had not changed at all. What
+had changed was the page: that tab had built and destroyed several hundred viewports during testing,
+and its JavaScript was running about three times slower. On a freshly opened page the same measurement
+gave 43.8 ms. Nothing had regressed.
+
+So: measure performance on a fresh page, and if timings move without the counters moving, suspect the
+environment before the code.
+
+### Paced pan, fresh page, median ms per frame
+
+| scene | before the rewrite | after |
+|---|---|---|
+| escher (38,640 drawables, single patch) | 46.2 | 43.8 |
+| clock (87,864 drawables, single patch) | 14.8 | 15.3 |
+| relativity (5,306, single patch) | 3.4 | 3.4 |
+| **escher atlas (18,000 in 200 tiles)** | **19.1** | **18.7** |
+
+The atlas is slightly faster despite composing relative frames afresh every frame rather than caching
+global ones -- and the cached global frames it no longer keeps were also an unbounded memory leak.
+
+### The headline: frame time no longer depends on where you are
+
+| tiles from the origin | {8,3} | {3,7} | binary (by latitude) |
+|---|---|---|---|
+| 0 | 17.3 | 17.0 | 19.4 |
+| 500 | 17.0 | 17.3 | 18.8 |
+| 5,000 | 17.0 | 17.0 | 18.5 |
+| 50,000 | 16.7 | 16.7 | 18.7 |
+| 200,000 | 16.5 | 16.7 | — |
+
+200,000 tiles of {8,3} is about 150,000 hyperbolic units. The old design could not represent the view
+there at all.
+
+### Getting there took two fixes, and the first attempt was only half of it
+
+The geometry was distance-independent immediately -- that was the point of the rewrite -- but the
+ADDRESS BOOKKEEPING was not, and it dominated:
+
+| tiles out | word length | one `addressToString` | one `neighbours` | enumeration | frame |
+|---|---|---|---|---|---|
+| 0 | 0 | 0.05 us | 0.9 us | 0.56 ms | 16.8 ms |
+| 500 | 390 | 4.2 us | 1.3 us | 4.83 ms | 23.4 ms |
+| 5,000 | 3,796 | 43.5 us | 9.8 us | 57.5 ms | 84.2 ms |
+
+1. **Word addresses became cons cells.** An array address made `neighbours()` copy the whole word for
+   every candidate the walk dequeued. A cons cell extends in O(1), and the prefix every tile in a frame
+   shares -- the camera's own address -- is stringified once and memoised. Also: the string key is now
+   skipped entirely for word-addressed tilings, where geometric deduplication is doing the work anyway.
+   Enumeration went to 0.25-0.29 ms at every distance, and the frame flattened through 5,000 tiles.
+
+2. **Cache keys stopped being strings.** At 50,000 tiles a word is ~38,000 characters, and using it as a
+   Map key forces the rope to flatten: 200 of those per frame was ~20 ms even though enumeration was
+   0.26 ms. Addresses now carry a hash folded forward as the cell is built, giving an O(1) key of about
+   53 bits, and the readable string is produced only on a cache miss or when an overlay asks for it
+   (`lastTiles[i].id` is a lazy getter). That flattened the curve out to 200,000 tiles.
+
+Both were found by measuring at increasing distance rather than at one point, which is the only way this
+class of problem shows up.

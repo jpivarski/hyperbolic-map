@@ -291,7 +291,7 @@ test("KNOWN LIMIT: a regular tiling's word address can drift over a long round t
         V = V.mul(shift).normalize();
       }
     }
-    const outLen = anchor.address.length;
+    const outLen = anchor.address.len;
     for (let leg = legs.length - 1; leg >= 0; leg--) {
       const { b, n } = legs[leg];
       const step = Isom.translationToDisk(0.1 * Math.cos(b), 0.1 * Math.sin(b));
@@ -301,7 +301,7 @@ test("KNOWN LIMIT: a regular tiling's word address can drift over a long round t
         V = V.mul(shift).normalize();
       }
     }
-    const drift = anchor.address.length;
+    const drift = anchor.address.len;
     worst = Math.max(worst, drift);
     assert.ok(
       drift <= 40,
