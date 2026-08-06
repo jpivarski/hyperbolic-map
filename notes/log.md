@@ -271,3 +271,43 @@ the arguments are `boxCenter, box1up`.
 **This is CHECKPOINT A.** Still carrying the 2011 mathematical errors, deliberately:
 `coords.js` has both half-plane conversions in their original cancelling forms, and `updatePinch`
 uses arithmetic means. Checkpoint B replaces them.
+
+---
+
+## 2026-08-05 — CHECKPOINT B: the mathematical corrections
+
+**What.** Replaced both half-plane conversions in `src/core/coords.js` with numerically stable forms,
+and replaced `updatePinch` with the exact solve. Added `test/coords.test.mjs`. 64 tests pass.
+Checkpoint A in the git history still has the originals, so the two commits can be compared directly.
+
+**The three corrections.**
+
+1. `halfPlaneToLocal`: the 2011 expression has a *double* cancellation near the half-plane basepoint
+   and returns exactly 0 below `d/2 ≈ 5e-9`. The whole thing collapses to `t/sqrt(1−t²)` with
+   `t = |z−i|/|z+i| = tanh(d/2)`, which is exact at every scale.
+2. `localToHalfPlane`: `denom = 2r² + 1 − 2yw` loses the `+1` and reaches exactly `0.0` by `y ≈ 1e4`
+   — inside the dungeon's own range (11711.92), and silently, since Java gives `Infinity`. Multiplying
+   by the conjugate gives an all-positive equivalent; branch on the sign of `y` because the *other*
+   form is the one that cancels for `y ≤ 0`.
+3. `updatePinch`: exact solve. Root-find the zoom on `d(g₁/s, g₂/s) = d(D₁, D₂)`, then fix the
+   isometry by matching the hyperbolic midpoint and one bearing. Both fingers pinned to <0.01 px in
+   testing, versus up to 25.7 px of drift for the 2011 arithmetic-means version.
+
+**Two test-design lessons, both from thresholds I first set wrong.**
+
+- **The oracle can be the weaker side.** The `halfPlaneToLocal` test compares against a reference that
+  forms `1/sqrt(1−|Z|²)`, which cancels near the boundary. The measured 1.3e-12 residual is the
+  *reference's* error, not the implementation's, so the threshold is 1e-10 with a comment saying so.
+  Tightening it further would be testing the oracle.
+- **Assert against conditioning, not against a number.** The half-plane round-trip necessarily forms
+  `1 − tanh(d/2)`, which decays like `4e^{−d}`, so the best achievable relative error is
+  `ε/(1 − tanh(d/2))` — a property of the coordinate, not the code. The test now measures the ratio of
+  the actual error to that floor and asserts it stays within 500× (measured: about 2×). That catches a
+  genuinely bad formula while not pretending precision exists where it cannot. A fixed threshold would
+  have been either vacuous or a lie depending on the sample range.
+
+  This also puts a number on the case for the atlas: the floor is already ~1e-7 at `d = 20`.
+
+**Verified in the browser.** All four examples still render after the swap. The dungeon zoomed out to
+0.5 shows the world-turtle carrying the disk across a star field — the 2012 look, produced entirely
+from `docs/demo/layers.js` with no turtle-specific code anywhere in `src/`.

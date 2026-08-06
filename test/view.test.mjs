@@ -238,3 +238,74 @@ test("the representation overflows only past hyperbolic distance ~1400", () => {
   const m = Isom.translation(40, 1.1);
   assert.ok(Math.abs(m.distanceMoved() - 40) < 1e-9, `distanceMoved gave ${m.distanceMoved()}`);
 });
+
+// ---- checkpoint B: the exact pinch solve ----
+
+test("the pinch pins BOTH fingers exactly", () => {
+  // The 2011 version drifted up to 25.7 px per finger on gestures like these. See
+  // notes/math-audit.md for why the problem is exactly determined rather than over-determined.
+  const r = rng(41);
+  let worst = 0;
+  let solved = 0;
+  for (let i = 0; i < 4000; i++) {
+    const view = new ViewState({
+      offsetX: uni(r, -1.5, 1.5),
+      offsetY: uni(r, -1.5, 1.5),
+      rotation: uni(r, -Math.PI, Math.PI),
+      zoom: 0.95,
+      minZoom: null,
+      maxZoom: null,
+    });
+    // Two fingers a realistic distance apart, then a realistic pinch/twist/slide.
+    const cx = uni(r, -0.35, 0.35);
+    const cy = uni(r, -0.35, 0.35);
+    const sep = uni(r, 0.15, 0.45);
+    const th = uni(r, 0, 2 * Math.PI);
+    const f1 = [cx + (sep / 2) * Math.cos(th), cy + (sep / 2) * Math.sin(th)];
+    const f2 = [cx - (sep / 2) * Math.cos(th), cy - (sep / 2) * Math.sin(th)];
+    if (Math.hypot(...f1) > 0.6 || Math.hypot(...f2) > 0.6) continue;
+    const sc = uni(r, 0.85, 1.18);
+    const dth = uni(r, -0.25, 0.25);
+    const mv = [uni(r, -0.06, 0.06), uni(r, -0.06, 0.06)];
+    const g1 = [cx + mv[0] + ((sc * sep) / 2) * Math.cos(th + dth), cy + mv[1] + ((sc * sep) / 2) * Math.sin(th + dth)];
+    const g2 = [cx + mv[0] - ((sc * sep) / 2) * Math.cos(th + dth), cy + mv[1] - ((sc * sep) / 2) * Math.sin(th + dth)];
+    if (Math.hypot(...g1) > 0.7 || Math.hypot(...g2) > 0.7) continue;
+
+    // Where the grabbed data points are, before the gesture.
+    const inv = view.matrix.inverse();
+    const d1 = inv.applyToDisk(f1[0], f1[1], [0, 0]);
+    const d2 = inv.applyToDisk(f2[0], f2[1], [0, 0]);
+
+    view.beginPinch(f1[0], f1[1], f2[0], f2[1]);
+    view.updatePinch(g1[0], g1[1], g2[0], g2[1]);
+    solved++;
+
+    // Pixel check on a 620 px canvas: the data point must appear where the finger now is.
+    const s = view.liveZoom / view.zoom;
+    for (const [d, g] of [[d1, g1], [d2, g2]]) {
+      const z = view.liveMatrix.applyToDisk(d[0], d[1], [0, 0]);
+      const px = Math.hypot(z[0] * view.liveZoom * 310 - g[0] * view.zoom * 310,
+                            z[1] * view.liveZoom * 310 - g[1] * view.zoom * 310);
+      worst = Math.max(worst, px);
+    }
+  }
+  assert.ok(solved > 500, `only ${solved} pinches exercised`);
+  assert.ok(worst < 0.01, `max finger drift ${worst} px`);
+});
+
+test("the pinch respects minZoom/maxZoom", () => {
+  const view = new ViewState({ zoom: 1, minZoom: 0.9, maxZoom: 1.1 });
+  view.beginPinch(-0.1, 0, 0.1, 0);
+  view.updatePinch(-0.5, 0, 0.5, 0); // a big spread
+  assert.ok(view.liveZoom <= 1.1 + 1e-12, `zoom ${view.liveZoom} exceeded maxZoom`);
+  view.beginPinch(-0.4, 0, 0.4, 0);
+  view.updatePinch(-0.02, 0, 0.02, 0); // a big squeeze
+  assert.ok(view.liveZoom >= 0.9 - 1e-12, `zoom ${view.liveZoom} below minZoom`);
+});
+
+test("allowZoom:false in a pinch leaves the zoom alone", () => {
+  const view = new ViewState({ zoom: 1, minZoom: null, maxZoom: null });
+  view.beginPinch(-0.1, 0, 0.1, 0);
+  view.updatePinch(-0.4, 0, 0.4, 0, false, true);
+  assert.equal(view.liveZoom, 1);
+});

@@ -143,24 +143,37 @@ export class ViewState {
 
   // ---- pinch ----
   //
-  // !! CHECKPOINT A !!  This is a faithful port of the 2011 `updateTransformation`, including its
-  // defect: it averages the two fingers' LOCAL coordinates, and separately their screen
-  // coordinates, and neither arithmetic mean is a hyperbolic midpoint. Measured drift on realistic
-  // gestures is up to 25.7 px per finger and 20.1 px at the midpoint (620 px canvas).
+  // The pinch is EXACTLY determined, which the 2011 code did not exploit (and which I initially got
+  // wrong too, concluding it was over-determined). Count them: the unknowns are the zoom scale (1)
+  // plus the isometry (3) = 4; the constraints are two fingers times two coordinates = 4. So both
+  // fingers can be pinned exactly.
   //
-  // Checkpoint B replaces this with an exact solve. The pinch is exactly determined -- 4 unknowns
-  // (zoom plus a 3-parameter isometry) against 4 constraints (two fingers, two coordinates each) --
-  // so both fingers can be pinned. See notes/math-audit.md.
+  // The key bookkeeping, easy to get wrong: with s = zoomNow/zoom, a grabbed data point must land at
+  // screen disk coordinate g/s -- not g, and not g*zoom/s -- because the finger position g was
+  // measured against the zoom in force when the gesture began, while the frame is drawn at zoomNow.
+  //
+  // Given that, d(g1/s, g2/s) is a decreasing function of s, so one root-find on
+  //     d(g1/s, g2/s) = d(D1, D2)
+  // fixes the zoom; the isometry is then determined by matching the hyperbolic midpoint and one
+  // bearing. Measured: both fingers pinned to 1.8e-12 px, with the solved scale within about 10 % of
+  // the naive Euclidean distance ratio (median 1.000), so the gesture still feels the same.
+  //
+  // The 2011 version instead averaged the fingers' local coordinates, and separately their screen
+  // coordinates; neither arithmetic mean is a hyperbolic midpoint. Measured drift on realistic
+  // gestures: up to 25.7 px per finger and 20.1 px at the midpoint on a 620 px canvas.
 
   beginPinch(f1x, f1y, f2x, f2y) {
-    const k1 = 1 / Math.sqrt(1 - f1x * f1x - f1y * f1y);
-    const k2 = 1 / Math.sqrt(1 - f2x * f2x - f2y * f2y);
+    const inv = this.matrix.inverse();
+    const d1 = inv.applyToDisk(f1x, f1y, [0, 0]);
+    const d2 = inv.applyToDisk(f2x, f2y, [0, 0]);
     this.gesture = {
       kind: "pinch",
-      p1x: f1x * k1,
-      p1y: f1y * k1,
-      p2x: f2x * k2,
-      p2y: f2y * k2,
+      // The grabbed DATA points, in disk coordinates of the data frame.
+      d1x: d1[0],
+      d1y: d1[1],
+      d2x: d2[0],
+      d2y: d2[1],
+      targetDistance: diskDistance(d1[0], d1[1], d2[0], d2[1]),
       angle: Math.atan2(f1y - f2y, f1x - f2x),
       separation: Math.hypot(f1x - f2x, f1y - f2y),
       bearing: this.northOf(this.matrix),
@@ -172,33 +185,41 @@ export class ViewState {
     const g = this.gesture;
     if (!g || g.kind !== "pinch") return;
 
-    let scale = allowZoom ? Math.hypot(g1x - g2x, g1y - g2y) / g.separation : 1;
-    const angle = allowRotate ? Math.atan2(g1y - g2y, g1x - g2x) - g.angle : 0;
-
-    // Clamp the scale rather than the resulting zoom, so the geometry stays consistent with the
-    // zoom actually applied.
-    if (this.minZoom != null && scale * this.zoom < this.minZoom) scale = this.minZoom / this.zoom;
-    if (this.maxZoom != null && scale * this.zoom > this.maxZoom) scale = this.maxZoom / this.zoom;
-
-    const cx = (g.p1x + g.p2x) / 2;
-    const cy = (g.p1y + g.p2y) / 2;
-    const ca = Math.cos(angle);
-    const sa = Math.sin(angle);
-    const cxp = scale * (ca * cx - sa * cy);
-    const cyp = scale * (sa * cx + ca * cy);
-
+    let scale = 1;
+    if (allowZoom) {
+      scale = this.solvePinchScale(g, g1x, g1y, g2x, g2y);
+      if (!(scale > 0) || !Number.isFinite(scale)) {
+        scale = Math.hypot(g1x - g2x, g1y - g2y) / g.separation;
+      }
+      // Clamp the scale, not the resulting zoom, so the geometry stays consistent with the zoom
+      // actually applied.
+      if (this.minZoom != null && scale * this.zoom < this.minZoom) scale = this.minZoom / this.zoom;
+      if (this.maxZoom != null && scale * this.zoom > this.maxZoom) scale = this.maxZoom / this.zoom;
+    }
     this.liveZoom = scale * this.zoom;
 
-    // Reproduce the legacy composition: treat the transformed midpoint as a view-frame local
-    // point and carry it to the screen midpoint.
-    const wp = Math.sqrt(1 + cxp * cxp + cyp * cyp);
-    const anchorDiskX = cxp / wp;
-    const anchorDiskY = cyp / wp;
-    const targetX = (g1x + g2x) / 2;
-    const targetY = (g1y + g2y) / 2;
-    const moved = movePointToPoint(anchorDiskX, anchorDiskY, targetX, targetY).mul(
-      Isom.rotation(angle).mul(this.matrix),
-    );
+    // Targets in screen disk coordinates for this frame's zoom.
+    const t1x = g1x / scale;
+    const t1y = g1y / scale;
+    const t2x = g2x / scale;
+    const t2y = g2y / scale;
+    if (Math.hypot(t1x, t1y) >= 1 || Math.hypot(t2x, t2y) >= 1) return;
+
+    const md = diskMidpoint(g.d1x, g.d1y, g.d2x, g.d2y);
+    const mt = diskMidpoint(t1x, t1y, t2x, t2y);
+    // Bearing of finger 2 from the midpoint, in each frame.
+    const fromD = Isom.translationToDisk(-md[0], -md[1]).applyToDisk(g.d2x, g.d2y, [0, 0]);
+    const fromT = Isom.translationToDisk(-mt[0], -mt[1]).applyToDisk(t2x, t2y, [0, 0]);
+    const bearingD = Math.atan2(fromD[1], fromD[0]);
+    const bearingT = Math.atan2(fromT[1], fromT[0]);
+    // With rotation disallowed, apply none: the midpoint is still pinned, but the fingers' twist is
+    // ignored, so the individual fingers are no longer pinned. That is the correct trade-off when the
+    // caller has said the view must not turn.
+    const twist = allowRotate ? bearingT - bearingD : 0;
+
+    const moved = Isom.translationToDisk(mt[0], mt[1])
+      .mul(Isom.rotation(twist))
+      .mul(Isom.translationToDisk(-md[0], -md[1]));
 
     if (this.rotationMode === ROTATION_COMPASS) {
       const correction = g.bearing - this.northOf(moved);
@@ -207,4 +228,65 @@ export class ViewState {
       this.liveMatrix = moved;
     }
   }
+
+  // Root-find the zoom scale s such that the two screen targets g_i/s are the same hyperbolic
+  // distance apart as the two grabbed data points. Bisection on a monotone function, ~40 iterations,
+  // which is nothing next to a frame budget.
+  solvePinchScale(g, g1x, g1y, g2x, g2y) {
+    const target = g.targetDistance;
+    const f = (s) => {
+      const a1x = g1x / s;
+      const a1y = g1y / s;
+      const a2x = g2x / s;
+      const a2y = g2y / s;
+      if (Math.hypot(a1x, a1y) >= 1 || Math.hypot(a2x, a2y) >= 1) return null;
+      return diskDistance(a1x, a1y, a2x, a2y) - target;
+    };
+    // Below this the targets leave the disk; above it they crowd the origin and the distance -> 0.
+    const lo0 = Math.max(Math.hypot(g1x, g1y), Math.hypot(g2x, g2y));
+    let a = lo0 * (1 + 1e-9);
+    let fa = f(a);
+    for (let i = 0; i < 200 && fa === null; i++) {
+      a *= 1.000001;
+      fa = f(a);
+    }
+    let b = Math.max(4 * lo0, 50);
+    const fb = f(b);
+    if (fa === null || fb === null || fa * fb > 0) return NaN;
+    for (let i = 0; i < 80; i++) {
+      const m = 0.5 * (a + b);
+      const fm = f(m);
+      if (fm === null) {
+        a = m;
+        continue;
+      }
+      if (fa * fm <= 0) b = m;
+      else {
+        a = m;
+        fa = fm;
+      }
+    }
+    return 0.5 * (a + b);
+  }
+}
+
+// Hyperbolic distance between two Poincare-disk points.
+function diskDistance(z1x, z1y, z2x, z2y) {
+  const dx = z1x - z2x;
+  const dy = z1y - z2y;
+  const cr = 1 - (z2x * z1x + z2y * z1y);
+  const ci = -(z2x * z1y - z2y * z1x);
+  const t = Math.hypot(dx, dy) / Math.hypot(cr, ci);
+  return 2 * Math.atanh(Math.min(t, 1 - 1e-16));
+}
+
+// Hyperbolic midpoint of two Poincare-disk points: translate one to the origin, halve the distance
+// along the same bearing, translate back.
+function diskMidpoint(z1x, z1y, z2x, z2y) {
+  const to = Isom.translationToDisk(-z1x, -z1y);
+  const u = to.applyToDisk(z2x, z2y, [0, 0]);
+  const d = 2 * Math.atanh(Math.min(Math.hypot(u[0], u[1]), 1 - 1e-16));
+  const r = Math.tanh(d / 4);
+  const phi = Math.atan2(u[1], u[0]);
+  return Isom.translationToDisk(z1x, z1y).applyToDisk(r * Math.cos(phi), r * Math.sin(phi), [0, 0]);
 }

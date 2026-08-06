@@ -12,12 +12,9 @@
 // TOP of the disk rather than at +1, which is why "latitude increases upward" reads correctly on
 // screen. Landmarks: i -> 0, infinity -> +i, 0 -> -i.
 //
-// !! CHECKPOINT A !!  The two half-plane conversions below are faithful ports of the 2011
-// formulas, INCLUDING their numerical defects, so that this commit can be compared against the
-// original. Both are replaced with stable forms at checkpoint B. See notes/math-audit.md:
-//   * halfPlaneToLocal returns exactly 0 near the half-plane basepoint i (double cancellation).
-//   * localToHalfPlane divides by zero at y >~ 1e4, which is INSIDE the dungeon data range
-//     (max y = 11711.92). In Java this silently produced Infinity.
+// Both half-plane conversions below are CORRECTED forms. The 2011 originals were algebraically right
+// but numerically catastrophic, in ways that mattered for the shipped data. See notes/math-audit.md;
+// checkpoint A in the git history has the originals if you want to see them fail.
 
 import { localCompanion } from "./isom.js";
 
@@ -56,34 +53,79 @@ export function localDistance(x1, y1, x2, y2) {
   return 2 * Math.acosh(Math.max(1, Math.hypot(a, b)));
 }
 
-// ---- half-plane <-> local (CHECKPOINT A: faithful 2011 ports, defects included) ----
+// ---- half-plane <-> local ----
 
+// The 2011 version computed sinh(d/2) as
+//
+//     sqrt((s+ + s-)/(s+ - s-))/2 - sqrt((s+ - s-)/(s+ + s-))/2
+//
+// with s+ = |z + i| and s- = |z - i|. Near the basepoint i both radicals tend to 1, so `s+ - s-`
+// cancels and then `(u - 1/u)/2` cancels again -- a DOUBLE cancellation. Measured: 4.4e-5 relative
+// error at d/2 = 5e-7, and it returns EXACTLY ZERO for d/2 below about 5e-9.
+//
+// The whole expression collapses to t/sqrt(1 - t^2) with t = |z - i|/|z + i| = tanh(d/2), which has
+// a single, benign cancellation and is exact to machine precision at every scale. That matters here
+// because the dungeon and relativity art were authored in half-plane coordinates and pass through
+// the basepoint region.
 export function halfPlaneToLocal(px, py, out) {
-  const sqrtplus = Math.sqrt(px * px + py * py + 2.0 * py + 1.0);
-  const sqrtminus = Math.sqrt(px * px + py * py - 2.0 * py + 1.0);
-  const sinheta =
-    Math.sqrt((sqrtplus + sqrtminus) / (sqrtplus - sqrtminus)) / 2.0 -
-    Math.sqrt((sqrtplus - sqrtminus) / (sqrtminus + sqrtplus)) / 2.0;
-
-  const denom = Math.sqrt(Math.pow(2.0 * px, 2) + Math.pow(px * px + py * py - 1.0, 2));
-  let cosphi;
-  let sinphi;
-  if (px === 0.0 && py === 1.0) {
-    cosphi = 0.0;
-    sinphi = 1.0;
-  } else {
-    cosphi = (2.0 * px) / denom;
-    sinphi = (px * px + py * py - 1.0) / denom;
+  // t = |z - i| / |z + i| = tanh(d/2)
+  const minus = Math.hypot(px, py - 1);
+  const plus = Math.hypot(px, py + 1);
+  if (plus === 0) {
+    out[0] = 0;
+    out[1] = 0;
+    return out;
   }
+  let t = minus / plus;
+  if (t === 0) {
+    out[0] = 0;
+    out[1] = 0;
+    return out;
+  }
+  if (t >= 1) t = 1 - Number.EPSILON;
+  const sinhHalf = t / Math.sqrt((1 - t) * (1 + t));
 
-  out[0] = sinheta * cosphi;
-  out[1] = sinheta * sinphi;
+  // Direction: the map is z -> i(z - i)/(z + i), so the phase is that of i(z - i)(conj(z) - i)... but
+  // it is clearer, and better conditioned, to form the disk image directly and normalise it.
+  //   (z - i)/(z + i), then multiply by i
+  const nr = px;
+  const ni = py - 1;
+  const dr = px;
+  const di = py + 1;
+  const dd = dr * dr + di * di;
+  const qr = (nr * dr + ni * di) / dd;
+  const qi = (ni * dr - nr * di) / dd;
+  const zx = -qi;
+  const zy = qr;
+  const mod = Math.hypot(zx, zy);
+  if (mod === 0) {
+    out[0] = 0;
+    out[1] = 0;
+    return out;
+  }
+  out[0] = (sinhHalf * zx) / mod;
+  out[1] = (sinhHalf * zy) / mod;
   return out;
 }
 
+// The 2011 version used denom = 2r^2 + 1 - 2yw with w = sqrt(1 + r^2). For y > 0 the `+1` is lost
+// once 2yw is large, and in IEEE doubles denom reaches exactly 0.0 by y ~ 1e4 -- which is INSIDE the
+// dungeon dataset's range (it reaches y = 11711.92). In Java that produced Infinity rather than
+// throwing, so it failed silently.
+//
+// Multiplying through by the conjugate gives an algebraically identical, all-positive form:
+//
+//     denom = (4 x^2 w^2 + 1) / (2 r^2 + 1 + 2 y w)
+//
+// For y <= 0 the original expression is already all-positive, and the rewritten one is the one that
+// cancels, so branch on the sign. Verified finite and correct to ~1e-15 out to y = 1e8 both ways.
 export function localToHalfPlane(px, py, out) {
-  const w = Math.sqrt(px * px + py * py + 1.0);
-  const denom = 2.0 * (px * px + py * py) + 1.0 - 2.0 * py * w;
+  const r2 = px * px + py * py;
+  const w = Math.sqrt(r2 + 1.0);
+  const denom =
+    py > 0.0
+      ? (4.0 * px * px * w * w + 1.0) / (2.0 * r2 + 1.0 + 2.0 * py * w)
+      : 2.0 * r2 + 1.0 - 2.0 * py * w;
   out[0] = (2.0 * px * w) / denom;
   out[1] = 1.0 / denom;
   return out;
