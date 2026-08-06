@@ -2293,42 +2293,101 @@ class BinaryTiling {
     ];
   }
 
-  // Cells whose box meets the visible disk. Uses the WIDEST y in each latitude band, not the bottom
-  // edge -- the 2011 routine sampled the bottom and so missed about 46% of the cells it should have
-  // returned (hence its "fix missing rooms" commit).
+  // Cells whose box meets the visible disk.
+  //
+  // The visible set is a hyperbolic disk of radius rho about the view centre, and in the half-plane a
+  // hyperbolic disk is an ordinary EUCLIDEAN circle: centre (px, py*cosh(rho)), radius py*sinh(rho).
+  // So the band-by-band intersection is exact and closed-form, with no sampling at all. For the
+  // latitude band y in [y0, y1], the widest x occurs at whichever y in the band is nearest the
+  // circle's centre, giving half-width sqrt(R^2 - dy^2).
+  //
+  // Two separate bugs lived here, and the second was caused by fixing the first badly:
+  //
+  //   * The 2011 routine evaluated the x-extent at y = 2^latitude, the BOTTOM of the band, and so
+  //     missed about 46% of the cells it should have returned -- hence its "fix missing rooms"
+  //     commit. Using the widest y in the band is the fix.
+  //   * My first version over-corrected, taking ONE global bounding box over the whole visible disk
+  //     and reusing it for every band. That is over-inclusive, which sounds safe, but the bands are
+  //     walked from the smallest latitude upward against a hard maxCells budget -- and the smallest
+  //     band has the smallest cells, so it has the most of them. Measured: at zoom 0.4 the routine
+  //     returned 512 cells ALL IN ONE BAND and nothing whatsoever for the bands actually covering
+  //     the screen. Zooming out made the dungeon vanish.
+  //
+  // So the budget is now spent nearest-first: cells are gathered with their distance from the view
+  // centre and sorted, so a truncation drops the farthest cells rather than every cell above some
+  // arbitrary latitude. `lastTruncated` records whether that happened, because a silently capped
+  // enumeration reads exactly like a rendering bug.
   visible(viewMatrix, visibleRadius, maxCells = 512) {
     const rho = 2 * Math.atanh(Math.min(visibleRadius, 0.9995));
-    const inv = viewMatrix.inverse();
-    const r = Math.tanh(rho / 2);
-
-    let xmin = Infinity;
-    let xmax = -Infinity;
-    let ymin = Infinity;
-    let ymax = -Infinity;
-    const N = 64;
-    const buf = [0, 0];
+    const centre = viewMatrix.centreLocal([0, 0]);
     const hp = [0, 0];
-    for (let i = 0; i < N; i++) {
-      const t = (2 * Math.PI * i) / N;
-      inv.applyToDisk(r * Math.cos(t), r * Math.sin(t), buf);
-      const k = 1 / Math.sqrt(1 - buf[0] * buf[0] - buf[1] * buf[1]);
-      localToHalfPlaneInto(buf[0] * k, buf[1] * k, hp);
-      if (!Number.isFinite(hp[0]) || !Number.isFinite(hp[1]) || hp[1] <= 0) continue;
-      if (hp[0] < xmin) xmin = hp[0];
-      if (hp[0] > xmax) xmax = hp[0];
-      if (hp[1] < ymin) ymin = hp[1];
-      if (hp[1] > ymax) ymax = hp[1];
-    }
-    if (!Number.isFinite(xmin) || ymin <= 0) return [];
+    localToHalfPlaneInto(centre[0], centre[1], hp);
+    const px = hp[0];
+    const py = hp[1];
+    this.lastTruncated = false;
+    if (!Number.isFinite(px) || !Number.isFinite(py) || py <= 0) return [];
 
-    const latMin = Math.floor(Math.log2(ymin));
-    const latMax = Math.floor(Math.log2(ymax));
-    const out = [];
-    for (let lat = latMin; lat <= latMax && out.length < maxCells; lat++) {
+    const cy = py * Math.cosh(rho);
+    const R = py * Math.sinh(rho);
+    // cy - R = py*exp(-rho) and cy + R = py*exp(rho), both strictly positive, so the logs are safe.
+    const latMin = Math.floor(Math.log2(py) - rho / Math.LN2);
+    const latMax = Math.floor(Math.log2(py) + rho / Math.LN2);
+
+    // Each band contributes an interval of longitudes. Rather than materialise them all and sort --
+    // a wide view puts over five thousand cells in a single band, so that is both slow and, with a
+    // budget, wrong -- keep a frontier of one candidate per side per band and repeatedly take the
+    // globally nearest. The full visible set is still emitted whenever it fits in the budget; when it
+    // does not, what survives is the nearest maxCells, which is what the user can actually see.
+    const bands = [];
+    for (let lat = latMin; lat <= latMax; lat++) {
       const size = Math.pow(2, lat);
-      const lo = Math.floor(xmin / size) - 1;
-      const hi = Math.floor(xmax / size) + 1;
-      for (let lon = lo; lon <= hi && out.length < maxCells; lon++) out.push([lat, lon]);
+      // Distance from the visible circle's centre to this band, zero if the centre lies inside it.
+      const dy = Math.max(0, size - cy, cy - size * 2);
+      if (dy >= R) continue;
+      const hw = Math.sqrt((R - dy) * (R + dy));
+      const lo = Math.floor((px - hw) / size);
+      const hi = Math.floor((px + hw) / size);
+      const start = Math.min(hi, Math.max(lo, Math.floor(px / size)));
+      bands.push({ lat, size, my: size * 1.5, lo, hi, left: start - 1, right: start });
+    }
+
+    // cosh(d) - 1 between the view centre and a cell centre, in half-plane coordinates: monotone in
+    // the hyperbolic distance, and free of both sqrt and log.
+    //
+    // Ranking by Euclidean distance from the circle's centre (px, cy) instead is a trap I fell into:
+    // (px, cy) is the centre of the visible circle as drawn in the half-plane, which is NOT the view
+    // centre -- it sits cosh(rho) times higher. For a wide view that is a factor of millions, so
+    // "nearest the circle centre" picks out the cells hugging the far rim. Measured on the dungeon at
+    // zoom 1.2: all 220 cells came back at hyperbolic distance 20.87, every one beyond the renderer's
+    // cull radius, and the disk went completely blank.
+    const rank = (b, lon) => {
+      const dx = (lon + 0.5) * b.size - px;
+      const dh = b.my - py;
+      return (dx * dx + dh * dh) / (2 * py * b.my);
+    };
+
+    const out = [];
+    for (;;) {
+      let best = -1;
+      let bestRank = Infinity;
+      let bestLon = 0;
+      let bestRight = false;
+      for (let i = 0; i < bands.length; i++) {
+        const b = bands[i];
+        if (b.right <= b.hi) {
+          const r = rank(b, b.right);
+          if (r < bestRank) { bestRank = r; best = i; bestLon = b.right; bestRight = true; }
+        }
+        if (b.left >= b.lo) {
+          const r = rank(b, b.left);
+          if (r < bestRank) { bestRank = r; best = i; bestLon = b.left; bestRight = false; }
+        }
+      }
+      if (best < 0) break; // every visible cell has been emitted
+      if (out.length >= maxCells) { this.lastTruncated = true; break; }
+      out.push([bands[best].lat, bestLon]);
+      if (bestRight) bands[best].right++;
+      else bands[best].left--;
     }
     return out;
   }

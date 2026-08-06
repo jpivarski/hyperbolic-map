@@ -139,6 +139,14 @@ mkdirSync(DIST, { recursive: true });
 writeFileSync(join(DIST, "hyperbolic-map.iife.js"), out);
 writeFileSync(join(DIST, "hyperbolic-map.min.js"), minify(out));
 
+// The examples load their own copy so that docs/ works straight from file:// with no build step.
+// This copy MUST happen here rather than in the npm "build" script: running `node tools/build.mjs`
+// on its own is the natural thing to do, and when the copy lived only in package.json that left
+// docs/lib stale. Every browser test then silently measured the OLD bundle -- which cost a full
+// debugging cycle chasing a bug that had already been fixed.
+mkdirSync(join(ROOT, "docs", "lib"), { recursive: true });
+writeFileSync(join(ROOT, "docs", "lib", "hyperbolic-map.iife.js"), out);
+
 const kb = (s) => (s.length / 1024).toFixed(1) + " kB";
-console.log(`build: ${order.length} module(s) -> dist/hyperbolic-map.iife.js (${kb(out)}), .min.js (${kb(minify(out))})`);
+console.log(`build: ${order.length} module(s) -> dist/hyperbolic-map.iife.js (${kb(out)}), .min.js (${kb(minify(out))}), docs/lib/`);
 console.log(`build: global ${GLOBAL_NAME} exposes ${publicNames.length} name(s): ${publicNames.join(", ")}`);

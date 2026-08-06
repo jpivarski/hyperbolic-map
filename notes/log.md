@@ -494,3 +494,65 @@ gesture end and bypasses both the throttle and the gate.
 - **Path independence** for static data: a view reached by dragging, wheel-zooming and rim-rotating
   produces a *byte-identical* signature to the same view constructed from scratch.
 - The renderer is deterministic: 617,460 canvas calls, identical between runs.
+
+
+## 2026-08-05 (later) — Zooming out made the dungeon vanish
+
+Chasing the user's report of "polygons disappear after scrolling" into the tiled dungeon. Three
+findings, one of them self-inflicted, plus a tooling footgun that wasted a whole debugging cycle.
+
+### Bug 5 — the visible-cell budget was spent on the wrong cells
+
+`BinaryTiling.visible` took ONE global bounding box over the whole visible disk and reused it for
+every latitude band. Over-inclusive sounds harmless, but bands were walked from the smallest latitude
+upward against a hard `maxCells` budget, and the smallest band has the smallest cells, so it has by
+far the most of them. Measured at zoom 0.4: **512 cells returned, all in a single band**, and nothing
+whatsoever for the bands actually covering the screen.
+
+The fix uses the fact that a hyperbolic disk is an ordinary EUCLIDEAN circle in the half-plane --
+centre `(px, py*cosh(rho))`, radius `py*sinh(rho)` -- so each band's x-extent is exact and
+closed-form, no 64-point boundary sampling. At zoom 0.8 that took the result from 512 cells in 2
+bands to 140 cells across 10 bands, untruncated.
+
+### Bug 6 — my own nearest-first ranking measured from the wrong point
+
+To make truncation graceful I sorted cells by distance from the view centre. I wrote the distance
+from `(px, cy)` -- the centre of the visible circle *as drawn in the half-plane* -- which is not the
+view centre at all: it sits `cosh(rho)` times higher, a factor of two million for a wide view. So
+"nearest" selected the cells hugging the far rim. Measured on the dungeon at zoom 1.2: all 220 cells
+came back at hyperbolic distance 20.87, every one beyond the renderer's cull radius, and the disk
+went **completely blank**. Worse than the bug I was fixing.
+
+Correct rank is `cosh(d) - 1 = |p - m|^2 / (2 y_p y_m)` from the actual view centre -- monotone in
+distance, no sqrt, no log.
+
+### Bug 7 — the guard against huge bands destroyed the answer
+
+Even ranked correctly, materialising every cell and sorting is wrong: a wide view puts **5,646 cells
+in one band**. I had a `found.length > 8*maxCells` break, which tripped partway through the first
+(smallest, most numerous) band; every subsequent band then pushed exactly one cell -- its leftmost,
+far off to the side -- and broke. The cell containing the view centre was never even a candidate.
+
+Replaced with a lazy frontier: one candidate per side per band, repeatedly take the globally nearest,
+expand that band outward. Never materialises more than the budget, emits the complete visible set
+whenever it fits, and degrades to "the nearest `maxCells`" when it does not. `lastTruncated` reports
+which happened, because a silently capped enumeration reads exactly like a rendering bug.
+
+Verified: **zero holes over 40,000 sampled screen points across 200 views** -- for every point in the
+visible disk, the cell owning it was in the returned set. The zoomed-out dungeon now draws the whole
+infinite tiling, hero included.
+
+### The footgun: `node tools/build.mjs` did not update what the demos load
+
+The examples load `docs/lib/hyperbolic-map.iife.js`, a copy, so `docs/` works from `file://`. The
+copy step lived only in the npm `build` script, so running the builder directly -- the obvious thing
+to do -- left `docs/lib` stale and **every browser test silently measured the old bundle**. I
+"fixed" bug 6 and watched it not work, twice. The copy now happens inside `tools/build.mjs`, where it
+cannot be skipped.
+
+### Note on my own harness
+
+Several apparently-blank captures were a race in the test harness, not the library: `toDataURL()`
+called after awaiting rAF can land between the viewport's own scheduled render and its completion.
+Capture directly after a synchronous `render()`, in the same task, with no `await` in between.
+Confirmed by re-capturing the identical view and getting a correct image.

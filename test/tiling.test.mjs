@@ -251,3 +251,70 @@ test("binary visible-cell enumeration does not repeat the 2011 band-bottom bug",
   const lats = new Set(cells.map((c) => c[0]));
   assert.ok(lats.size >= 2, `only latitude bands ${[...lats]}`);
 });
+
+// Stable local -> half-plane, duplicated here so the test does not depend on the code under test.
+function toHalfPlane(px, py) {
+  const r2 = px * px + py * py;
+  const w = Math.sqrt(r2 + 1);
+  const den =
+    py > 0 ? (4 * px * px * w * w + 1) / (2 * r2 + 1 + 2 * py * w) : 2 * r2 + 1 - 2 * py * w;
+  return [(2 * px * w) / den, 1 / den];
+}
+
+test("REGRESSION: a wide view is not spent entirely on one latitude band", () => {
+  // My first correction of the 2011 band-bottom bug over-corrected: it took ONE global bounding box
+  // over the whole visible disk and reused it for every band. Over-inclusive sounds safe, but bands
+  // were walked from the smallest latitude upward against a hard maxCells budget -- and the smallest
+  // band has the smallest cells, so it has by far the most of them. Measured at zoom 0.8: 512 cells
+  // returned, ALL IN TWO BANDS, and nothing at all for the bands actually covering the screen.
+  // Zooming out made the dungeon vanish.
+  const t = new BinaryTiling();
+  const view = Isom.translationToLocal(0.3, 1.7).inverse();
+  const cells = t.visible(view, Math.SQRT2 / 2 / 0.8, 512);
+  const lats = new Set(cells.map((c) => c[0]));
+  assert.ok(cells.length < 512, `budget exhausted: ${cells.length} cells`);
+  assert.equal(t.lastTruncated, false);
+  assert.ok(lats.size >= 8, `only ${lats.size} latitude bands: ${[...lats].sort((a, b) => a - b)}`);
+});
+
+test("no holes: every cell owning a visible point is enumerated", () => {
+  // The direct test of the symptom. Sample points across the visible disk, ask which cell each falls
+  // in, and require that cell to have been returned. A missing cell is a hole in the picture.
+  const t = new BinaryTiling();
+  let checked = 0;
+  const holes = [];
+  for (let trial = 0; trial < 60; trial++) {
+    const dist = (trial % 10) * 2.0;
+    const zoom = [0.8, 1.2, 2, 3.5, 6][trial % 5];
+    const view = Isom.rotation(trial * 0.37).mul(Isom.translation(dist, trial * 0.61).inverse());
+    const effR = Math.min(0.999, Math.SQRT2 / 2 / zoom);
+    const cells = t.visible(view, effR, 512);
+    assert.equal(t.lastTruncated, false, `trial ${trial} truncated`);
+    const set = new Set(cells.map((c) => t.keyToString(c)));
+    const inv = view.inverse();
+    const buf = [0, 0];
+    for (let i = 0; i < 120; i++) {
+      const ang = i * 2.399963;
+      const rad = effR * 0.995 * Math.sqrt((i + 0.5) / 120); // right out to the visible edge
+      inv.applyToDisk(rad * Math.cos(ang), rad * Math.sin(ang), buf);
+      const k = 1 / Math.sqrt(Math.max(1e-300, 1 - buf[0] * buf[0] - buf[1] * buf[1]));
+      const [hx, hy] = toHalfPlane(buf[0] * k, buf[1] * k);
+      if (!(hy > 0) || !Number.isFinite(hx)) continue;
+      checked++;
+      const cell = t.locateHalfPlane(hx, hy);
+      if (!set.has(t.keyToString(cell))) holes.push(`trial ${trial} zoom ${zoom}: ${t.keyToString(cell)}`);
+    }
+  }
+  assert.ok(checked > 5000, `only ${checked} samples`);
+  assert.deepEqual(holes.slice(0, 5), [], `${holes.length}/${checked} holes`);
+});
+
+test("truncation is reported, never silent", () => {
+  // A capped enumeration looks exactly like a rendering bug, so callers must be able to tell.
+  const t = new BinaryTiling();
+  const view = Isom.identity();
+  t.visible(view, 0.999, 512);
+  assert.equal(t.lastTruncated, true, "a whole-plane view at 512 cells must report truncation");
+  t.visible(view, 0.5, 512);
+  assert.equal(t.lastTruncated, false);
+});
