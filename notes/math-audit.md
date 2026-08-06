@@ -176,3 +176,108 @@ traps will recur.
 4. Computing a relative error against a magnitude that had been rounded to zero (tile corners rounded
    to 6 decimals at `latitude = −40`), producing a spurious `1e294`.
 5. Shadowing a counter variable with a point tuple.
+
+
+---
+
+# Audit of the ANCHORED atlas (2026-08-06)
+
+The atlas is being rebuilt because its central composition was wrong in approach, not in detail:
+`net = view.matrix.mul(frame(key))` multiplies two matrices with entries of order `cosh(d/2)` to get an
+O(1) result. Measured: the global frame of binary cell (500, 0) has entries of **1.08e75**. The new
+design never materialises a global frame at all.
+
+    V_c   := V . F_c        the view expressed in the CAMERA TILE's frame
+    R_c→k := F_c^-1 . F_k   the relative frame, built one constant generator per walk step
+    net    = V_c . R_c→k    both factors O(1) for every tile that can be on screen
+
+Layer 1 (symbolic) was run BEFORE writing any implementation code, deliberately: a wrong formula is
+far cheaper to catch before its assumptions have spread. Re-runnable as
+`python3 tools/audit_atlas_math.py`. **31/31 claims pass**, 29 proved symbolically in SymPy and 2
+(11c, 12) verified by high-precision sampling by design.
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | `composeInto` == the matrix product's (a, b) entries | correct |
+| 1b | the product keeps SU(1,1) form (bottom row mirrors the top) | correct |
+| 1c | det multiplicative, so `\|a\|²−\|b\|² = 1` is preserved | correct |
+| 2 | `M.mul(N)` means "apply N first" — the convention re-anchoring depends on | correct |
+| 3 | re-anchor: `V.(F_c.G_g) == (V.F_c).G_g` | correct |
+| 3b | a neighbour's relative frame IS the generator: `F_c^-1.(F_c.G_g) == G_g` | correct |
+| 4 | telescoping: `F_c^-1.(F_c.G_g.G_h) == G_g.G_h`, no `F_c` survives | correct |
+| 5 | all six binary neighbour steps are position-independent constants | correct |
+| 5b | the GENERAL relative frame still carries absolute longitudes | **so it is forbidden** |
+| 5c–5e | child0·parent(even), child1·parent(odd), lateral+1·lateral−1 are each the identity | correct — this is what proves the parity rule |
+| 6 | Cayley: `a = (S+1+iT)/(2√S)`, `b = (T+i(S−1))/(2√S)` | correct |
+| 6b | and it lands on the manifold identically | correct |
+| 6c | the conjugate really is `[[a,b],[b̄,ā]]` | correct |
+| 7 | `applyToLocal` == `(aζ+bw)/(b̄ζ+āw)`, no magnitude assumption | correct |
+| 7b | project-then-map equals map-then-project | correct |
+| 8 | `±M` give the identical Möbius action, so comparing up to sign is sound | correct |
+| 9 | an edge half-turn squares to **−I**, not +I (Spin(2,1) double cover), for every ψ | correct |
+| 9b | hence `g^-1 = −g` — the same isometry, so words are walk-reversible with the same index | correct |
+| 9c | `Rot(θ)` has `a = e^{iθ/2}`, so `Rot(2π) = −I` | correct |
+| 10 | reduction rule `r^q = ±I` | correct |
+| 10b | the rotated conjugate `g_k = S g_0 S^-1` also squares to −I | correct |
+| 11 | the bisector of two centres 2ψ apart meets the bearing at exactly the inradius ψ | correct: at the midpoint `A = cosh(t)`, `B = 0`, `w = cosh(t)`, so `A²+B²−w² = 0` |
+| 11b | **FINDING** — the containment test in `tools/fit_escher_tile.py` is NOT that bisector | see below |
+| 11c | that boundary is the perpendicular bisector and meets the bearing at the inradius | correct, 2.0e-15 over 5 tilings × 400 bearings |
+| 12 | `cosh(d/2) = \|w₁w₂ − ζ̄₁ζ₂\|` is isometry-invariant, so valid on RELATIVE coordinates | correct, 2.3e-14 over 20,000 samples |
+| 13 | `x = const` in the tile-local half-plane maps to a circle orthogonal to the unit circle (`c = 1`) | correct — so it is a geodesic, and the current straight-chord clip is wrong |
+| 13b | sagitta `r − √(r² − (L/2)²)` | correct |
+| 14 | `cosh χ = cosh ψ · cosh φ` over 8 tilings | correct, 0.0 |
+| 15 | every factor on the patch-local → screen path is bounded independently of distance travelled | correct — see the factor-by-factor bounds below |
+
+## The one finding
+
+`inside_octagon_local` in `tools/fit_escher_tile.py` tests
+
+    outside  <=>  w·nw − x·nx − y·ny  >  nw²
+
+against the neighbour centre `(nx, ny, nw)`. That is **not** the perpendicular bisector of the two tile
+centres. At the edge midpoint — which must lie exactly on the boundary — its value is
+`−4sinh⁴t − 4sinh²t + cosh t − 1`, i.e. **−0.6332 at the {8,3} inradius**, not zero. It therefore
+admits a region larger than the tile.
+
+Consequences, and the reason this is a finding rather than a bug report:
+
+* For the escher tile cutter it is harmless-to-helpful. That script deliberately over-includes
+  ("include every shape that TOUCHES the octagon") and relies on render-time clipping to trim, so an
+  over-permissive test does no damage there. It explains why 26.2 % of the cut tile's vertices lie
+  outside its own octagon.
+* It must **not** be reused for `containsLocal`, which re-anchoring and the per-pixel ownership
+  diagnostic both depend on. The correct test is the one proved in claims 11/11c: a point is in the
+  tile iff `w² ≤ A² + B²` against every neighbour centre, where
+  `A = w·nw − x·nx − y·ny` and `B = x·ny − y·nx`. Equivalently and more simply: *the tile whose centre
+  is nearest*, which is exactly what `reanchor()` computes — so the two agree by construction.
+
+## Bounds behind claim 15
+
+| factor | bound |
+|---|---|
+| `V_c`, the camera-relative view | `cosh(ρ_screen/2)`; re-anchoring holds it there. Measured 1.10 over 1,256 tile crossings of {8,3} |
+| each generator `G_g` | a construction-time constant. Measured 1.00–1.06 (binary), 1.04–1.41 across {8,3} m=4, {8,3}, {7,3}, {5,4}, {4,5}, {6,4}, {3,7} |
+| the relative frame (product of `L` generators) | `max\|G\|^L` with `L = ceil(ρ/centreSpacing)+1` — bounded by the VISIBLE radius, not by distance travelled. Measured `L = 3` for a 2-unit visible radius on every {p,q} above except {3,7}, where it is 5 |
+| the local point `(x, y, w)` | from the tile's own JSON; small by construction, that being the point of the atlas |
+| the projection denominator | `\|D\| ≥ 1/\|M\|` for `M` in SU(1,1); with `\|M\| = O(1)` it cannot approach zero |
+
+No `cosh`, `exp` or `atanh` of a global distance appears anywhere on the path. The tiling's own metric
+constants are evaluated once at construction, not per frame.
+
+## Harness defects found first, as usual
+
+Three, all in the audit script rather than the mathematics, and worth recording because the pattern
+repeats: the first run reported **13 failures and every one was spurious**.
+
+1. `simplify(Matrix) == 0` is always `False` — comparing a matrix to a scalar. That alone accounted
+   for 11 of the 13.
+2. Hyperbolic identities survive plain `simplify()`: `sqrt(2cosh(x)+2)` is a perfect square sympy will
+   not recognise. Fixed by working in the half-angle `ψ = 2t` so every argument is an integer multiple
+   of `t`.
+3. Claim 12 compared `G·P` directly, but a point-as-isometry has `a = w` **real**, and `G·P` generally
+   does not — it is not that point's canonical representative. The transported point has to be
+   re-canonicalised. Symptom: the claim failed by a factor of 2,500.
+
+And a fourth, in the reporting rather than the checking: the flag distinguishing "proved symbolically"
+from "verified numerically" was keyed off a variable that was always `None`, so numeric fallbacks were
+silently presented as proofs. In an audit harness. Fixed; claims 11c and 12 are now labelled.
