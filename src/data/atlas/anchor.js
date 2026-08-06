@@ -103,7 +103,42 @@ export class Anchor {
           bestAddress = nbrs[i].address;
         }
       }
-      if (bestGen < 0) break;
+      if (bestGen < 0) {
+        // The nearest-centre descent has converged. Finish on the EXACT containment predicate, which
+        // has no tolerance in it, so the camera tile becomes a pure function of the view centre.
+        //
+        // This matters more than it looks. The descent above needs a strict-improvement margin or a
+        // view sitting on a boundary would oscillate forever -- but that margin is hysteresis, and
+        // hysteresis makes the camera tile depend on the ROUTE taken. Measured before this step: a long
+        // out-and-back walk of ~200 tile crossings returned to a tile six steps from where it started,
+        // because a handful of crossings resolved differently in each direction. The geometry was fine
+        // either way (the view is the address and the matrix together), but tile ADDRESSES drifted --
+        // and an address is what the data callback is keyed on, so for position-dependent data the same
+        // tile could be handed a different key after a round trip.
+        //
+        // `containsLocal` is exact and canonical, so using it to finish removes the route dependence.
+        if (this.tiling.containsLocal(c[0], c[1])) break;
+        let moved = false;
+        for (let i = 0; i < nbrs.length; i++) {
+          const g2 = this.tiling.generator(nbrs[i].gen);
+          const inv = g2.inverse();
+          inv.applyToLocal(c[0], c[1], c[2], this._buf);
+          const k2 = 1 / Math.sqrt(Math.max(1e-300, 1 - this._buf[0] * this._buf[0] - this._buf[1] * this._buf[1]));
+          if (this.tiling.containsLocal(this._buf[0] * k2, this._buf[1] * k2)) {
+            shift = shift.mul(g2).normalize();
+            current = current.mul(g2).normalize();
+            this.address = nbrs[i].address;
+            this.reanchorCount++;
+            moved = true;
+            break;
+          }
+        }
+        // No neighbour contains it either -- the view centre is on a boundary, or the tiling's cells are
+        // not the Voronoi cells of their centres (the binary one). Nearest-centre is then the right
+        // answer and we are already there.
+        if (!moved) break;
+        continue;
+      }
       const g = this.tiling.generator(bestGen);
       shift = shift.mul(g).normalize();
       current = current.mul(g).normalize();

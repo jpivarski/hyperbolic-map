@@ -118,3 +118,48 @@ slightly. It is why a handful of path-dependence findings appear below the preci
 A stable tie-break -- ordering the frontier by exact distance and admitting in that order, as
 `BinaryTiling.visible` now does -- would remove it. `RegularTiling.visible` still admits in BFS
 order.
+
+
+## Word addresses for {p,q} are not canonical, and by how much
+
+**Measured, 2026-08-06.** A regular tiling's tile address is a word over the generators, reduced only
+FREELY (`g g^-1 -> e`). The {p,q} group also has braid relations, so two words can name the same tile
+without being freely equal. If a camera's inbound path differs anywhere from its outbound path, the
+leftover is a relator that free reduction cannot cancel.
+
+Over roughly 100 tile crossings out and back, across eight tilings: **four return to the origin word,
+the rest end 4 to 15 symbols away.** Two things were tried and neither closes it:
+
+* finishing the re-anchor on the exact `containsLocal` predicate rather than a nearest-centre
+  comparison with a tolerance. This halved the incidence (from 8 of 8 to 4 of 8) and is worth keeping
+  on its own merits -- it makes the camera tile a pure function of the view centre, verified as
+  containing it in 4,500 of 4,500 frames -- but it cannot fix a word-theoretic problem;
+* free reduction, which by construction only cancels adjacent inverse pairs.
+
+### What it does and does not affect
+
+Not the geometry. The camera tile still contains the view centre, the picture is still a function of
+the view, and a geometric round trip restores the view to 1e-15 (checked at a distance where the global
+view is still well-conditioned enough to be checked at all). The view is the address AND the matrix
+together; only the address's SPELLING drifts.
+
+What it affects is tile IDENTITY, and therefore anything keyed on it:
+
+| case | affected? |
+|---|---|
+| `BinaryTiling` | **No** -- integer addresses are canonical. Verified: 1,144 crossings out to longitude -7.4e11 and back to (0,0) exactly. |
+| the Escher atlas | **No** -- the same data is returned for every tile, so identity is only a cache key. |
+| the diagnostics' colour hash | Yes -- a tile could change colour after a long round trip. It is a diagnostic, and this is exactly the kind of thing it is built to reveal. |
+| a position-dependent {p,q} dataset | Yes. No such dataset exists in this repo, but a user could write one. |
+
+### The rigorous fix, if it is ever needed
+
+Coxeter groups are automatic: a DFA recognises shortlex-canonical words, giving a provably unique
+address per tile with no geometric fallback. That is the standard answer and is a self-contained piece
+of work -- build the automaton for the (2,p,q) triangle group and its rotation subgroup, then normalise
+each address after extending it.
+
+Not done here because the geometry -- the thing that was actually broken and the thing the user asked
+for -- is exact without it, and because a wrong automaton would be a new class of silent bug. The test
+`KNOWN LIMIT: a regular tiling's word address can drift over a long round trip` pins the current
+behaviour and asserts the drift stays small, so a regression that made it unbounded would be caught.
