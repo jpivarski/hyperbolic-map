@@ -9,10 +9,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { advanceAddress, addressDistance } from "./helpers.mjs";
+
 import { Isom } from "../src/core/isom.js";
 import { ViewState } from "../src/core/view.js";
 import { RegularTiling, BinaryTiling } from "../src/data/atlas/tiling.js";
 import { Anchor } from "../src/data/atlas/anchor.js";
+import { Atlas } from "../src/data/atlas/atlas.js";
 import { normaliseOptionsForTesting } from "../src/viewport.js";
 
 const REGULARS = [
@@ -408,7 +411,9 @@ test("neighbourhood cost does not grow with distance", () => {
   const counts = [];
   for (const walk of [0, 50, 500, 5000]) {
     const anchor = new Anchor(t);
-    for (let i = 0; i < walk; i++) anchor.address = t.extendAddress(anchor.address, i % t.generatorCount());
+    anchor.address = advanceAddress(t, walk, 700 + walk);
+    assert.ok(addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
+      `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
     counts.push(anchor.neighbourhood(Isom.identity(), 0.7, 200).length);
   }
   assert.ok(new Set(counts).size === 1, `tile counts differ by distance: ${counts.join(", ")}`);
@@ -538,6 +543,8 @@ test("rebase keeps the compass target on the ideal boundary", () => {
   const view = new ViewState({ zoom: 1 });
   let worst = 0;
   for (let i = 0; i < 2000; i++) {
+    // Cycling generator indices is fine HERE: this only needs a sequence of frame changes, not a walk
+    // that travels, and rebase does not free-reduce anything.
     view.rebase(t.generator(i % t.generatorCount()));
     const r = Math.hypot(view.compassTargetX, view.compassTargetY);
     worst = Math.max(worst, Math.abs(r - 1));
@@ -573,4 +580,156 @@ test("an atlas refuses to be combined with a global data source", () => {
   assert.doesNotThrow(() => normaliseOptionsForTesting({ atlas }));
   assert.doesNotThrow(() => normaliseOptionsForTesting({ atlas, data: [] }));
   assert.doesNotThrow(() => normaliseOptionsForTesting({ data: [{ type: "path", points: [[0, 0]] }] }));
+});
+
+test("compass mode survives re-anchoring: north keeps pointing the same way", () => {
+  // Compass mode holds a chosen ideal point at a fixed screen bearing. The target is a point in the
+  // frame's DOMAIN, so re-anchoring has to carry it along -- otherwise "north" silently becomes a
+  // different direction each time the camera changes tile, and the map slowly rotates.
+  //
+  // For the BINARY tiling this is more than a technicality: its frames are z -> s z + t, which all fix
+  // the half-plane's point at infinity, so north is genuinely the same direction in every cell and the
+  // compass is a meaningful notion however far you travel.
+  for (const [name, tiling] of [["binary", new BinaryTiling()], ["{5,4}", new RegularTiling({ p: 5, q: 4 })]]) {
+    const view = new ViewState({ zoom: 1, rotationMode: "compass" });
+    const anchor = new Anchor(tiling);
+    const start = view.north();
+    let worst = 0;
+    const rand = rng(1234);
+    for (let leg = 0; leg < 20; leg++) {
+      const bearing = rand() * Math.PI * 2;
+      const gx = 0.35 * Math.cos(bearing);
+      const gy = 0.35 * Math.sin(bearing);
+      view.beginPan(gx, gy);
+      for (let i = 1; i <= 6; i++) {
+        // Drag the grabbed point towards the opposite side, in steps.
+        view.updatePan(gx - (2 * gx * i) / 6, gy - (2 * gy * i) / 6);
+        const { steps, shift } = anchor.reanchor(view.liveMatrix);
+        if (steps) view.rebase(shift);
+        // Compass mode's whole promise: the target stays at the bearing it had when the drag began.
+        worst = Math.max(worst, Math.abs(wrapPi(view.north() - start)));
+      }
+      view.commit();
+    }
+    assert.ok(anchor.reanchorCount > 5, `${name}: only ${anchor.reanchorCount} tile crossings`);
+    assert.ok(
+      worst < 1e-6,
+      `${name}: north drifted by ${worst} radians over ${anchor.reanchorCount} crossings`,
+    );
+  }
+});
+
+function wrapPi(a) {
+  let x = a;
+  while (x > Math.PI) x -= 2 * Math.PI;
+  while (x < -Math.PI) x += 2 * Math.PI;
+  return x;
+}
+
+test("zoom extremes far from the origin behave as they do at it", () => {
+  // Zoom is a plain magnification, not an isometry, so it should not interact with the anchoring at all.
+  // Checked rather than assumed: the visible radius feeds the walk radius, so a zoom extreme is also a
+  // tile-count extreme, and that is where a budget or a truncation bug would show.
+  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 3, q: 7 }]) {
+    const t = new RegularTiling(spec);
+    const reference = {};
+    for (const radius of [0.2, 0.5, 0.8, 0.95, 0.999]) {
+      const anchor = new Anchor(t);
+      const tiles = anchor.neighbourhood(Isom.identity(), radius, 300);
+      reference[radius] = tiles.length;
+      assert.ok(tiles.length > 0, `{${spec.p},${spec.q}} radius ${radius}: no tiles`);
+      assert.ok(tiles.length <= 300, `{${spec.p},${spec.q}} radius ${radius}: budget exceeded`);
+    }
+    // The same counts must come out arbitrarily far away.
+    for (const walk of [500, 5000]) {
+      const anchor = new Anchor(t);
+      anchor.address = advanceAddress(t, walk, 700 + walk);
+      assert.ok(addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
+        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
+      for (const radius of [0.2, 0.5, 0.8, 0.95, 0.999]) {
+        const n = anchor.neighbourhood(Isom.identity(), radius, 300).length;
+        assert.equal(
+          n,
+          reference[radius],
+          `{${spec.p},${spec.q}} radius ${radius}: ${n} tiles at ${walk} out vs ${reference[radius]} at the origin`,
+        );
+      }
+    }
+  }
+});
+
+test("clip auto honours a tile's withinTile promise", () => {
+  // `clip: "auto"` exists so a provider that knows its art stays inside the tile can skip the clip and
+  // the save/restore around it. Worth pinning because the wrong branch is invisible in the common case:
+  // art that already fits looks the same clipped or not, so only art that OVERFLOWS distinguishes them.
+  const tiling = new RegularTiling({ p: 5, q: 4 });
+  const outside = [[0.9, 0.0], [0.0, 0.9], [-0.9, 0.0]]; // well beyond the tile
+  const mk = (clip, withinTile) =>
+    new Atlas({
+      tiling,
+      clip,
+      maxTiles: 12,
+      tileData: () => ({
+        withinTile,
+        drawables: [{ type: "path", points: outside, closed: true, fill: "#123456" }],
+      }),
+    });
+
+  const view = { matrix: Isom.identity(), effectiveRadius: 0.5 };
+  const drain = async (atlas) => {
+    for (let i = 0; i < 8; i++) {
+      atlas.passes(view, () => {});
+      if (!atlas.pending.size) break;
+      await Promise.all([...atlas.pending.values()]);
+    }
+    return atlas.passes(view, () => {});
+  };
+
+  return (async () => {
+    const always = await drain(mk("always", false));
+    assert.ok(always.length > 0);
+    assert.ok(always.every((p) => typeof p.clip === "function"), '"always" must clip every pass');
+
+    const never = await drain(mk("never", false));
+    assert.ok(never.every((p) => p.clip === null), '"never" must clip none');
+
+    const autoNo = await drain(mk("auto", false));
+    assert.ok(autoNo.every((p) => typeof p.clip === "function"), '"auto" must clip when withinTile is false');
+
+    const autoYes = await drain(mk("auto", true));
+    assert.ok(autoYes.every((p) => p.clip === null), '"auto" must skip the clip when withinTile is true');
+  })();
+});
+
+test("the tile cache evicts without ever serving another tile's data", () => {
+  // Cache keys are a 53-bit hash of the address, not the address string, because the string is thousands
+  // of characters far from the origin. That is safe only if distinct tiles get distinct keys, so check
+  // it directly over a large neighbourhood -- a collision would silently paint one tile with another's
+  // data, which for position-dependent content would be a real corruption.
+  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 5, q: 4 }, { p: 3, q: 7 }]) {
+    const t = new RegularTiling(spec);
+    const seen = new Map();
+    let collisions = 0;
+    // Every tile within a wide walk of the origin, plus the same set 5,000 tiles out.
+    for (const walk of [0, 5000]) {
+      const anchor = new Anchor(t);
+      anchor.address = advanceAddress(t, walk, 700 + walk);
+      assert.ok(addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
+        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
+      for (const tile of anchor.neighbourhood(Isom.identity(), 0.97, 1500)) {
+        const key = t.addressKey(tile.address);
+        const str = t.addressToString(tile.address);
+        if (seen.has(key) && seen.get(key) !== str) collisions++;
+        seen.set(key, str);
+      }
+    }
+    assert.ok(seen.size > 400, `{${spec.p},${spec.q}}: only ${seen.size} distinct keys sampled`);
+    assert.equal(collisions, 0, `{${spec.p},${spec.q}}: ${collisions} hash collisions among ${seen.size} tiles`);
+  }
+  // The binary tiling keys on its canonical string, so collisions are impossible by construction; check
+  // the memoisation returns a stable value rather than rebuilding differently.
+  const b = new BinaryTiling();
+  const addr = { lat: -40n, lon: 123456789012345678901234567890n };
+  assert.equal(b.addressKey(addr), b.addressKey(addr));
+  assert.equal(b.addressToString(addr), "-40,123456789012345678901234567890");
 });

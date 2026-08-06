@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 
 import { Isom } from "../src/core/isom.js";
 import { localDistance, halfPlaneToLocal, localToHalfPlane } from "../src/core/coords.js";
-import { wrapAngle } from "./helpers.mjs";
+import { wrapAngle, advanceAddress, addressDistance } from "./helpers.mjs";
 import {
   RegularTiling,
   BinaryTiling,
@@ -414,13 +414,12 @@ test("the neighbourhood walk returns distinct tiles at every distance", () => {
     const half = t.metrics.centreSpacing * 0.5;
     for (const walk of [0, 1, 5, 50, 500]) {
       const anchor = new Anchor(t);
-      // Walk out by repeatedly stepping through generator 0, re-anchoring as we go.
-      let V = Isom.identity();
-      for (let i = 0; i < walk; i++) {
-        V = V.mul(t.generator(i % t.generatorCount()));
-        anchor.address = t.extendAddress(anchor.address, i % t.generatorCount());
-      }
-      V = Isom.identity();
+      anchor.address = advanceAddress(t, walk, 700 + walk);
+      assert.ok(
+        addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
+        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`,
+      );
+      const V = Isom.identity();
       const tiles = anchor.neighbourhood(V, 0.62, 200);
       assert.ok(tiles.length > 5, `{${spec.p},${spec.q}} only ${tiles.length} tiles after ${walk} steps`);
       const centres = tiles.map((x) => toLocal(x.rel));
@@ -433,7 +432,6 @@ test("the neighbourhood walk returns distinct tiles at every distance", () => {
           );
         }
       }
-      assert.ok(maxEntry(V) < 10);
     }
   }
 });
@@ -450,9 +448,9 @@ test("the neighbourhood walk is IDENTICAL however far the camera has travelled",
       .join("|");
     for (const walk of [1, 7, 60, 500, 5000]) {
       const anchor = new Anchor(t);
-      for (let i = 0; i < walk; i++) {
-        anchor.address = t.extendAddress(anchor.address, i % t.generatorCount());
-      }
+      anchor.address = advanceAddress(t, walk, 700 + walk);
+      assert.ok(addressDistance(t, anchor.address) >= walk / 2,
+        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
       const got = anchor.neighbourhood(Isom.identity(), 0.62, 200)
         .map((x) => toLocal(x.rel).map((v) => v.toFixed(12)).join(","))
         .sort()
@@ -486,7 +484,9 @@ test("the walk terminates and stays bounded even at absurd distance", () => {
     const t = new RegularTiling(spec);
     for (const walk of [0, 1000, 100000]) {
       const anchor = new Anchor(t);
-      for (let i = 0; i < walk; i++) anchor.address = t.extendAddress(anchor.address, i % t.generatorCount());
+      anchor.address = advanceAddress(t, walk, 700 + walk);
+      assert.ok(addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
+        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
       const started = Date.now();
       const tiles = anchor.neighbourhood(Isom.identity(), 0.9, 200);
       assert.ok(Array.isArray(tiles) && tiles.length > 0);
@@ -572,7 +572,9 @@ test("no holes: every point is owned by exactly one tile (regular tilings)", () 
     const t = new RegularTiling(spec);
     for (const walk of [0, 30, 300]) {
       const anchor = new Anchor(t);
-      for (let i = 0; i < walk; i++) anchor.address = t.extendAddress(anchor.address, i % t.generatorCount());
+      anchor.address = advanceAddress(t, walk, 700 + walk);
+      assert.ok(addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
+        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
       const V = Isom.identity();
       const tiles = anchor.neighbourhood(V, 0.6, 400);
       const invs = tiles.map((x) => x.rel.inverse());

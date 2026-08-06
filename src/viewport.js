@@ -399,6 +399,11 @@ export class HyperbolicViewport {
       address: this.atlas ? this.atlas.anchor.address : null,
       matrix: this.view.liveMatrix.clone(),
       zoom: this.view.liveZoom,
+      // Screen quantities, so they mean the same thing in either mode -- and they are the only parts of
+      // getView() that survive in atlas mode, where a global centre does not exist.
+      rotation: this.view.liveMatrix.screenRotation(),
+      bearing: this.view.north(),
+      interacting: !!this.view.gesture,
     };
   }
 

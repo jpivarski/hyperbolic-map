@@ -916,3 +916,59 @@ deliberate correction. The gestured canvas has been drawn hundreds of times and 
 to the GPU; a freshly built one starts on the software rasterizer. That difference measured ~12,900
 colour channels of pure rasterizer state. The matrices are the honest object: path independence means
 the geometry is a function of the camera, and `net` per tile IS that geometry.
+
+
+## 2026-08-06 (later) — Reading for global assumptions, and a batch of vacuous tests
+
+Having fixed the geometry, I went looking for anything else that still assumes a GLOBAL frame. Reading
+found three; the fourth came out of a pixel-level check.
+
+### Frame-relative gesture state was not converted on re-anchor
+
+Two pieces of view state live in the frame's DOMAIN, not on the screen: a pinch's grabbed points
+(recorded by `beginPinch` in whatever frame was current) and the compass target (`northOf` applies the
+matrix to it). Re-anchoring right-multiplied the matrices and left both alone, so a re-anchor mid-pinch
+made the solver pin the wrong points, and in compass mode north silently became a different direction.
+`ViewState.rebase` now pulls both back through the shift's inverse and re-normalises the compass target
+onto the boundary so it stays an IDEAL point.
+
+Hard to provoke through the browser -- a pinch that zooms in moves the view centre LESS, hyperbolically,
+than the same gesture panning, so the camera tends not to cross a tile mid-pinch. Tested directly
+instead. Without the fix: the pinch result diverges, and north drifts 3.13 radians over 32 crossings.
+
+### An atlas plus a global data source was drawn 0.93 disk units out of place
+
+`view.matrix` is camera-relative in atlas mode, so an ordinary source's global coordinates land
+wherever. Refused at option-validation time now, with the message naming `layers` for screen-space
+overlays and the atlas callback for tile content. `addSource`, `setData` and `setSourceTransform` refuse
+too.
+
+### `toScreen`/`fromScreen` needed saying, and picking needed adding
+
+They work in whatever frame the view is expressed in -- global in single-patch mode, the anchor tile's
+frame in atlas mode -- which was true but undocumented. And the obvious atlas question, "which tile is
+under this pixel", had no API even though I had written the logic three times in tests. Added
+`tileAtScreen`.
+
+Its first version descended from the camera independently, and a check against the rendered colours
+(which hash the address) caught it naming tiles differently from the renderer: 30 of 665 pixels on {5,4}.
+Not a geometry error -- "2.3" and "1.0" are the same {5,4} tile, centres agreeing to 2.8e-17 -- but a
+caller wants the address matching what is on screen. It now resolves against the drawn set first.
+Verified 17,989 pixels across nine tilings at 0, 500 and 5,000 tiles out, zero wrong.
+
+### And a batch of my own tests were vacuous
+
+Trying to write a cache-collision test, the key count came out at 201 instead of ~400 and the reason was
+embarrassing: `extendAddress(a, i % generatorCount())` looks like a walk and is not. Free reduction
+cancels a generator against its inverse, and for **{8,3} with frameSymmetry 4 the generators pair up as
+inverses** (0<->1, 2<->3, ...), so cycling the index alternately extends and cancels. Measured: 5,000
+steps left the address at length **ZERO**.
+
+That pattern appeared in five tests -- including "the neighbourhood walk is IDENTICAL however far the
+camera has travelled" -- so for Circle Limit III's own tiling those tests were asserting things about the
+origin while claiming to be 5,000 tiles out. The other tilings were unaffected, because with `m = p`
+every generator is its own inverse and consecutive different indices do not cancel.
+
+Fixed with a shared `advanceAddress` helper that never steps straight back, plus an assertion that the
+address actually reached the expected depth. A test that cannot fail is worse than no test, and the only
+reason this surfaced is that a *different* test's arithmetic did not add up.
