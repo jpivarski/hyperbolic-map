@@ -416,8 +416,8 @@ test("the neighbourhood walk returns distinct tiles at every distance", () => {
       const anchor = new Anchor(t);
       anchor.address = advanceAddress(t, walk, 700 + walk);
       assert.ok(
-        addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
-        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`,
+        addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
+        `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`,
       );
       const V = Isom.identity();
       const tiles = anchor.neighbourhood(V, 0.62, 200);
@@ -449,8 +449,8 @@ test("the neighbourhood walk is IDENTICAL however far the camera has travelled",
     for (const walk of [1, 7, 60, 500, 5000]) {
       const anchor = new Anchor(t);
       anchor.address = advanceAddress(t, walk, 700 + walk);
-      assert.ok(addressDistance(t, anchor.address) >= walk / 2,
-        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
+      assert.ok(addressDistance(t, anchor.address) >= walk * 0.25,
+        `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
       const got = anchor.neighbourhood(Isom.identity(), 0.62, 200)
         .map((x) => toLocal(x.rel).map((v) => v.toFixed(12)).join(","))
         .sort()
@@ -485,8 +485,8 @@ test("the walk terminates and stays bounded even at absurd distance", () => {
     for (const walk of [0, 1000, 100000]) {
       const anchor = new Anchor(t);
       anchor.address = advanceAddress(t, walk, 700 + walk);
-      assert.ok(addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
-        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
+      assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
+        `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
       const started = Date.now();
       const tiles = anchor.neighbourhood(Isom.identity(), 0.9, 200);
       assert.ok(Array.isArray(tiles) && tiles.length > 0);
@@ -573,8 +573,8 @@ test("no holes: every point is owned by exactly one tile (regular tilings)", () 
     for (const walk of [0, 30, 300]) {
       const anchor = new Anchor(t);
       anchor.address = advanceAddress(t, walk, 700 + walk);
-      assert.ok(addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
-        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
+      assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
+        `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
       const V = Isom.identity();
       const tiles = anchor.neighbourhood(V, 0.6, 400);
       const invs = tiles.map((x) => x.rel.inverse());
@@ -650,5 +650,76 @@ test("a tile reached two different ways is recognised as one tile", () => {
     const key = `${Math.round(c[0] * 1e6)},${Math.round(c[1] * 1e6)}`;
     assert.ok(!byCentre.has(key), `two tiles at the same centre: ${t.addressToString(x.address)} and ${byCentre.get(key)}`);
     byCentre.set(key, t.addressToString(x.address));
+  }
+});
+
+test("a {p,q} generator can have FINITE ORDER, so word length is not distance", () => {
+  // The reason `addressDistance` measures geometry instead of counting symbols, pinned as a fact rather
+  // than left in a comment.
+  //
+  // {8,3} with frameSymmetry 4 takes its steps with 2*pi/3 rotations about octagon VERTICES -- legitimate
+  // edge-neighbour moves, since three octagons meet at each vertex and pairwise share edges. But such a
+  // rotation has order 3 in the isometry group (g^3 = -I, g^6 = +I), so the word "0.0.0.0.0" has five
+  // symbols and names a tile 1.53 units away, and g0 to the 5000th is still 1.53 units away.
+  //
+  // A walk that merely refuses to backtrack can therefore circle forever while its address grows without
+  // bound. Two rounds of test repair in this project were spent on exactly that.
+  const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  const g0 = t.generator(0);
+  const I = Isom.identity();
+  assert.ok(!sameIsometry(g0.mul(g0), I), "g0 should NOT be an involution for m=4");
+  assert.ok(sameIsometry(g0.mul(g0).mul(g0), I), "g0 should have order 3 as an isometry for m=4");
+
+  // The consequence, stated on addresses: a long word can name a near tile.
+  let a = t.originAddress();
+  for (let i = 0; i < 60; i++) a = t.extendAddress(a, 0);
+  assert.equal(a.len, 60, "the word really is 60 symbols long");
+  assert.ok(
+    addressDistance(t, a) < 2,
+    `60 symbols of one order-3 generator should stay within 2 units, got ${addressDistance(t, a)}`,
+  );
+
+  // Whereas the plain {8,3} generators ARE edge half-turns, and square to -I (audit claim 9).
+  const t0 = new RegularTiling({ p: 8, q: 3 });
+  for (let i = 0; i < t0.generatorCount(); i++) {
+    assert.ok(sameIsometry(t0.generator(i).mul(t0.generator(i)), I), `plain {8,3} generator ${i} is not an involution`);
+  }
+});
+
+test("addressDistance agrees with the tiling's own frame builder near the origin", () => {
+  // Cross-validate the measuring instrument before trusting its verdicts. `addressDistance` composes
+  // generators in log-scaled form so it works at any depth -- but that machinery is only trustworthy if
+  // it reproduces the straightforward computation where the straightforward one is still valid. (A sign
+  // error in exactly this multiply made a walk look like it travelled 2,524 units when its address sat
+  // at 1.1, and it was invisible until the two routes were compared.)
+  let worst = 0;
+  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 8, q: 3 }, { p: 7, q: 3 }, { p: 5, q: 4 }, { p: 3, q: 7 }, { p: 12, q: 3 }]) {
+    const t = new RegularTiling(spec);
+    for (let n = 0; n <= 12; n++) {
+      const a = advanceAddress(t, n, 4000 + n);
+      // Small enough that a global frame is still perfectly well conditioned.
+      const want = t.globalFrameForTesting(a).distanceMoved();
+      worst = Math.max(worst, Math.abs(addressDistance(t, a) - want));
+    }
+  }
+  assert.ok(worst < 1e-9, `addressDistance disagrees with globalFrameForTesting by ${worst}`);
+});
+
+test("advanceAddress refuses to return a walk that did not travel", () => {
+  // The helper's guarantee is structural, not advisory: if it ever fails to make outward progress it
+  // throws instead of handing back an address that would make the caller's assertions vacuous.
+  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 3, q: 7 }, { p: 12, q: 3 }]) {
+    const t = new RegularTiling(spec);
+    let prev = 0;
+    for (const n of [1, 5, 50, 500]) {
+      const d = addressDistance(t, advanceAddress(t, n, 700 + n));
+      assert.ok(d > prev, `{${spec.p},${spec.q}}: ${n} steps reached ${d}, not past ${prev}`);
+      // Each step should be worth a decent fraction of the tile spacing, or "500 tiles out" is a fiction.
+      assert.ok(
+        d > n * t.metrics.centreSpacing * 0.5,
+        `{${spec.p},${spec.q}}: ${n} steps travelled only ${d.toFixed(2)}, under half spacing per step`,
+      );
+      prev = d;
+    }
   }
 });

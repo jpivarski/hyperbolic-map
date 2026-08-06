@@ -100,19 +100,66 @@ function diffCount(a, b) {
   return { n, worst };
 }
 
-// Walk the ADDRESS n tiles away. No global coordinate is formed, which is why 5000 costs the same as 1.
-function walkAddress(tiling, n, seed) {
+// Walk the ADDRESS n tiles away, and PROVE the walk travelled. The renderer forms no global coordinate,
+// which is why 5000 costs the same as 1 -- but the walk itself must know how far it got, or "the picture
+// at 5000 tiles out" is an unchecked claim.
+//
+// It cannot count symbols to find out. A {p,q} generator may have finite order: {8,3} m=4 steps with
+// 2*pi/3 rotations about octagon vertices, so `g0` has order 3 and the 5000-symbol word "0.0.0..." names
+// a tile 1.53 units from home. A plain random walk does travel, but nothing here would notice if it
+// stopped doing so. So: greedy outward, with the distance measured in log-scaled form (a test may form
+// the global frame; the renderer may not) and strict progress required at every step.
+function walkWithDistance(tiling, n, seed) {
   let address = tiling.originAddress();
   let s = (seed || 991) >>> 0;
   const rand = () => {
     s = (s * 1664525 + 1013904223) >>> 0;
     return s / 4294967296;
   };
+  let ar = 1;
+  let ai = 0;
+  let br = 0;
+  let bi = 0;
+  let logScale = 0;
+  const logAbsA = () => Math.log(Math.hypot(ar, ai)) + logScale;
+  let progress = logAbsA();
   for (let i = 0; i < n; i++) {
     const nbrs = tiling.neighbours(address);
-    address = nbrs[Math.floor(rand() * nbrs.length)].address;
+    let best = null;
+    const off = Math.floor(rand() * nbrs.length);
+    for (let k = 0; k < nbrs.length; k++) {
+      const cand = nbrs[(k + off) % nbrs.length];
+      const g = tiling.generator(cand.gen);
+      const nar = ar * g.ar - ai * g.ai + br * g.br + bi * g.bi;
+      const nai = ar * g.ai + ai * g.ar - br * g.bi + bi * g.br;
+      const nbr = ar * g.br - ai * g.bi + br * g.ar + bi * g.ai;
+      const nbi = ar * g.bi + ai * g.br - br * g.ai + bi * g.ar;
+      const score = Math.log(Math.hypot(nar, nai)) + logScale;
+      if (best === null || score > best.score) best = { cand, nar, nai, nbr, nbi, score };
+    }
+    ar = best.nar;
+    ai = best.nai;
+    br = best.nbr;
+    bi = best.nbi;
+    address = best.cand.address;
+    const m = Math.max(Math.abs(ar), Math.abs(ai), Math.abs(br), Math.abs(bi));
+    if (m > 1e120) {
+      ar /= m;
+      ai /= m;
+      br /= m;
+      bi /= m;
+      logScale += Math.log(m);
+    }
+    const now = logAbsA();
+    if (!(now > progress)) throw new Error(`walkAddress: step ${i + 1} of ${n} made no outward progress`);
+    progress = now;
   }
-  return address;
+  const la = logAbsA();
+  return { address, distance: la > 20 ? 2 * (la + Math.LN2) : 2 * Math.acosh(Math.max(1, Math.exp(la))) };
+}
+
+function walkAddress(tiling, n, seed) {
+  return walkWithDistance(tiling, n, seed).address;
 }
 
 // ---- 1. near-origin ground truth -------------------------------------------------------------
@@ -213,6 +260,7 @@ async function renderFresh(key, address, opts) {
 export async function checkInvariance(lines, only) {
   const distances = [1, 5, 50, 500, 5000];
   const failures = [];
+  const travelled = [];
   let checked = 0;
   const opts = { motif: "sym", hashColour: false };
   for (const key of only || KEYS) {
@@ -222,8 +270,15 @@ export async function checkInvariance(lines, only) {
     // comparing across one would be demanding something false. Regular tilings are homogeneous, so any
     // walk works.
     const addresses = key === "binary"
-      ? distances.map((n) => ({ n, address: { lat: BigInt(n), lon: 0n } }))
-      : distances.map((n) => ({ n, address: walkAddress(tiling0, n, 77 + n) }));
+      // A latitude step is the translation z -> 2z, i.e. exactly log 2 of hyperbolic distance.
+      ? distances.map((n) => ({ n, address: { lat: BigInt(n), lon: 0n }, dist: n * Math.LN2 }))
+      : distances.map((n) => {
+        const w = walkWithDistance(tiling0, n, 77 + n);
+        return { n, address: w.address, dist: w.distance };
+      });
+    // Report how far the far views actually ARE, so "byte-identical at 5000 tiles" is a checked claim
+    // rather than a label. Word length would not do: see walkWithDistance.
+    for (const a of addresses) travelled.push(a.dist);
 
     const ref = await renderFresh(key, tiling0.originAddress(), opts);
     // The control: the same address rendered again must be byte-identical, or the instrument is broken
@@ -247,7 +302,8 @@ export async function checkInvariance(lines, only) {
   lines.push({
     ok: failures.length === 0,
     text: `2. translation invariance: ${checked - failures.length}/${checked} views BYTE-IDENTICAL to ` +
-      `the origin view (distances ${distances.join(", ")} tiles)` +
+      `the origin view (${distances.join(", ")} tiles out = up to ` +
+      `${Math.max(...travelled).toFixed(0)} hyperbolic units, verified travelled)` +
       (failures.length ? `\n     ${failures.slice(0, 5).join("\n     ")}` : ""),
   });
 }

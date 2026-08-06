@@ -1011,3 +1011,52 @@ when keys were changed for speed — `hyperbolic-map: tile 9303484400662374000 f
 
 Also removed a stale comment in `render()` that still presented the `d ~ 37` precision ceiling as a
 live limit in atlas mode; it applies to single-patch mode only.
+
+## 2026-08-06 (later still) — a {p,q} generator can have finite order, so word length is not distance
+
+Found while trying to verify the Escher atlas far from the origin, and it invalidated an anti-vacuity
+guard I had added earlier the same day.
+
+**The fact.** For `{8,3}` with `frameSymmetry: 4` the steps are `2*pi/3` rotations about octagon
+*vertices*. Those are perfectly good edge-neighbour moves — three octagons meet at each vertex and
+pairwise share edges — but such a rotation has **order 3** in the isometry group: `g0^3 = -I`,
+`g0^6 = +I`. Measured with the library's own `Isom.mul`. So the word `"0.0.0.0.0"` has five symbols and
+names a tile **1.53 units** away, and `g0^5000` is *still* 1.53 units away.
+
+**What it broke.** `addressDistance` in `test/helpers.mjs` returned `address.len` and was documented as
+"used to assert a walk really travelled, so a test cannot silently degenerate". It cannot do that: a
+walk can circle forever while its address grows without bound. Seven assertions across
+`test/anchor.test.mjs` and `test/tiling.test.mjs` rested on it. This is the *second* round of vacuous
+walk repair, and the first round's fix — refuse to backtrack — is exactly what finite order defeats.
+
+**The fix.** `advanceAddress` is now greedy-outward and *verifies* strict progress every step, throwing
+rather than returning a stalled walk. `addressDistance` composes the word's generators in log-scaled
+form (entries held at unit magnitude, discarded scale accumulated as a log), so it reports genuine
+hyperbolic distance at any depth without overflow. The seven assertions now read
+`>= walk * 0.25` hyperbolic units; measured travel is 0.49–2.55 per step, i.e. 87–100 % of each tiling's
+centre spacing, so the margin is 2x or better.
+
+Same treatment for `walkAddress` in `docs/demo/diagnostic-checks.js`. Check 2 now reports the distance
+it verified: **byte-identical at up to 12,767 hyperbolic units** ({12,3}, 5000 steps) rather than an
+unchecked "5000 tiles". A global frame there would need entries of order `e^6383`.
+
+**And a harness bug inside the fix**, which is the part worth remembering. My hand-rolled SU(1,1)
+multiply had a sign error in `Im(a)` (`+br*g.bi - bi*g.br` instead of `-br*g.bi + bi*g.br`). It made a
+`{7,3}` walk report 2,524 units travelled while its address sat at 1.1, and I briefly took that for a
+library bug in `extendAddress`'s free reduction. The library was correct. What exposed it was comparing
+the new measure against `globalFrameForTesting` near the origin — the same "cross-validate the
+instrument before trusting its verdict" step that Layer 1 needed. That comparison is now a test
+(`addressDistance agrees with the tiling's own frame builder near the origin`), as is the order-3 fact.
+
+**The Escher atlas, re-verified with real data.** With a walk that genuinely travels, `escher-atlas.json`
+(90 shapes, 26 % of vertices outside their own octagon, so clipping is load-bearing) renders
+**byte-identical to the origin view at 1, 5, 50, 500 and 5000 steps out — 7,643 hyperbolic units** — with
+clipping both on and off, control 0. All eight browser checks still pass: ownership 6980/6980, coverage
+0 gaps, 0 stray pixels, round-trip 9/9, max|V| 1.0000, picking 14463/14463.
+
+Non-square canvases: the disk is sized by `min(width, height)`, so 480x200 and 200x480 both fit with 0
+stray pixels. Resizing with the camera 179 symbols out leaves the address and camera matrix untouched.
+Compass mode over 60 gestures and 197 re-anchors drifts north by **exactly 0**; sabotaging `rebase` to
+skip the compass pull-back drifts it 3.105 rad, so the check has teeth. The node-level version of that
+sensitivity is now a test too — the pre-existing "target stays on the ideal boundary" test would pass
+even if `rebase` ignored the target completely.

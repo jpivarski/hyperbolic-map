@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { advanceAddress, addressDistance } from "./helpers.mjs";
 
 import { Isom } from "../src/core/isom.js";
-import { ViewState } from "../src/core/view.js";
+import { ViewState, ROTATION_COMPASS } from "../src/core/view.js";
 import { RegularTiling, BinaryTiling } from "../src/data/atlas/tiling.js";
 import { Anchor } from "../src/data/atlas/anchor.js";
 import { Atlas } from "../src/data/atlas/atlas.js";
@@ -412,8 +412,8 @@ test("neighbourhood cost does not grow with distance", () => {
   for (const walk of [0, 50, 500, 5000]) {
     const anchor = new Anchor(t);
     anchor.address = advanceAddress(t, walk, 700 + walk);
-    assert.ok(addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
-      `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
+    assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
+      `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
     counts.push(anchor.neighbourhood(Isom.identity(), 0.7, 200).length);
   }
   assert.ok(new Set(counts).size === 1, `tile counts differ by distance: ${counts.join(", ")}`);
@@ -552,6 +552,47 @@ test("rebase keeps the compass target on the ideal boundary", () => {
   assert.ok(worst < 1e-9, `compass target drifted off the boundary by ${worst} over 2000 re-anchors`);
 });
 
+test("rebase leaves the compass BEARING numerically unchanged", () => {
+  // The test above is necessary but far too weak on its own, and that is worth stating: a rebase that
+  // forgot the compass target entirely would still pass it, since an untouched target sits on the
+  // boundary forever. Measured in the browser, that exact omission drives north 3.105 rad off -- north
+  // ends up pointing very nearly south -- over sixty gestures, while the real code drifts by 0.
+  //
+  // The invariant with teeth is that a rebase is a change of COORDINATES and must not move anything
+  // physical. `north()` applies the matrix to the target, and
+  //
+  //     M' (shift^-1 tau)  =  (M . shift)(shift^-1 tau)  =  M tau
+  //
+  // so the screen bearing has to come out the same. That is what compass mode preserves per gesture, so
+  // if a rebase perturbs it the view visibly turns as the camera crosses a tile edge.
+  const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  for (const target of [[0, 1], [0.6, -0.8], [-1, 0]]) {
+    const view = new ViewState({
+      zoom: 1,
+      rotationMode: ROTATION_COMPASS,
+      compassTargetX: target[0],
+      compassTargetY: target[1],
+    });
+    // Somewhere generic, so the bearing is not preserved by accidental symmetry.
+    view.beginPan(0.11, -0.07);
+    view.updatePan(0.31, 0.19);
+    view.commit();
+
+    const before = view.north();
+    let worst = 0;
+    for (let i = 0; i < 500; i++) {
+      view.rebase(t.generator(i % t.generatorCount()));
+      let d = Math.abs(view.north() - before);
+      d = Math.min(d, 2 * Math.PI - d);
+      worst = Math.max(worst, d);
+    }
+    assert.ok(
+      worst < 1e-9,
+      `compass bearing moved by ${worst} rad over 500 re-anchors with target ${target}`,
+    );
+  }
+});
+
 test("an atlas refuses to be combined with a global data source", () => {
   // In atlas mode the view matrix is expressed in the CAMERA TILE's frame, so a source whose coordinates
   // are global has no correct placement: measured, a point at the global origin lands 0.93 disk units
@@ -644,8 +685,8 @@ test("zoom extremes far from the origin behave as they do at it", () => {
     for (const walk of [500, 5000]) {
       const anchor = new Anchor(t);
       anchor.address = advanceAddress(t, walk, 700 + walk);
-      assert.ok(addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
-        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
+      assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
+        `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
       for (const radius of [0.2, 0.5, 0.8, 0.95, 0.999]) {
         const n = anchor.neighbourhood(Isom.identity(), radius, 300).length;
         assert.equal(
@@ -714,8 +755,8 @@ test("the tile cache evicts without ever serving another tile's data", () => {
     for (const walk of [0, 5000]) {
       const anchor = new Anchor(t);
       anchor.address = advanceAddress(t, walk, 700 + walk);
-      assert.ok(addressDistance(t, anchor.address) >= walk / 2 || walk === 0,
-        `the walk did not move: ${walk} steps left the address at depth ${addressDistance(t, anchor.address)}`);
+      assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
+        `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
       for (const tile of anchor.neighbourhood(Isom.identity(), 0.97, 1500)) {
         const key = t.addressKey(tile.address);
         const str = t.addressToString(tile.address);
