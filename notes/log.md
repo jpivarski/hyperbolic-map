@@ -737,3 +737,35 @@ reported as bugs. The ratio is the point: with a measured noise floor of exactly
 demands an explanation, and most of the time early on the explanation was the instrument. The control
 experiment that found the pinch bug -- measure something known-good with the same instrument first --
 is the technique that made the difference.
+
+
+## 2026-08-06 (early hours) — Rim-tile flicker, and closing the night
+
+`RegularTiling.visible` admitted tiles in BFS DISCOVERY order until the budget ran out. Discovery
+order is deterministic but not smooth in the view: a change of one part in 1e15 can reorder it and
+swap which tile is admitted last. The affected tiles are the farthest ones, crushed against the rim,
+so the visible effect is one downsampled cell shifting -- but it showed up as a steady trickle of
+path-dependence findings below the precision ceiling.
+
+Now the walk gathers half again as many candidates as the budget and admits the NEAREST ones by exact
+distance. Distance is smooth in the view, so the admitted set changes only when a tile genuinely
+crosses the boundary. Measured on eight seeds x 14 gestures: sub-ceiling findings fell from **18 to
+5**, and of the five that remain one is the known canvas-promotion artefact at d = 1.6 and the other
+four are small (worst 4.3 to 6.9) at d = 20 to 28, in the run-up to the ceiling.
+
+Cost: 1.22 ms per frame of enumeration on the 200-tile Escher atlas, paced pan 19.1 -> 20.6 ms.
+Gathering 2x rather than 1.5x cost 1.6 ms for no additional stability, so 1.5x is the factor.
+
+### Where the night ended
+
+Twelve real defects found and fixed. Six of my own harness defects diagnosed and discarded rather
+than reported. The discipline that made the difference, in order of how much it saved:
+
+1. **Look at the pixels.** Four bugs were invisible to every counter and obvious in a screenshot.
+2. **Run the control.** Measure something known-good with the same instrument before believing what
+   it says. This is what found the pinch bug, and what stopped four different false alarms.
+3. **Compare against ground truth, not against the other candidate.** Rendering the same view from
+   scratch with the caches cleared settled in one step what hours of reasoning about cache state had
+   not.
+4. **Make the harness confirm before reporting.** Settle again and re-measure; a difference that
+   does not survive that was never a difference.

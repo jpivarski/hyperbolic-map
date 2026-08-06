@@ -172,6 +172,7 @@ export class RegularTiling {
 
     const start = this.locate(viewMatrix, maxTiles);
     const out = [];
+    const dist = [];
     const queue = [start];
 
     // Deduplicate tile centres RELATIVE TO THE STARTING TILE, not in world coordinates.
@@ -266,7 +267,10 @@ export class RegularTiling {
     // returning. Degrading to fewer tiles is acceptable; not returning is not.
     let examined = 0;
     const maxExamined = 24 * maxTiles;
-    while (queue.length && out.length < maxTiles) {
+    // Gather half again as many candidates as the budget when truncating, so there is something to
+    // choose between; more than that costs enumeration time for diminishing stability.
+    const gatherLimit = Math.ceil(maxTiles * 1.5);
+    while (queue.length && out.length < gatherLimit) {
       if (++examined > maxExamined) {
         this.lastTruncated = true;
         break;
@@ -276,10 +280,25 @@ export class RegularTiling {
       if (seenBefore(frame)) continue;
       const ch = coshHalfTo(frame);
       if (ch > walkCosh) continue;
-      if (ch <= includeCosh) out.push(key);
+      if (ch <= includeCosh) {
+        out.push(key);
+        dist.push(ch);
+      }
       for (let g = 0; g < this.generators.length; g++) queue.push(key.concat([g]));
     }
-    if (out.length >= maxTiles && queue.length) this.lastTruncated = true;
+
+    // When the budget bites, admit the NEAREST tiles rather than the first ones the walk happened to
+    // reach. BFS discovery order is deterministic but not smooth in the view: a change of one part in
+    // 1e15 can reorder discovery and swap which tile is admitted last, which shows up as a rim tile
+    // flickering in and out between otherwise identical frames. Distance is smooth in the view, so
+    // ordering by it makes the admitted set change only when a tile genuinely crosses the boundary.
+    //
+    // Sorted only when actually truncating, so the common case pays nothing.
+    if (out.length >= maxTiles && queue.length) {
+      this.lastTruncated = true;
+      const order = out.map((k, i) => i).sort((i, j) => dist[i] - dist[j]);
+      return order.slice(0, maxTiles).map((i) => out[i]);
+    }
     return out;
   }
 
