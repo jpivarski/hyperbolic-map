@@ -20,7 +20,7 @@ is. Wander as far as you like.</p>
 <p class="readout" id="readout"></p>
 
 <div class="controls">
-  <label><input type="checkbox" id="clip" checked> clip each cell</label>
+  <label><input type="checkbox" id="clip"> clip each cell (see below)</label>
   <label><input type="checkbox" id="numbers" checked> room numbers</label>
   <label>jump to row <input id="row" type="number" value="0" style="width:5em"> col <input id="col" type="number" value="0" style="width:6em"> <button id="go">go</button></label>
 </div>
@@ -37,6 +37,15 @@ is. Wander as far as you like.</p>
   <li><strong>room numbers</strong> &mdash; there are infinitely many, so they are computed on the fly
       from the cell&rsquo;s own coordinates.</li>
 </ol>
+
+<p class="note"><strong>Clipping is off here, deliberately.</strong> The 2012 room art is drawn
+<em>straddling</em> cell boundaries &mdash; the floor plate spans the corner where four cells meet,
+and the doors are what <em>connect</em> adjacent rooms, so they have to cross the boundary. Each
+piece is still drawn exactly once, by the cell that owns it, so nothing overlaps; but confining each
+cell&rsquo;s drawing to its own cell severs the junctions and leaves fragments. Tick the box above to
+see it happen. The <a href="escher-atlas.html">Escher tile</a>, whose art <em>is</em> designed to fill
+its tile, clips correctly &mdash; which is why the library makes this a per-atlas choice rather than
+a rule.</p>
 
 <p class="note">Why the numbers are always small: cell <em>(latitude, longitude)</em> is
 <code>x&nbsp;&isin;&nbsp;[lon&middot;2<sup>lat</sup>, (lon+1)&middot;2<sup>lat</sup>]</code>,

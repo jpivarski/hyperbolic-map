@@ -47,24 +47,40 @@ export class CallbackSource {
     this.onError = options.onError || null;
   }
 
+  // Has the view changed enough to be worth asking again?
+  //
+  // The gate is measured ON SCREEN, not in hyperbolic distance. The first version compared the
+  // hyperbolic distance moved against 2*artanh(drawRadius) -- but drawRadius is 1.0 by default, and
+  // artanh(1) is infinite: the whole hyperbolic plane is inside the disk. That made the threshold
+  // about 7.3 hyperbolic units, so a provider was effectively asked exactly ONCE, at construction,
+  // and never again however far the user scrolled. Content simply never arrived.
+  //
+  // What actually matters is whether the previously-requested region has slid off the screen. So:
+  // project the previous request's centre under the CURRENT view and see how far it has drifted from
+  // the middle, as a fraction of the disk radius. That is bounded, scale-free, and directly
+  // meaningful, and it behaves sensibly at every zoom.
   needsRequest(view, now) {
     if (!this.lastRequest) return true;
     if (now - this.lastRequestTime < this.throttleMs) return false;
     const prev = this.lastRequest;
     if (Math.abs(view.zoom - prev.zoom) / prev.zoom > this.zoomFraction) return true;
-    // Distance moved, measured with the invariant form: three multiplies, no trigonometry.
-    const centre = view.matrix.centreLocal([0, 0]);
-    const cw = Math.sqrt(1 + centre[0] ** 2 + centre[1] ** 2);
-    const cosh = coshHalfDistance(centre[0], centre[1], cw, prev.cx, prev.cy, prev.cw);
-    const moved = 2 * Math.acosh(Math.max(1, cosh));
-    const visibleRadius = 2 * Math.atanh(Math.min(view.drawRadius, 0.999999));
-    return moved > this.moveFraction * visibleRadius;
+    const out = view.matrix.applyToLocal(prev.cx, prev.cy, prev.cw, [0, 0]);
+    const drift = Math.hypot(out[0], out[1]);
+    return drift > this.moveFraction * Math.min(view.drawRadius, view.effectiveRadius || view.drawRadius);
   }
 
   get(view, now) {
     const t = now === undefined ? (typeof performance !== "undefined" ? performance.now() : Date.now()) : now;
     if (this.needsRequest(view, t)) this.request(view, t);
     return this.drawables;
+  }
+
+  // Ask again regardless of the gate. Called when a gesture ends, so the view the user actually
+  // stopped on is never left showing throttled-away data: the throttle can otherwise swallow the
+  // last movement of a drag and leave the final frame stale until the user moves again.
+  refresh(view) {
+    const t = typeof performance !== "undefined" ? performance.now() : Date.now();
+    this.request(view, t);
   }
 
   request(view, now) {

@@ -405,3 +405,92 @@ The deliberate approximations get their own section, including the honest statem
 tiling is exact but the *art* is a fit with visible seams.
 
 **Left to do.** Only the performance work, which needs an idle machine. See `performance.md`.
+
+
+---
+
+## 2026-08-05 (late) — Drawing-correctness sweep: real bugs found
+
+The user reported that the rendered images looked wrong, especially the two atlas demos, and that
+polygons seemed to disappear after scrolling. All correct. Performance work is postponed
+indefinitely at their instruction.
+
+**Tooling built first**, because guessing was not working: `tools/capture_server.py` accepts canvas
+pixels POSTed from the page, `bench/ab.html` renders the same data at the same view through both the
+2011 code and the new library and diffs them, `bench/stress.html` drives real pointer events and
+compares downsampled image signatures, and `bench/sweep.js` scripts scroll-and-capture over the
+example pages. Being able to *look* at exact canvas pixels, and to diff against the 2011 renderer,
+turned this from speculation into measurement.
+
+### Bug 1 — the Escher tile was cut from the wrong source (visibly wrong colours and shapes)
+
+`fit_escher_tile.py` read the traced SVG, which carries the artist's ORIGINAL palette (`#517179`,
+`#9aa87c`, `#9f7054`, stroke `#676767`). The 2012 pipeline remapped those to `#218ba6`, `#79bd68`,
+`#ed6b51`, stroke `#6e5638` — "I changed my mind about some colors". Result: a muted olive-and-teal
+picture instead of Escher's four bright colours.
+
+It also manufactured C4 symmetry by overlaying four rotated copies of the whole traced block and
+clipping. The block spans six fish over a wide area, so that piled two dozen fish into one octagon:
+fragments, not fish.
+
+Now cut from `docs/escher.json` — the finished art, already verified to render identically to the
+2011 viewer. Real fish, correct colours.
+
+**A negative result, recorded rather than hidden.** The script scans bearings and scores each by C4
+residual. Measured spread across 24 bearings: 0.01900 to 0.02006, a ratio of **1.06** — flat to
+within noise. The tracing is not accurate enough for that metric to locate the true 4-fold direction,
+and the first version reported a "best bearing" that was pure noise dressed as a fit. The scan now
+runs only to report whether it discriminates, and falls back to bearing 0 (the three candidates are
+equivalent under the art's own 3-fold symmetry) while saying so.
+
+### Bug 2 — clipping destroyed the dungeon rooms
+
+The 2012 room art is deliberately drawn *straddling* cell boundaries: the floor plate spans the
+corner where cells meet, and the doors are what *connect* adjacent rooms. Each piece is still drawn
+exactly once, by the cell that owns it, so nothing overlaps — but clipping each cell's drawing to its
+own cell severs the junctions. Measured: clipping removed more than half the room geometry (grey
+coverage 2768 → 1328 samples).
+
+Fixed by defaulting that demo to `clip: "never"`, with the toggle kept so the failure is visible and
+the page explaining it. The Escher tile, whose art *is* designed to fill its tile, still clips. This
+is why clipping is a per-atlas choice rather than a rule.
+
+### Bug 3 — the atlas threw away the drawing order
+
+`babudb_dump.py` emits records in KEY order (latitude, longitude, id). `make_docs_data.py` re-sorts
+by `depth`, which is the z-order the art was authored for; `make_dungeon_atlas.py` did not, and just
+appended in file order. The hero's sixteen shapes came out as depths
+`[1723, 1731, 1734, 1732, …]`, so his large orange body painted over his own face and cap. Sorting by
+`(depth, id)` fixes it: orange body first, details on top, yellow cross last.
+
+Confirmed the atlas transform itself is exact — mapping the hero's shapes back through the cell frame
+reproduces the single-patch coordinates to 6.2e-9 — and that no sprite is split across cells
+(minimum 9 shapes per populated cell). And an A/B against the 2011 renderer at the hero's position
+differs by 0.088 % of pixels, so that blocky sprite is genuinely what 2012 drew.
+
+### Bug 4 — async providers were asked exactly once, ever
+
+The worst of the four, and the direct cause of "content disappears when you scroll".
+
+`CallbackSource.needsRequest` compared the hyperbolic distance moved against
+`2*artanh(drawRadius)`. `drawRadius` defaults to 1.0, and `artanh(1)` is infinite — the whole
+hyperbolic plane is inside the disk — so the threshold came out around **7.3 hyperbolic units**. A
+provider was called once at construction and then never again, however far the user scrolled.
+Measured: after a drag moving the view 1.03 units, the data still described the original centre, and
+it never caught up.
+
+The gate is now measured **on screen**: project the previous request's centre under the current view
+and re-request when it has drifted more than a quarter of the disk radius from the middle. Bounded,
+scale-free, and meaningful at every zoom. Measured after the fix: lag 0 after each of four drags.
+
+Separately, the throttle could swallow the last movement of a drag and leave the frame the user
+actually stopped on showing data fetched for an earlier position, so `refreshSources()` now runs on
+gesture end and bypasses both the throttle and the gate.
+
+### Verified NOT broken
+
+- Static rendering matches the 2011 renderer: escher at five different views differs only along
+  shape edges (antialiasing).
+- **Path independence** for static data: a view reached by dragging, wheel-zooming and rim-rotating
+  produces a *byte-identical* signature to the same view constructed from scratch.
+- The renderer is deterministic: 617,460 canvas calls, identical between runs.

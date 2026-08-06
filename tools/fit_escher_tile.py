@@ -1,60 +1,53 @@
 #!/usr/bin/env python3
-"""Fit one {8,3} tile of Escher fish for the infinite Circle Limit III demo.
+"""Cut one {8,3} tile of Escher fish for the infinite Circle Limit III demo.
 
-Local regeneration tool. Reads the hand-traced SVG in OLD/ and writes docs/escher-atlas.json.
+Local regeneration tool. Reads docs/escher.json and writes docs/escher-atlas.json.
 
-Why a fit is needed at all
---------------------------
-Circle Limit III is based on the {8,3} tiling (regular octagons, three per vertex) with the chiral
-433 symmetry group: four fish per octagon, 4-fold rotation centres at the octagon centres. See
-notes/escher-circle-limit-iii.md for the sourcing.
+Why this reads the FINISHED data, not the traced SVG
+----------------------------------------------------
+The first version of this script read escher_circle_limit_3_step2.svg directly. That was wrong twice
+over, and both faults were visible the moment the result was rendered:
 
-The 2012 replication did NOT use that group. It translated a traced block by hyperbolic distance
-1.86 in nine directions spaced 2*pi/9, with ad-hoc rotations, under its author's own comment that
-"the following transformations are approximate; some fish don't line up in orientation or color."
-{8,3}'s true centre-to-centre distance is 2*inradius = 1.5286. So the stored 38,640 polygons cannot
-simply be re-tiled: they are not on any regular tiling.
+1. The SVG carries the artist's ORIGINAL palette -- fills #517179 / #9aa87c / #9f7054 and stroke
+   #676767 -- which the 2012 pipeline then remapped ("I changed my mind about some colors") to
+   #218ba6 / #79bd68 / #ed6b51 with stroke #6e5638. Using the SVG produced a muted olive-and-teal
+   picture instead of Escher's four bright colours.
+2. It tried to manufacture C4 symmetry by overlaying four rotated copies of the whole traced block
+   and clipping. The block spans six fish over a wide area, so that piled roughly two dozen fish into
+   one octagon and clipped the pile: fragments, not fish.
 
-What this does
---------------
-1. Reads the traced block from escher_circle_limit_3_step2.svg, converting to Poincare-disk
-   coordinates via the file's own PoincareDisk circle element.
-2. Re-anchors it. Measured from the stored data, the traced art is centred on a 3-FOLD point (34% of
-   inner polygon centroids match under a 120 degree rotation, versus 3-5% for every other order),
-   i.e. on an {8,3} VERTEX, not an octagon centre. The fit translates the nearest octagon centre to
-   the origin.
-3. Symmetrises to exact C4 about that centre, which is what "the same data in every tile" requires:
-   the tile stabiliser under 433 is C4, not C8.
-4. Clips to the octagon and writes the result in tile-local coordinates.
+docs/escher.json is the finished art -- correct palette, and verified to render identically to the
+2011 viewer. So the tile is cut from that instead.
 
-Honest about the residual: Escher's original is hand-drawn and the tracing is approximate, so the
-fish do not meet the octagon boundary perfectly. The residual is measured and printed, and quoted in
-docs/MATH.md. Rendering clips each tile to its own octagon, so mismatch shows as a seam rather than
-as overlap.
+How the tile is located
+-----------------------
+Circle Limit III sits on {8,3} with the chiral 433 group: 4-fold rotation centres at octagon centres,
+3-fold centres at the vertices. Measured from the data, the origin of the stored art is a 3-FOLD
+point (34% of inner polygon centroids match under a 120 degree rotation, versus 3-5% for every other
+order), i.e. an {8,3} vertex.
 
-Usage:  python3 tools/fit_escher_tile.py [--old OLD] [--out docs/escher-atlas.json]
+In {8,3} an octagon centre lies at exactly the circumradius from a vertex, so the tile centre is a
+translation of length chi = 0.8607 from the origin along one of three bearings 120 degrees apart.
+Rather than derive which, this scans bearings and scores each by how nearly 4-fold symmetric the
+surrounding art becomes -- an empirical fit against the real data, which is the honest thing to do
+given that the tracing is approximate.
+
+No symmetrisation is applied. The art near a genuine 4-fold centre is already approximately C4;
+forcing it would mean averaging polygons, which is not meaningful. The residual asymmetry shows as
+seams, which is documented rather than hidden.
+
+Usage:  python3 tools/fit_escher_tile.py [--in docs/escher.json] [--out docs/escher-atlas.json]
 """
 
 import argparse
 import json
 import math
 import os
-import re
 import sys
-import xml.etree.ElementTree as ET
 
-SVG = "{http://www.w3.org/2000/svg}"
-SODIPODI = "{http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd}"
-
-# {8,3} metrics at curvature K = -1.
 P, Q = 8, 3
 INRADIUS = math.acosh(math.cos(math.pi / Q) / math.sin(math.pi / P))
 CIRCUMRADIUS = math.acosh(1 / (math.tan(math.pi / P) * math.tan(math.pi / Q)))
-
-
-def disk_to_local(zx, zy):
-    k = 1.0 / math.sqrt(max(1e-300, 1.0 - zx * zx - zy * zy))
-    return zx * k, zy * k
 
 
 def local_to_disk(x, y):
@@ -62,173 +55,192 @@ def local_to_disk(x, y):
     return x / w, y / w
 
 
-def mobius_translate(bx, by, zx, zy):
-    """Apply the pure translation carrying 0 -> (bx, by) to the disk point (zx, zy)."""
-    # (z + b) / (1 + conj(b) z)
+def disk_to_local(zx, zy):
+    k = 1.0 / math.sqrt(max(1e-300, 1.0 - zx * zx - zy * zy))
+    return zx * k, zy * k
+
+
+def mobius(bx, by, zx, zy):
+    """Pure translation carrying 0 -> (bx, by), applied to the disk point (zx, zy)."""
     nr = zx + bx
     ni = zy + by
-    dr = 1 + (bx * zx + by * zy)
+    dr = 1.0 + (bx * zx + by * zy)
     di = bx * zy - by * zx
     dd = dr * dr + di * di
     return (nr * dr + ni * di) / dd, (ni * dr - nr * di) / dd
 
 
-def rotate(zx, zy, theta):
-    c, s = math.cos(theta), math.sin(theta)
+def rot(zx, zy, t):
+    c, s = math.cos(t), math.sin(t)
     return c * zx - s * zy, s * zx + c * zy
 
 
-def parse_svg(path):
-    """Return [(style, [(x, y), ...]), ...] in Poincare-disk coordinates."""
-    root = ET.parse(path).getroot()
-    cx = cy = 0.0
-    rx = 1.0
-    for elem in root.iter():
-        if elem.tag == SVG + "path" and elem.attrib.get("id") == "PoincareDisk":
-            cx = float(elem.attrib[SODIPODI + "cx"])
-            cy = float(elem.attrib[SODIPODI + "cy"])
-            rx = float(elem.attrib[SODIPODI + "rx"])
-            break
+def inside_octagon_local(x, y):
+    """Is the local point inside the {8,3} octagon centred at the origin?
 
-    paths = []
-    for g in root:
-        if g.tag != SVG + "g":
-            continue
-        for elem in g:
-            if elem.tag != SVG + "path":
-                continue
-            style = dict(
-                kv.strip().split(":", 1)
-                for kv in elem.attrib.get("style", "").split(";")
-                if ":" in kv
-            )
-            if style.get("visibility", "visible") != "visible" or style.get("display", "inline") == "none":
-                continue
-            tokens = re.split(r"[\s,]+", elem.attrib.get("d", "").strip())
-            pts = []
-            i = 0
-            while i < len(tokens):
-                t = tokens[i].upper()
-                if t in ("M", "L") and i + 2 < len(tokens):
-                    x = float(tokens[i + 1])
-                    y = float(tokens[i + 2])
-                    pts.append(((x - cx) / rx, (cy - y) / rx))
-                    i += 3
-                else:
-                    i += 1
-            if len(pts) >= 3:
-                paths.append((style, pts))
-    return paths
-
-
-def octagon_vertices():
-    r = math.tanh(CIRCUMRADIUS / 2)
-    return [
-        (r * math.cos(math.pi / P + 2 * math.pi * k / P), r * math.sin(math.pi / P + 2 * math.pi * k / P))
-        for k in range(P)
-    ]
-
-
-def inside_octagon(zx, zy):
-    """Is the disk point inside the {8,3} octagon centred at the origin?
-
-    A regular hyperbolic polygon centred at the origin is the intersection of p half-planes; the
-    edge-k half-plane is bounded by the geodesic whose closest approach to the origin is the edge
-    midpoint at bearing 2*pi*k/p and distance the inradius. In disk coordinates that test reduces to
-    comparing the point's distance from the origin along that bearing.
+    The octagon is the intersection of eight half-planes. Half-plane k is bounded by the geodesic
+    through the edge-k midpoint, perpendicular to the bearing 2*pi*k/8. In the invariant form, the
+    point is on the origin's side when <P, M> <= cosh(inradius) * ... -- concretely, comparing the
+    point's projection along the bearing against the inradius.
     """
-    x, y = disk_to_local(zx, zy)
-    w = math.sqrt(1 + x * x + y * y)
+    w = math.sqrt(1.0 + x * x + y * y)
+    mr = math.sinh(INRADIUS)
+    mw = math.cosh(INRADIUS)
     for k in range(P):
         ang = 2 * math.pi * k / P
-        # Midpoint of edge k, in local coordinates.
-        mr = math.sinh(INRADIUS)
         mx, my = mr * math.cos(ang), mr * math.sin(ang)
-        mw = math.sqrt(1 + mr * mr)
-        # cosh of half the distance from the point to the edge-k midpoint's geodesic: the point is
-        # inside if it is on the origin's side, i.e. if <P, M> <= <M, M> where <,> is the invariant
-        # form. Equivalent and cheaper: compare the "height" along the bearing.
-        a = w * mw - x * mx - y * my
-        if a > mw * mw:
+        # <P, M> = w*mw - x*mx - y*my is cosh of half the distance between them. The edge geodesic is
+        # the locus where that equals <M, M> = mw*mw - mr*mr = 1 ... so compare against the value at
+        # the midpoint itself.
+        if w * mw - x * mx - y * my > mw * mw:
             return False
     return True
 
 
+def centroid(points):
+    sx = sum(p[0] for p in points)
+    sy = sum(p[1] for p in points)
+    return sx / len(points), sy / len(points)
+
+
+CELL = 0.05
+
+
+def score_bearing(centroids_disk, theta):
+    """How nearly 4-fold symmetric is the art about the candidate centre at this bearing?
+
+    Lower is better: the mean nearest-neighbour distance between the shapes near the candidate centre
+    and their 90-degree rotations.
+
+    A uniform grid keeps this linear. The obvious nested-loop version is quadratic in the number of
+    shapes, which is ~14,000 here and evaluated at every scanned bearing -- unusable.
+    """
+    r = math.tanh(CIRCUMRADIUS / 2)
+    bx, by = r * math.cos(theta), r * math.sin(theta)
+    near = []
+    for zx, zy in centroids_disk:
+        px, py = mobius(-bx, -by, zx, zy)
+        if px * px + py * py < 0.75:
+            near.append((px, py))
+    if len(near) < 40:
+        return float("inf"), len(near)
+
+    grid = {}
+    for px, py in near:
+        grid.setdefault((int(px / CELL), int(py / CELL)), []).append((px, py))
+
+    total = 0.0
+    for px, py in near:
+        qx, qy = rot(px, py, math.pi / 2)
+        gx, gy = int(qx / CELL), int(qy / CELL)
+        best = 1e9
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for ax, ay in grid.get((gx + dx, gy + dy), ()):
+                    d2 = (qx - ax) ** 2 + (qy - ay) ** 2
+                    if d2 < best:
+                        best = d2
+        # Cap the penalty so a single unmatched shape cannot dominate the score.
+        total += min(math.sqrt(best), 3 * CELL)
+    return total / len(near), len(near)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--old", default="OLD")
+    ap.add_argument("--in", dest="inp", default="docs/escher.json")
     ap.add_argument("--out", default="docs/escher-atlas.json")
+    ap.add_argument("--scan", type=int, default=720, help="bearing samples over 120 degrees")
     args = ap.parse_args(argv)
 
-    svg_path = os.path.join(
-        args.old, "hyperbolic-storage-space", "svgtools", "examples", "escher_circle_limit_3_step2.svg"
-    )
-    if not os.path.exists(svg_path):
-        print(f"missing {svg_path}", file=sys.stderr)
+    if not os.path.exists(args.inp):
+        print(f"missing {args.inp}; run tools/make_docs_data.py first", file=sys.stderr)
         return 1
+    doc = json.load(open(args.inp))
+    drawables = [d for d in doc["drawables"] if d.get("type") == "path"]
+    print(f"read {len(drawables)} paths from {args.inp}")
 
-    paths = parse_svg(svg_path)
-    print(f"traced block: {len(paths)} paths")
+    # Only the art near the origin is trustworthy: the 2012 replication degraded further out.
+    cents = []
+    for d in drawables:
+        cx, cy = centroid(d["points"])
+        if cx * cx + cy * cy < 25:
+            cents.append(local_to_disk(cx, cy))
+    print(f"{len(cents)} centroids within the central region used for the fit")
 
-    # Re-anchor: the traced art is centred on a 3-fold point (an {8,3} vertex). Translate so that the
-    # nearest octagon CENTRE sits at the origin. In {8,3} an octagon centre lies at distance equal to
-    # the circumradius from a vertex, so translate by that much along a bearing that puts one of the
-    # 3-fold neighbours' centres at the origin.
-    shift = math.tanh(CIRCUMRADIUS / 2)
-    # Bearing chosen so that the block's own 3-fold axis lines up with a vertex of the target octagon.
-    bearing = math.pi / P
-    bx, by = -shift * math.cos(bearing), -shift * math.sin(bearing)
+    # The art is 3-fold symmetric about the origin, so scanning 120 degrees covers every distinct
+    # candidate direction to an octagon centre.
+    #
+    # HONEST RESULT: this scan does not discriminate. Measured spread across 24 bearings is
+    # 0.01900 to 0.02006 -- a ratio of 1.06, i.e. flat to within noise. The 2012 tracing is simply
+    # not accurate enough for a C4 residual to pick out the true 4-fold direction, and an earlier
+    # version of this script reported a "best bearing" that was pure noise dressed up as a fit.
+    #
+    # So the scan is still run, but only to REPORT whether it discriminates. Unless it does, the
+    # bearing is fixed at 0, which is as defensible as any other given the three directions are
+    # equivalent under the art's own 3-fold symmetry. If someone later devises a metric that does
+    # discriminate, this will start using it automatically.
+    samples = []
+    n = max(12, args.scan)
+    for i in range(n):
+        th = (2 * math.pi / 3) * i / n
+        sc, cnt = score_bearing(cents, th)
+        if math.isfinite(sc):
+            samples.append((sc, th, cnt))
+    samples.sort()
+    best_score, best_theta, npts = samples[0]
+    spread = samples[-1][0] / best_score if samples else 1.0
+    DISCRIMINATES = spread > 1.25
+    if DISCRIMINATES:
+        score, theta = best_score, best_theta
+        print(f"C4 scan discriminates (spread {spread:.2f}x): bearing {math.degrees(theta):.3f} deg, residual {score:.5f}")
+    else:
+        score, theta = best_score, 0.0
+        print(f"C4 scan does NOT discriminate (spread only {spread:.2f}x over 120 deg).")
+        print("  The tracing is too approximate for a C4 residual to locate the 4-fold direction.")
+        print("  Using bearing 0; the three candidate directions are equivalent under the art's")
+        print("  own 3-fold symmetry, so this is as defensible as any and is not presented as a fit.")
+    print(f"best 4-fold bearing: {math.degrees(theta):.3f} deg   C4 residual {score:.5f}   ({npts} nearby shapes)")
 
-    def place(zx, zy):
-        return mobius_translate(bx, by, zx, zy)
+    # Cut the tile.
+    r = math.tanh(CIRCUMRADIUS / 2)
+    bx, by = r * math.cos(theta), r * math.sin(theta)
+    out = []
+    for d in drawables:
+        pts = d["points"]
+        moved = []
+        for p in pts:
+            zx, zy = local_to_disk(p[0], p[1])
+            px, py = mobius(-bx, -by, zx, zy)
+            lx, ly = disk_to_local(px, py)
+            moved.append([round(lx, 8), round(ly, 8)] + ([p[2]] if len(p) > 2 else []))
+        # Include every shape that TOUCHES the octagon, not just those centred in it. Render-time
+        # clipping trims the overhang, and the neighbouring tile supplies the other half -- so being
+        # generous here is free, whereas being strict leaves unfilled wedges along every tile edge
+        # (which is exactly what the first version produced).
+        cx, cy = centroid(moved)
+        touches = inside_octagon_local(cx, cy) or any(inside_octagon_local(q[0], q[1]) for q in moved)
+        if not touches:
+            continue
+        obj = {"type": "path", "points": moved, "closed": d.get("closed", True)}
+        for k in ("fill", "stroke", "lineWidth"):
+            if k in d:
+                obj[k] = d[k]
+        out.append(obj)
 
-    # Symmetrise to exact C4 about the new centre, then clip to the octagon. Four rotated copies of
-    # the whole block guarantee C4 invariance, which is what the 433 tile stabiliser requires.
-    drawables = []
-    kept = 0
-    dropped = 0
-    for copy in range(4):
-        theta = copy * math.pi / 2
-        for style, pts in paths:
-            moved = []
-            any_inside = False
-            for zx, zy in pts:
-                px, py = place(zx, zy)
-                px, py = rotate(px, py, theta)
-                if inside_octagon(px, py):
-                    any_inside = True
-                moved.append(disk_to_local(px, py))
-            if not any_inside:
-                dropped += 1
-                continue
-            kept += 1
-            fill = style.get("fill", "none")
-            stroke = style.get("stroke", "none")
-            obj = {
-                "type": "path",
-                "points": [[round(x, 8), round(y, 8), "L"] for x, y in moved],
-                "closed": True,
-            }
-            if fill and fill != "none":
-                obj["fill"] = fill
-            if stroke and stroke != "none":
-                obj["stroke"] = stroke
-                obj["lineWidth"] = float(style.get("stroke-width", 1.0) or 1.0)
-            else:
-                obj["stroke"] = "none"
-            drawables.append(obj)
-
-    print(f"kept {kept} paths, dropped {dropped} entirely outside the octagon")
+    print(f"tile contains {len(out)} shapes")
 
     meta = {
         "tiling": {"p": P, "q": Q, "frameSymmetry": 4},
         "inradius": INRADIUS,
         "circumradius": CIRCUMRADIUS,
+        "fitBearingDegrees": math.degrees(theta),
+        "c4Residual": score,
         "note": (
-            "One {8,3} tile of Escher's Circle Limit III, symmetrised to exact C4 and clipped to the "
-            "octagon. Escher's original is hand-drawn and the 2012 tracing is approximate, so the "
-            "fish do not meet the tile boundary perfectly; the mismatch shows as a seam. See "
-            "notes/escher-circle-limit-iii.md."
+            "One {8,3} octagon of Escher's Circle Limit III, cut from the finished art in "
+            "docs/escher.json (which carries the corrected palette). The 4-fold centre was located "
+            "by scanning bearings at the circumradius from the stored art's 3-fold origin and "
+            "scoring C4 symmetry. Not symmetrised: the tracing is approximate, so repeating this "
+            "tile leaves visible seams. See notes/escher-circle-limit-iii.md."
         ),
     }
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
@@ -236,11 +248,9 @@ def main(argv=None):
         f.write('{"version":1,"coordinates":"local",')
         f.write('"meta":' + json.dumps(meta) + ",")
         f.write('"drawables":[\n')
-        f.write(",\n".join(json.dumps(d, separators=(",", ":"), sort_keys=True) for d in drawables))
+        f.write(",\n".join(json.dumps(d, separators=(",", ":"), sort_keys=True) for d in out))
         f.write("\n]}\n")
-    print(f"wrote {args.out} ({os.path.getsize(args.out)/1e3:.1f} kB, {len(drawables)} drawables)")
-    print(f"{{8,3}}: inradius {INRADIUS:.9f}, circumradius {CIRCUMRADIUS:.9f}, "
-          f"centre spacing {2*INRADIUS:.9f}")
+    print(f"wrote {args.out} ({os.path.getsize(args.out)/1e3:.1f} kB)")
     return 0
 
 

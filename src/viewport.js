@@ -196,7 +196,13 @@ export class HyperbolicViewport {
           if (opts.onViewChange) opts.onViewChange(this.getView());
         },
         onGestureStart: (mode) => opts.onGestureStart && opts.onGestureStart(mode),
-        onGestureEnd: () => opts.onGestureEnd && opts.onGestureEnd(this.getView()),
+        onGestureEnd: () => {
+          // The throttle can swallow the last movement of a drag, leaving the frame the user
+          // actually stopped on showing data fetched for an earlier position. Always ask again on
+          // gesture end so the final view is never stale.
+          this.refreshSources();
+          if (opts.onGestureEnd) opts.onGestureEnd(this.getView());
+        },
       },
     );
 
@@ -256,6 +262,17 @@ export class HyperbolicViewport {
   }
 
   // ---- public API ----
+
+  // Force every async source to re-request for the current view, bypassing the throttle and the
+  // significance gate.
+  refreshSources() {
+    if (this.destroyed) return;
+    const view = this.surface.buildView(this.view, this.options);
+    for (const entry of this.sources.values()) {
+      if (entry.source.refresh) entry.source.refresh(view);
+    }
+    this.invalidate();
+  }
 
   getView() {
     return {

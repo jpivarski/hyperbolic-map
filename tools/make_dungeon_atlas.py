@@ -140,52 +140,63 @@ def main(argv=None):
         return 1
 
     # Group the character art by cell, converting each drawable's points into that cell's frame.
-    by_cell = {}
+    #
+    # ORDER MATTERS. babudb_dump.py emits records in KEY order (latitude, longitude, id), which is
+    # not the drawing order. The 2011 server sorted by `depth` before streaming, and that is the
+    # z-order the art was authored for: body first, then features on top. An earlier version of this
+    # script appended in file order, which painted the hero's orange body over his own face and cap.
+    # Sort first.
+    records = []
     seen = set()
-    skipped = 0
     with open(src) as f:
         for line in f:
             rec = json.loads(line)
             if rec["id"] in seen:
                 continue
             seen.add(rec["id"])
-            d = rec["drawable"]
-            if d.get("type") != "polygon":
-                skipped += 1
-                continue
-            pts = d["d"]
-            # Assign the drawable to the cell containing its centroid, so a shape is never split.
-            cxs = sum(p[0] for p in pts) / len(pts)
-            cys = sum(p[1] for p in pts) / len(pts)
-            hx, hy = local_to_half_plane(cxs, cys)
-            if not (math.isfinite(hx) and math.isfinite(hy) and hy > 0):
-                skipped += 1
-                continue
-            lat, lon = cell_of(hx, hy)
+            records.append(rec)
+    records.sort(key=lambda r: (r["depth"], r["id"]))
 
-            local_pts = []
-            ok = True
-            for p in pts:
-                phx, phy = local_to_half_plane(p[0], p[1])
-                if not (math.isfinite(phx) and math.isfinite(phy) and phy > 0):
-                    ok = False
-                    break
-                lx, ly = world_to_cell_local(phx, phy, lat, lon)
-                x, y = half_plane_to_local(lx, ly)
-                flag = p[2] if len(p) > 2 else None
-                local_pts.append([round(x, 9), round(y, 9), flag] if flag else [round(x, 9), round(y, 9)])
-            if not ok:
-                skipped += 1
-                continue
+    by_cell = {}
+    skipped = 0
+    for rec in records:
+        d = rec["drawable"]
+        if d.get("type") != "polygon":
+            skipped += 1
+            continue
+        pts = d["d"]
+        # Assign the drawable to the cell containing its centroid, so a shape is never split.
+        cxs = sum(p[0] for p in pts) / len(pts)
+        cys = sum(p[1] for p in pts) / len(pts)
+        hx, hy = local_to_half_plane(cxs, cys)
+        if not (math.isfinite(hx) and math.isfinite(hy) and hy > 0):
+            skipped += 1
+            continue
+        lat, lon = cell_of(hx, hy)
 
-            obj = {"type": "path", "points": local_pts, "closed": True}
-            if "fillStyle" in d:
-                obj["fill"] = d["fillStyle"]
-            if "strokeStyle" in d:
-                obj["stroke"] = d["strokeStyle"]
-            if "lineWidth" in d:
-                obj["lineWidth"] = d["lineWidth"]
-            by_cell.setdefault(f"{lat},{lon}", []).append(obj)
+        local_pts = []
+        ok = True
+        for p in pts:
+            phx, phy = local_to_half_plane(p[0], p[1])
+            if not (math.isfinite(phx) and math.isfinite(phy) and phy > 0):
+                ok = False
+                break
+            lx, ly = world_to_cell_local(phx, phy, lat, lon)
+            x, y = half_plane_to_local(lx, ly)
+            flag = p[2] if len(p) > 2 else None
+            local_pts.append([round(x, 9), round(y, 9), flag] if flag else [round(x, 9), round(y, 9)])
+        if not ok:
+            skipped += 1
+            continue
+
+        obj = {"type": "path", "points": local_pts, "closed": True}
+        if "fillStyle" in d:
+            obj["fill"] = d["fillStyle"]
+        if "strokeStyle" in d:
+            obj["stroke"] = d["strokeStyle"]
+        if "lineWidth" in d:
+            obj["lineWidth"] = d["lineWidth"]
+        by_cell.setdefault(f"{lat},{lon}", []).append(obj)
 
     room = prototype_room()
     doc = {
