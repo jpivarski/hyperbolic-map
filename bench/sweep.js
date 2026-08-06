@@ -88,7 +88,12 @@
     return pts.length ? +(1 - modeCount / pts.length).toFixed(4) : 0;
   }
 
-  const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  // Deliberately not requestAnimationFrame. An automated run usually has the tab backgrounded, where
+  // rAF is throttled to about 1 Hz and a sweep of a few hundred waits takes minutes instead of seconds.
+  // Nothing here needs the compositor: the checks read the 2D context's backing store, which draw calls
+  // update synchronously, and `settle` calls render() explicitly rather than waiting for the viewport's
+  // own scheduled frame.
+  const frame = () => new Promise((r) => setTimeout(r, 0));
 
   function pointer(type, x, y, extra) {
     const c = canvasEl();
@@ -285,7 +290,8 @@
             let againstTruth = null;
             if (vp.atlas) {
               vp.atlas.cache.clear();
-              vp.atlas.frames.clear();
+              // `frames` is gone: relative frames are recomputed each render now, so there is nothing
+              // to stale. Only the tile DATA cache remains.
               await settle(vp);
               const truth = signature();
               againstTruth = { gestured: compare(sig, truth), reset: compare(sig3, truth) };
