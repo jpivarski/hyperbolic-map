@@ -13,6 +13,7 @@ import { Isom } from "../src/core/isom.js";
 import { ViewState } from "../src/core/view.js";
 import { RegularTiling, BinaryTiling } from "../src/data/atlas/tiling.js";
 import { Anchor } from "../src/data/atlas/anchor.js";
+import { normaliseOptionsForTesting } from "../src/viewport.js";
 
 const REGULARS = [
   { p: 8, q: 3, frameSymmetry: 4 },
@@ -542,4 +543,34 @@ test("rebase keeps the compass target on the ideal boundary", () => {
     worst = Math.max(worst, Math.abs(r - 1));
   }
   assert.ok(worst < 1e-9, `compass target drifted off the boundary by ${worst} over 2000 re-anchors`);
+});
+
+test("an atlas refuses to be combined with a global data source", () => {
+  // In atlas mode the view matrix is expressed in the CAMERA TILE's frame, so a source whose coordinates
+  // are global has no correct placement: measured, a point at the global origin lands 0.93 disk units
+  // away -- most of the way across the disk -- after sixty small pans. Drawing it properly would mean
+  // composing the camera's global frame, the ill-conditioned product this design removes. So the
+  // combination is refused, loudly, rather than rendered wrong.
+  //
+  // No expressiveness is lost: `layers` covers screen-space overlays and the atlas callback covers
+  // anything belonging to a tile.
+  const tiling = new RegularTiling({ p: 5, q: 4 });
+  const atlas = { tiling, tileData: () => ({ drawables: [] }) };
+  assert.throws(
+    () => normaliseOptionsForTesting({ atlas, data: [{ type: "path", points: [[0, 0], [1, 0]] }] }),
+    /cannot be combined with `data`/,
+  );
+  assert.throws(
+    () => normaliseOptionsForTesting({ atlas, data: { drawables: [{ type: "path", points: [[0, 0]] }] } }),
+    /cannot be combined with `data`/,
+  );
+  assert.throws(
+    () => normaliseOptionsForTesting({ atlas, dataProvider: async () => ({ drawables: [] }) }),
+    /cannot be combined with `data`/,
+  );
+  // The defaults must NOT trip the guard: `data` defaults to an empty list and every atlas demo relies
+  // on that.
+  assert.doesNotThrow(() => normaliseOptionsForTesting({ atlas }));
+  assert.doesNotThrow(() => normaliseOptionsForTesting({ atlas, data: [] }));
+  assert.doesNotThrow(() => normaliseOptionsForTesting({ data: [{ type: "path", points: [[0, 0]] }] }));
 });

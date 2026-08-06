@@ -321,6 +321,19 @@ const viewport = new HyperbolicViewport({
 });
 ```
 
+An atlas **cannot** be combined with `data` or `dataProvider`, and the constructor says so rather than
+drawing it wrong. In atlas mode the view matrix is expressed in the camera tile's frame, so a source
+whose coordinates are global has no fixed placement — measured, a point at the global origin lands
+0.93 disk units away after sixty small pans. Use `layers` for anything that belongs in screen space and
+the atlas callback for anything that belongs to a tile. `addSource` and `setData` refuse for the same
+reason.
+
+```js
+// atlas mode
+viewport.getCamera();   // { address, matrix, zoom }
+viewport.stats.maxViewEntry;   // stays near 1 at any distance -- the invariant made visible
+```
+
 The callback returns **data, not URLs**, so it can fetch, synthesise infinite content, or merge
 several overlays. Placing and rotating each tile is always the library's job.
 

@@ -106,6 +106,11 @@ const LEGACY_ALIASES = {
 
 let warnedLegacy = false;
 
+// Exported for tests: option validation is pure, so it can be checked without a DOM.
+export function normaliseOptionsForTesting(userOptions) {
+  return normaliseOptions(userOptions);
+}
+
 function normaliseOptions(userOptions) {
   const opts = Object.assign({}, DEFAULT_OPTIONS);
   const unknown = [];
@@ -129,6 +134,31 @@ function normaliseOptions(userOptions) {
   // an error rather than being ignored.
   if (unknown.length) {
     throw new Error(`hyperbolic-map: unknown option(s): ${unknown.join(", ")}`);
+  }
+
+  // An atlas and an ordinary data source cannot coexist. Refused here rather than drawn wrong.
+  //
+  // In atlas mode `view.matrix` is the view expressed in the CAMERA TILE's frame. An ordinary source's
+  // coordinates are global, so drawing them with that matrix misplaces them as soon as the camera leaves
+  // the origin tile -- measured, a point at the global origin lands 0.93 disk units away, most of the
+  // way across the disk, after sixty small pans. Drawing them correctly would mean composing the
+  // camera's global frame, which is exactly the ill-conditioned product this design exists to avoid.
+  //
+  // Nothing is lost: `layers` covers anything that belongs in screen space (a compass rose, the turtle
+  // in the dungeon demo) and the atlas `tileData` callback covers anything that belongs to a tile.
+  if (opts.atlas) {
+    const d = opts.data;
+    const hasOwnData =
+      opts.dataProvider ||
+      (Array.isArray(d) && d.length > 0) ||
+      (d && Array.isArray(d.drawables) && d.drawables.length > 0);
+    if (hasOwnData) {
+      throw new Error(
+        "hyperbolic-map: `atlas` cannot be combined with `data` or `dataProvider`. An atlas view is " +
+          "anchored to a tile, so global coordinates have no fixed meaning in it. Put per-tile content " +
+          "in the atlas `tileData` callback, and screen-space overlays in `layers`.",
+      );
+    }
   }
   return opts;
 }
@@ -447,6 +477,12 @@ export class HyperbolicViewport {
   }
 
   setData(data, name = "default") {
+    if (this.atlas) {
+      throw new Error(
+        "hyperbolic-map: setData() is not available in atlas mode -- tile content comes from the atlas " +
+          "`tileData` callback. See the note on addSource().",
+      );
+    }
     const entry = this.sources.get(name);
     if (entry && entry.source instanceof StaticSource) {
       entry.source.setData(data, this.styleSheet);
@@ -457,6 +493,15 @@ export class HyperbolicViewport {
   }
 
   addSource(name, data, opts = {}) {
+    // Same reasoning as the constructor guard: a source's coordinates are global, and in atlas mode the
+    // view matrix is camera-relative, so there is no correct way to place them.
+    if (this.atlas) {
+      throw new Error(
+        `hyperbolic-map: addSource(${JSON.stringify(name)}) is not available in atlas mode -- a source's ` +
+          "coordinates are global, and an atlas view is anchored to a tile. Use the atlas `tileData` " +
+          "callback for tile content, or `layers` for screen-space overlays.",
+      );
+    }
     const source = typeof data === "function"
       ? new CallbackSource(data, { styleSheet: this.styleSheet, onLoad: () => this.invalidate() })
       : new StaticSource(data, this.styleSheet);
