@@ -74,3 +74,17 @@ the DevTools MCP server (`performance_start_trace` with `reload: false, autoStop
 - Path2D batching changes fill behaviour for self-overlapping or hole-punched polygons (nonzero winding
   over a merged path). The golden-image test over the escher fixture is what establishes it is safe
   there; `isolate: true` per drawable and `batchByStyle: false` globally are the escape hatches.
+
+### Second deferral, 2026-08-05 21:5x
+
+Re-checked before attempting the optimisation pass. Still busy:
+
+- load average `9.12 / 9.89 / 10.51` on 16 cores;
+- GPU at **100 %**, 7502 MiB used;
+- eight `run_round.py --round 3` processes still running, ~2 h 52 m before that job's deadline.
+
+`bench/bench.mjs` is now written and working. It prints the load average with every run and refuses
+to present its results as usable when the machine is busy (exit code 2), because a microbenchmark
+under contention measures the contention. It said so on this run, so nothing is recorded here.
+
+Everything else in the project is complete; the optimisation pass is the only outstanding work.
