@@ -273,6 +273,13 @@ export class HyperbolicViewport {
     });
     const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
     this.stats.frameMs = t1 - t0;
+    // How far the view centre has travelled from the data origin, in hyperbolic units. Exposed
+    // because it is the single number that predicts precision trouble: a float64 SU(1,1) matrix has
+    // entries of order cosh(d/2), so by d ~ 37 the entries reach 1e8, |a|^2 reaches 1e16, and one
+    // ULP of that is larger than the spacing between adjacent tiles. Past there the tiling walk can
+    // no longer tell distinct tiles apart and the picture starts to depend on the route taken.
+    // See notes/open-questions.md for the floating-origin design that would remove the limit.
+    this.stats.viewDistance = this.view.liveMatrix.distanceMoved();
     if (this.options.onFrame) this.options.onFrame(this.stats);
   }
 

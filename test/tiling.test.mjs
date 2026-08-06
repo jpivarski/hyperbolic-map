@@ -387,3 +387,33 @@ test("the walk always terminates, even past the precision ceiling", () => {
     assert.ok(Date.now() - started < 5000, `visible() took ${Date.now() - started} ms at distance ${d}`);
   }
 });
+
+test("the visible tile set is a function of the view alone, out to d = 28", () => {
+  // The guarantee, and its measured limit.
+  //
+  // Perturb the view matrix in the two ways real use perturbs it -- one ULP on a single entry, and a
+  // renormalising round trip of the sort `setMatrix` performs after a gesture -- and require the
+  // returned tile set not to change. Measured across 24 bearings: clean through d = 28, first
+  // failures at d = 30 (2 bearings of 24), widespread by d = 34 (13 of 24).
+  //
+  // Why it ends there: the SU(1,1) entries are of order cosh(d/2), so by d ~ 34 they reach 1e8 and
+  // one ULP of |a|^2 exceeds the spacing between adjacent tile centres. The walk then cannot tell
+  // distinct tiles apart, and the picture starts to depend on the route taken rather than only on
+  // the view. An unbounded random pan reaches d ~ 39 within a couple of minutes of dragging, so this
+  // is reachable in practice, not merely in principle. notes/open-questions.md records the
+  // floating-origin design that would remove the limit entirely.
+  const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  const ulpBump = (m) =>
+    new Isom(m.ar + Math.sign(m.ar) * Math.abs(m.ar) * Number.EPSILON, m.ai, m.br, m.bi);
+  const renorm = (m) => Isom.rotation(1e-17).mul(m).normalize();
+  const keys = (view) => t.visible(view, 0.62, 200).map((k) => t.keyToString(k)).sort().join("|");
+
+  for (const d of [5, 10, 15, 20, 24, 28]) {
+    for (let i = 0; i < 8; i++) {
+      const view = Isom.translation(d, (2 * Math.PI * i) / 8).inverse();
+      const base = keys(view);
+      assert.equal(keys(ulpBump(view)), base, `one-ULP perturbation changed the tile set at d=${d}, bearing ${i}`);
+      assert.equal(keys(renorm(view)), base, `renormalisation changed the tile set at d=${d}, bearing ${i}`);
+    }
+  }
+});

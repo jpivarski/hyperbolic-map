@@ -249,10 +249,53 @@
       vp.setMatrix(m);
       await settle(vp);
       const sig2 = signature();
-      const diff = compare(sig, sig2);
+      let diff = compare(sig, sig2);
       const inkAfterReset = inkFraction(vp);
+
+      // CONFIRM before reporting. A single comparison cannot distinguish "the picture depends on how
+      // you got here" from "one of the two frames had not finished settling". Settle once more and
+      // re-measure: if the two post-reset frames disagree with each other, the render was still in
+      // motion and the original difference proves nothing.
+      //
+      // This is not hypothetical. Eight seeds run back to back on the escher atlas produced 30
+      // findings up to 215/255, every one of which vanished under a careful manual replay -- the
+      // frames were simply not settled when the signature was taken.
       if (diff.worst > (opts.tolerance || 4)) {
-        findings.push({ step, what, kind: "path-dependent", diff, stats, ink, inkAfterReset });
+        await settle(vp);
+        const sig3 = signature();
+        const stability = compare(sig2, sig3);
+        if (stability.worst > (opts.tolerance || 4)) {
+          findings.push({ step, what, kind: "unsettled", diff, stability, stats });
+        } else {
+          const confirmed = compare(sig, sig3);
+          // Beyond the measured float64 ceiling the picture legitimately stops being a function of
+          // the view alone: the tile set is stable under a one-ULP or renormalising perturbation
+          // through d = 28, degrades from d = 30 and is thoroughly unstable by d = 34 (see the test
+          // in test/tiling.test.mjs). An unbounded random pan reaches d ~ 39 within a couple of
+          // minutes, so without this check the sweep reports a stream of impressive-looking findings
+          // that are all just the documented limit. Report them, but as what they are.
+          const far = vp.stats.viewDistance > 28;
+          if (confirmed.worst > (opts.tolerance || 4) && far) {
+            findings.push({ step, what, kind: "beyond-precision-ceiling", diff: confirmed,
+                            viewDistance: +vp.stats.viewDistance.toFixed(1) });
+          } else if (confirmed.worst > (opts.tolerance || 4)) {
+            // Which of the two frames is the wrong one? Wipe the atlas caches and draw the same view
+            // from nothing: that is the ground truth for this view, since no carried-over state can
+            // reach it. Whichever frame disagrees with it is the one with the bug.
+            let againstTruth = null;
+            if (vp.atlas) {
+              vp.atlas.cache.clear();
+              vp.atlas.frames.clear();
+              await settle(vp);
+              const truth = signature();
+              againstTruth = { gestured: compare(sig, truth), reset: compare(sig3, truth) };
+            }
+            findings.push({ step, what, kind: "path-dependent", diff: confirmed, stats, ink,
+                            inkAfterReset, againstTruth,
+                            viewDistance: +vp.stats.viewDistance.toFixed(1) });
+          }
+          diff = confirmed;
+        }
       }
       // A blank disk is only a BUG if re-setting the same view fills it back in. On its own it just
       // means the view has been panned past the edge of a finite dataset -- which is exactly what

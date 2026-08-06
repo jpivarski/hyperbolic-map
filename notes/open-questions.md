@@ -64,3 +64,57 @@ Recorded so nobody re-spends the effort assuming it is settled.
 - **`radiusBasis`.** The original sized the disk by `canvas.width` on both axes, so on a non-square
   canvas the disk overflows vertically. Defaulting to `min(width, height)` is a **behaviour change, not
   a bug fix**; the legacy behaviour stays available. Confirm which the examples should use.
+
+
+## The far-field precision ceiling, and the floating origin that would remove it
+
+**Measured, 2026-08-06.** The view is a single SU(1,1) matrix relative to the data origin, so its
+entries grow like `cosh(d/2)`. Consequences, all measured rather than estimated:
+
+| distance | behaviour |
+|---|---|
+| d <= 28 | the visible tile set is a pure function of the view; stable under a one-ULP or renormalising perturbation across 24 bearings |
+| d = 30 | first failures: 2 bearings of 24 |
+| d = 34 | 13 of 24 |
+| d ~ 37 | entries reach 1e8, one ULP of `|a|^2` exceeds the spacing between adjacent tile centres |
+
+Why it matters in practice rather than in principle: the Escher atlas is unbounded, so a random pan
+**reaches d ~ 39 within a couple of minutes of dragging**. Past the ceiling the picture starts to
+depend on the route taken rather than only on the view -- `setMatrix` renormalises, shifting the
+matrix by about one ULP, and that is enough to change which tiles the walk finds. Confirmed by
+comparing against a from-scratch render with the caches cleared: the reset frame always matched
+ground truth exactly, and it was the gestured frame that deviated.
+
+`vp.stats.viewDistance` now exposes this so an application can see it coming.
+
+### The fix: a floating origin
+
+Store the view relative to the tile containing the view centre rather than to the data origin.
+
+    originKey   the tile the camera is in
+    viewLocal   the view matrix expressed in THAT tile's frame -- always O(1) entries
+
+Then `net = viewLocal * frameRelativeTo(originKey, key)`, and both factors stay small for every tile
+actually on screen, so precision no longer depends on where the camera has wandered. Re-anchor
+whenever `locate()` reports a different tile: fold the old origin's frame into the new one, which is
+a single composition of two O(1)-ish matrices.
+
+Half the machinery already exists: `RegularTiling.visible` already conjugates by the starting tile's
+frame for deduplication, for exactly this reason. What is missing is expressing tile keys relative to
+an origin and re-anchoring the viewport.
+
+Deliberately not attempted in this session: it changes atlas addressing, which is load-bearing for
+both tiled demos, and it was 3 a.m. The measured ceiling is documented and tested instead, so the
+limit is known rather than lurking.
+
+## Truncation-boundary flicker at the rim
+
+Separate from the ceiling, and smaller. When the walk hits `maxTiles`, which tile is the last one
+admitted is decided by BFS order, and an infinitesimal change to the view can swap it. The affected
+tiles are the farthest ones, crushed against the rim, so the visible effect is tiny: the sweep sees
+these as a worst-cell difference under 15 with a mean around 0.006, i.e. one downsampled cell moving
+slightly. It is why a handful of path-dependence findings appear below the precision ceiling.
+
+A stable tie-break -- ordering the frontier by exact distance and admitting in that order, as
+`BinaryTiling.visible` now does -- would remove it. `RegularTiling.visible` still admits in BFS
+order.
