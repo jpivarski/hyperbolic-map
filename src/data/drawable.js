@@ -31,7 +31,38 @@ export const DEFAULT_STYLE = {
   font: "sans-serif",
 };
 
-function resolveStyle(spec, styleSheet) {
+// Resolved styles are INTERNED: identical styles share one frozen object.
+//
+// They were not, and the cost was quietly large. The Escher scene has about half a dozen distinct
+// appearances but was compiling 38,640 separate style objects, one per drawable -- measured, the
+// count of distinct style objects exactly equalled the count of drawables in all three datasets.
+// That is pure memory bloat, it defeats identity comparison in the renderer's canvas-state cache,
+// and it makes it impossible to spot runs of same-styled shapes.
+//
+// The table is module-scope so that the atlas, which compiles each tile separately, shares one set
+// across every tile. It is capped: a pathological generator emitting a unique colour per shape would
+// otherwise grow it without bound, and falling back to unshared objects is merely the old behaviour.
+const styleTable = new Map();
+const STYLE_TABLE_LIMIT = 4096;
+
+const STYLE_KEYS = [
+  "fill", "stroke", "lineWidth", "lineCap", "lineJoin", "miterLimit",
+  "markerRadius", "markerFill", "align", "baseline", "font",
+];
+
+function internStyle(out) {
+  let key = "";
+  for (let i = 0; i < STYLE_KEYS.length; i++) key += out[STYLE_KEYS[i]] + "\u0001";
+  const hit = styleTable.get(key);
+  if (hit) return hit;
+  // Frozen so that a later mutation cannot silently restyle every drawable that shares it -- the one
+  // place that used to mutate a resolved style (a marker's radius) now folds it in before interning.
+  const frozen = Object.freeze(out);
+  if (styleTable.size < STYLE_TABLE_LIMIT) styleTable.set(key, frozen);
+  return frozen;
+}
+
+function resolveStyle(spec, styleSheet, extra) {
   const base = spec.class && styleSheet && styleSheet[spec.class] ? styleSheet[spec.class] : (styleSheet && styleSheet.default) || DEFAULT_STYLE;
   const out = Object.assign({}, DEFAULT_STYLE, base);
   if (spec.fill !== undefined) out.fill = spec.fill;
@@ -45,7 +76,8 @@ function resolveStyle(spec, styleSheet) {
   if (spec.align !== undefined) out.align = spec.align;
   if (spec.baseline !== undefined) out.baseline = spec.baseline;
   if (spec.font !== undefined) out.font = spec.font;
-  return out;
+  if (extra !== undefined) Object.assign(out, extra);
+  return internStyle(out);
 }
 
 // A single compiled drawable.
@@ -157,8 +189,9 @@ function compileOne(spec, styleSheet) {
     out.xs = new Float64Array([src.at[0]]);
     out.ys = new Float64Array([src.at[1]]);
     out.ws = new Float64Array([localCompanion(src.at[0], src.at[1])]);
-    out.style = resolveStyle(src, styleSheet);
-    if (src.radius !== undefined) out.style.markerRadius = src.radius;
+    // Fold the radius in BEFORE interning: styles are shared and frozen, so mutating one here would
+    // change the radius of every marker that happens to look the same.
+    out.style = resolveStyle(src, styleSheet, src.radius !== undefined ? { markerRadius: src.radius } : undefined);
     out.cap = Cap.enclosing(out.xs, out.ys, 0, 1);
     return out;
   }

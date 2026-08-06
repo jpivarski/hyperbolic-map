@@ -60,6 +60,15 @@ export const DEFAULT_OPTIONS = {
   cullMode: CULL_CAP,
   arcMode: "sagitta",
   sagittaTolerancePx: 0.25,
+  // Skip shapes whose projected diameter is below this many pixels. Zero at rest, so a still frame
+  // is always drawn in full; `interactMinFeaturePx` applies only while a gesture is in flight, when
+  // the rim fringe is moving and its exact density cannot be read anyway. Set both to 0 to disable.
+  minFeaturePx: 0,
+  interactMinFeaturePx: 0.5,
+  // Drop a vertex that projects within this many pixels of the last one emitted. The hyperbolic
+  // projection crushes unbounded area into the rim, so most shapes arrive far smaller than a pixel
+  // and most of their vertices are redundant at screen resolution.
+  decimateTolerancePx: 0.25,
   minTextPx: 3,
 
   layers: null,
@@ -254,6 +263,12 @@ export class HyperbolicViewport {
       cullMode: this.options.cullMode,
       arcMode: this.options.arcMode,
       sagittaTolerancePx: this.options.sagittaTolerancePx,
+      decimateTolerancePx: this.options.decimateTolerancePx,
+      // Quality snaps back the moment the gesture ends, so what the user studies is always the full
+      // scene; only the frames they are actively dragging through are simplified.
+      minFeaturePx: this.view.gesture
+        ? this.options.interactMinFeaturePx
+        : this.options.minFeaturePx,
       minTextPx: this.options.minTextPx,
     });
     const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
