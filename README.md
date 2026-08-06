@@ -129,6 +129,9 @@ ignored typo in an options object is a miserable way to lose an afternoon.
 | `cullMode` | `"cap"` | or `"endpoints"` for the 2011 test, which drops long edges crossing the view |
 | `arcMode` | `"sagitta"` | or `"fixed"` for the 2011 zoom-independent threshold |
 | `sagittaTolerancePx` | `0.25` | when an arc may be drawn as a straight chord |
+| `decimateTolerancePx` | `0.25` | drop a vertex projecting within this distance of the last one drawn |
+| `minFeaturePx` | `0` | skip a shape whose projected size (including its stroke) is below this |
+| `interactMinFeaturePx` | `0.5` | `minFeaturePx` used only while a gesture is in flight |
 | `minTextPx` | `3` | text smaller than this is skipped |
 
 ### Hooks
@@ -219,6 +222,24 @@ disconnected outline without duplicating the geometry.
 `at` is the anchor and `up` is a second point giving the text's up direction. The distance between
 their *projections* sets the size, so text foreshortens with the geometry around it. Text smaller
 than `minTextPx` is skipped.
+
+### Why `decimateTolerancePx` matters more here than on a flat map
+
+The Poincaré projection compresses unbounded area into the rim, so in any large scene most shapes
+arrive far smaller than a pixel. On the Escher fixture at its default view, 59 % of edges are shorter
+than half a pixel and 39 % shorter than a quarter, and 22,894 of the 38,640 shapes fit entirely
+inside a single pixel. Every one of those edges still costs a canvas call.
+
+`decimateTolerancePx` drops a vertex that projects within that distance of the last vertex actually
+emitted — measured against the last *emitted* point, not the previous vertex, so a long run of small
+steps cannot accumulate into visible drift. At the default 0.25 px this removes about half the
+vertices and roughly a quarter of the frame time, while changing twelve colour channels out of
+780,000 by a maximum of 2/255. Set it to `0` for an exact rendering.
+
+`minFeaturePx` is the blunter version: drop the whole shape. It defaults to off because it is only
+lossless for *unstroked* art — a shape 0.3 px across drawn with a 2 px stroke still paints a 2 px
+mark, so the threshold is compared against the projected size **plus** the stroke width. On art where
+everything is stroked, as the Escher fixture is, it correctly skips almost nothing.
 
 ### `marker`
 
