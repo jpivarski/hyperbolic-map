@@ -47,6 +47,43 @@ export class ViewState {
     this.gesture = null;
   }
 
+  // Re-express the view in a NEIGHBOURING tile's frame. `shift` is the generator carrying the new
+  // frame's coordinates into the old one's, so the matrices gain it on the right and everything stored
+  // in the frame's DOMAIN has to be pulled back through its inverse.
+  //
+  // This is the part that is easy to miss, and it bites only in atlas mode. Two pieces of view state
+  // live in the frame's domain rather than on the screen:
+  //
+  //   * a pinch's grabbed points. `beginPinch` records where the two fingers grabbed, as coordinates in
+  //     the frame current at that moment. Re-anchor mid-pinch without converting them and the solver
+  //     pins the wrong points -- the picture jumps out from under the fingers.
+  //   * the compass target. `northOf` applies the matrix to it, so it too is a point in the domain.
+  //
+  // A pan's anchor and a rim-rotation's start angle are SCREEN quantities and need no conversion; the
+  // stored compass bearing is a screen angle too.
+  rebase(shift) {
+    this.matrix = this.matrix.mul(shift).normalize();
+    this.liveMatrix = this.liveMatrix.mul(shift).normalize();
+    const inv = shift.inverse();
+    const t = inv.applyToIdeal(this.compassTargetX, this.compassTargetY, [0, 0]);
+    const norm = Math.hypot(t[0], t[1]);
+    if (norm > 0) {
+      // Keep it exactly on the boundary circle: it is an IDEAL point, and letting it drift inside would
+      // slowly turn the compass into a reference to an ordinary interior point.
+      this.compassTargetX = t[0] / norm;
+      this.compassTargetY = t[1] / norm;
+    }
+    const g = this.gesture;
+    if (g && g.kind === "pinch") {
+      const a = inv.applyToDisk(g.d1x, g.d1y, [0, 0]);
+      g.d1x = a[0];
+      g.d1y = a[1];
+      const b = inv.applyToDisk(g.d2x, g.d2y, [0, 0]);
+      g.d2x = b[0];
+      g.d2y = b[1];
+    }
+  }
+
   clampZoom(z) {
     let out = z;
     if (this.minZoom != null && out < this.minZoom) out = this.minZoom;

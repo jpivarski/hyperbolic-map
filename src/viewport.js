@@ -262,8 +262,9 @@ export class HyperbolicViewport {
     if (!this.atlas) return;
     const { steps, shift } = this.atlas.anchor.reanchor(this.view.liveMatrix);
     if (steps === 0) return;
-    this.view.liveMatrix = this.view.liveMatrix.mul(shift).normalize();
-    this.view.matrix = this.view.matrix.mul(shift).normalize();
+    // Not just the matrices: a pinch's grabbed points and the compass target live in the frame's domain
+    // and have to be pulled back through the shift too. See ViewState.rebase.
+    this.view.rebase(shift);
   }
 
   render() {

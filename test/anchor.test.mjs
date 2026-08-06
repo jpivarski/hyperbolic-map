@@ -10,6 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { Isom } from "../src/core/isom.js";
+import { ViewState } from "../src/core/view.js";
 import { RegularTiling, BinaryTiling } from "../src/data/atlas/tiling.js";
 import { Anchor } from "../src/data/atlas/anchor.js";
 
@@ -27,6 +28,14 @@ const REGULARS = [
 ];
 
 const maxEntry = (m) => Math.max(Math.abs(m.ar), Math.abs(m.ai), Math.abs(m.br), Math.abs(m.bi));
+
+// Two matrices are the same isometry iff they agree up to overall sign: SU(1,1) double-covers the
+// isometry group and an edge half-turn squares to -I.
+function sameIsometry(a, b, tol = 1e-11) {
+  const plus = Math.max(Math.abs(a.ar - b.ar), Math.abs(a.ai - b.ai), Math.abs(a.br - b.br), Math.abs(a.bi - b.bi));
+  const minus = Math.max(Math.abs(a.ar + b.ar), Math.abs(a.ai + b.ai), Math.abs(a.br + b.br), Math.abs(a.bi + b.bi));
+  return Math.min(plus, minus) < tol;
+}
 
 function rng(seed) {
   let s = seed >>> 0;
@@ -470,4 +479,67 @@ test("re-anchoring is cheap: one step per tile crossed, not more", () => {
     assert.equal(steps, anchor.reanchorCount, `${name}: step count and crossing count must agree`);
     assert.ok(steps < 200, `${name}: ${steps} re-anchor steps for 500 small moves`);
   }
+});
+
+test("re-anchoring mid-gesture keeps a pinch's grabbed points pinned", () => {
+  // Two pieces of view state live in the frame's DOMAIN rather than on the screen, and a re-anchor
+  // changes the frame under them:
+  //
+  //   * a pinch's grabbed points, recorded by beginPinch in the frame current at that moment;
+  //   * the compass target, since northOf() applies the matrix to it.
+  //
+  // ViewState.rebase pulls both back through the shift. Without that, re-anchoring in the middle of a
+  // pinch makes the solver pin the wrong points and the picture jumps out from under the fingers. This
+  // is hard to provoke through the browser -- a pinch that zooms in moves the view centre less, in
+  // hyperbolic terms, than the same gesture panning -- so it is checked directly here.
+  const t = new RegularTiling({ p: 5, q: 4 });
+  const g = t.generator(0);
+
+  for (const [f1, f2, h1, h2] of [
+    [[-0.30, 0.05], [0.30, -0.05], [-0.45, 0.10], [0.42, -0.12]],
+    [[0.10, 0.28], [-0.15, -0.22], [0.18, 0.40], [-0.26, -0.33]],
+  ]) {
+    const view = new ViewState({ zoom: 1, minZoom: 0.1, maxZoom: 100 });
+
+    // The pinch, driven WITHOUT any re-anchor, as the reference.
+    const plain = new ViewState({ zoom: 1, minZoom: 0.1, maxZoom: 100 });
+    plain.beginPinch(f1[0], f1[1], f2[0], f2[1]);
+    plain.updatePinch(h1[0], h1[1], h2[0], h2[1], true, true);
+    const refLive = plain.liveMatrix.clone();
+    const refZoom = plain.liveZoom;
+
+    // The same pinch, but the camera re-anchors between the grab and the update.
+    view.beginPinch(f1[0], f1[1], f2[0], f2[1]);
+    view.rebase(g);
+    view.updatePinch(h1[0], h1[1], h2[0], h2[1], true, true);
+
+    // The zoom solve must be unaffected: it depends only on the grabbed points' mutual distance, which
+    // is frame-independent.
+    assert.ok(
+      Math.abs(view.liveZoom - refZoom) < 1e-12,
+      `zoom differs after rebase: ${view.liveZoom} vs ${refZoom}`,
+    );
+    // And the resulting view must be the same VIEW, differing only by the frame it is expressed in --
+    // i.e. liveMatrix should equal the reference times the shift.
+    const want = refLive.mul(g);
+    assert.ok(
+      sameIsometry(view.liveMatrix, want, 1e-10),
+      "the pinch result differs from the un-rebased one by more than the change of frame",
+    );
+  }
+});
+
+test("rebase keeps the compass target on the ideal boundary", () => {
+  // The compass target is an IDEAL point. Pulling it back through a shift and letting it drift inside
+  // the disk would quietly turn "north" into a reference to an ordinary interior point, and the drift
+  // would compound one re-anchor at a time.
+  const t = new RegularTiling({ p: 6, q: 4 });
+  const view = new ViewState({ zoom: 1 });
+  let worst = 0;
+  for (let i = 0; i < 2000; i++) {
+    view.rebase(t.generator(i % t.generatorCount()));
+    const r = Math.hypot(view.compassTargetX, view.compassTargetY);
+    worst = Math.max(worst, Math.abs(r - 1));
+  }
+  assert.ok(worst < 1e-9, `compass target drifted off the boundary by ${worst} over 2000 re-anchors`);
 });
