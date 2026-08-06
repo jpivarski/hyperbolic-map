@@ -67,15 +67,15 @@ window.timeRender = function (n) {
 // nothing can be cached between frames.
 window.timePan = function (n) {
   const t = [];
-  const start = vp.getMatrix();
+  const start = vp.getCamera();
   for (let i = 0; i < n; i++) {
     const s = (i / n) * 0.6;
-    vp.setMatrix(H.Isom.translation(s, 0.7).inverse().mul(start));
+    vp.setCamera({ address: start.address, matrix: H.Isom.translation(s, 0.7).inverse().mul(start.matrix), zoom: start.zoom });
     const a = performance.now();
     vp.render();
     t.push(performance.now() - a);
   }
-  vp.setMatrix(start);
+  vp.setCamera(start);
   t.sort((x, y) => x - y);
   const at = (q) => +t[Math.min(t.length - 1, Math.floor(q * t.length))].toFixed(2);
   return { n, median: at(0.5), p95: at(0.95), max: +t[t.length - 1].toFixed(2) };

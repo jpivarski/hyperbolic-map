@@ -14,6 +14,7 @@ import { PointerInput } from "./input/pointer.js";
 import { StaticSource, CallbackSource } from "./data/source.js";
 import { DEFAULT_STYLE } from "./data/drawable.js";
 import { Atlas } from "./data/atlas/atlas.js";
+import { Anchor } from "./data/atlas/anchor.js";
 
 export const DEFAULT_OPTIONS = {
   container: null,
@@ -27,6 +28,9 @@ export const DEFAULT_OPTIONS = {
   data: null,
   dataProvider: null,
   atlas: null,
+  // Start the camera on a given tile ADDRESS, with the initial view expressed in that tile's own
+  // frame. Atlas mode only; the way to open far from the origin without forming a global coordinate.
+  anchor: null,
   styles: null,
 
   center: null,
@@ -181,6 +185,13 @@ export class HyperbolicViewport {
       this.atlas = new Atlas(
         Object.assign({ styleSheet: this.styleSheet }, opts.atlas),
       );
+      // `anchor` starts the camera on a given tile, with the initial view expressed in THAT tile's
+      // frame. This is how a demo opens somewhere far from the origin without ever forming a global
+      // coordinate for it -- contrast `center`, which is a global local-coordinate pair and therefore
+      // only usable near the origin.
+      if (opts.anchor !== undefined && opts.anchor !== null) {
+        this.atlas.anchor.address = opts.anchor;
+      }
     }
 
     this.layers = (opts.layers || []).slice().sort((a, b) => (a.z || 0) - (b.z || 0));
@@ -231,9 +242,25 @@ export class HyperbolicViewport {
     });
   }
 
+  // Keep the camera anchored to a tile near the view centre.
+  //
+  // This is what bounds the view matrix. `reanchor` returns a RIGHT factor, applied to BOTH the
+  // committed and the live matrix: `updatePan` builds the live matrix by left-multiplying the
+  // committed one, so a common right factor is exactly consistent and a gesture in flight keeps its
+  // grabbed point pinned. Without this the matrix grows like cosh(d/2) and by 500 tiles out would need
+  // entries of order 1e165.
+  reanchorCamera() {
+    if (!this.atlas) return;
+    const { steps, shift } = this.atlas.anchor.reanchor(this.view.liveMatrix);
+    if (steps === 0) return;
+    this.view.liveMatrix = this.view.liveMatrix.mul(shift).normalize();
+    this.view.matrix = this.view.matrix.mul(shift).normalize();
+  }
+
   render() {
     if (this.destroyed) return;
     const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
+    this.reanchorCamera();
     const view = this.surface.buildView(this.view, this.options);
     // One entry per source: its drawables plus the matrix to draw them with. A source transform is
     // composed on the right, so its drawables' coordinates stay in their own frame.
@@ -279,7 +306,18 @@ export class HyperbolicViewport {
     // ULP of that is larger than the spacing between adjacent tiles. Past there the tiling walk can
     // no longer tell distinct tiles apart and the picture starts to depend on the route taken.
     // See notes/open-questions.md for the floating-origin design that would remove the limit.
-    this.stats.viewDistance = this.view.liveMatrix.distanceMoved();
+    if (this.atlas) {
+      // In atlas mode the view matrix is camera-relative, so its "distance" is a local quantity of
+      // order the visible radius -- not the distance travelled, which is now unbounded and is carried
+      // by the ADDRESS instead. `maxViewEntry` is the number that demonstrates the design: it must
+      // stay O(1) however far the camera goes.
+      this.stats.anchorAddress = this.atlas.tiling.addressToString(this.atlas.anchor.address);
+      this.stats.maxViewEntry = Anchor.maxEntry(this.view.liveMatrix);
+      this.stats.reanchorCount = this.atlas.anchor.reanchorCount;
+      this.stats.viewDistance = this.view.liveMatrix.distanceMoved();
+    } else {
+      this.stats.viewDistance = this.view.liveMatrix.distanceMoved();
+    }
     if (this.options.onFrame) this.options.onFrame(this.stats);
   }
 
@@ -297,6 +335,7 @@ export class HyperbolicViewport {
   }
 
   getView() {
+    this.assertGlobalCoordinatesUsable("getView");
     return {
       center: this.view.liveMatrix.centreLocal([0, 0]),
       zoom: this.view.liveZoom,
@@ -306,11 +345,68 @@ export class HyperbolicViewport {
     };
   }
 
+  // ---- the anchored camera API ----
+  //
+  // These are the atlas-aware accessors. They are NEW NAMES on purpose: `getMatrix`/`setMatrix`/
+  // `panTo`/`getView` keep exactly the meaning they always had (global coordinates), so no existing
+  // caller silently changes behaviour. Instead those four throw once the camera has left the origin
+  // tile, where a global coordinate can no longer be represented -- a loud failure rather than a
+  // plausible wrong number.
+
+  // The complete view: which tile the camera is anchored to, plus the view within that tile's frame.
+  getCamera() {
+    return {
+      address: this.atlas ? this.atlas.anchor.address : null,
+      matrix: this.view.liveMatrix.clone(),
+      zoom: this.view.liveZoom,
+    };
+  }
+
+  // Restore a view captured by getCamera(). Exact round trip.
+  setCamera(camera) {
+    if (this.atlas && camera.address !== undefined && camera.address !== null) {
+      this.atlas.anchor.address = camera.address;
+    }
+    this.view.matrix = camera.matrix.clone().normalize();
+    this.view.liveMatrix = this.view.matrix.clone();
+    if (camera.zoom !== undefined) this.view.setZoom(camera.zoom);
+    this.view.gesture = null;
+    this.invalidate();
+  }
+
+  // Put a given TILE-LOCAL point of a given tile at the centre of the view. The atlas-mode equivalent
+  // of panTo, and the only form that stays meaningful arbitrarily far out.
+  panToTile(address, local = [0, 0]) {
+    if (!this.atlas) throw new Error("hyperbolic-map: panToTile() requires an atlas; use panTo() instead");
+    this.atlas.anchor.address = address;
+    this.view.matrix = Isom.translationToLocal(local[0], local[1]).inverse();
+    this.view.liveMatrix = this.view.matrix.clone();
+    this.view.gesture = null;
+    this.invalidate();
+  }
+
+  // Global-coordinate accessors are only meaningful while the camera is anchored to the origin tile.
+  // Past that there is no numerically representable global frame, which is the whole reason the atlas
+  // is anchored -- so refuse rather than mislead.
+  assertGlobalCoordinatesUsable(fn) {
+    if (this.atlas && !this.atlas.anchor.atOrigin()) {
+      const at = this.atlas.tiling.addressToString(this.atlas.anchor.address);
+      throw new Error(
+        `hyperbolic-map: ${fn}() is defined in GLOBAL coordinates, but the camera is anchored to tile ` +
+          `${at}, where a global frame has entries far too large to represent. Its meaning is ` +
+          `unchanged and it still works while anchored to the origin tile. Use getCamera(), ` +
+          `setCamera() or panToTile() instead.`,
+      );
+    }
+  }
+
   getMatrix() {
+    this.assertGlobalCoordinatesUsable("getMatrix");
     return this.view.liveMatrix.clone();
   }
 
   setMatrix(isom) {
+    this.assertGlobalCoordinatesUsable("setMatrix");
     this.view.matrix = isom.clone().normalize();
     this.view.liveMatrix = this.view.matrix.clone();
     this.invalidate();
@@ -328,8 +424,10 @@ export class HyperbolicViewport {
     this.invalidate();
   }
 
-  // Put the given local point at the centre of the view.
+  // Put the given local point at the centre of the view. GLOBAL local coordinates -- see
+  // assertGlobalCoordinatesUsable; panToTile() is the atlas-mode form.
   panTo(x, y) {
+    this.assertGlobalCoordinatesUsable("panTo");
     this.view.matrix = Isom.translationToLocal(x, y).inverse();
     this.view.liveMatrix = this.view.matrix.clone();
     this.invalidate();

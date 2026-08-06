@@ -16,8 +16,26 @@ export async function loadDrawables(url, statusEl) {
 }
 
 // A small readout of the current view, useful for eyeballing behaviour and for scripted checks.
+//
+// Two forms, because the two modes have genuinely different state. A single-patch viewport has a
+// global centre. An ATLAS viewport does not -- its view is a tile address plus a small matrix in that
+// tile's frame -- and asking for a global centre there throws on purpose. So the atlas readout shows
+// the address and `max|V|`, which is the number worth watching: it must stay of order 1 however far
+// the camera travels, and if it ever starts climbing, the anchoring has stopped working.
 export function attachReadout(viewport, el) {
   function update() {
+    if (viewport.atlas) {
+      const cam = viewport.getCamera();
+      const s = viewport.stats;
+      el.textContent =
+        `tile ${abbreviate(viewport.atlas.tiling.addressToString(cam.address))}  ` +
+        `zoom ${cam.zoom.toFixed(3)}  ` +
+        `max|V| ${(s.maxViewEntry || 0).toFixed(3)}  ` +
+        `re-anchors ${s.reanchorCount || 0}  ` +
+        `drawn ${s.drawn}/${s.drawables}  ` +
+        `${s.frameMs ? s.frameMs.toFixed(1) + " ms" : ""}`;
+      return;
+    }
     const v = viewport.getView();
     el.textContent =
       `centre (${v.center[0].toFixed(4)}, ${v.center[1].toFixed(4)})  ` +
@@ -25,6 +43,12 @@ export function attachReadout(viewport, el) {
       `rotation ${((v.rotation * 180) / Math.PI).toFixed(1)}°  ` +
       `drawn ${viewport.stats.drawn}/${viewport.stats.drawables}  ` +
       `${viewport.stats.frameMs ? viewport.stats.frameMs.toFixed(1) + " ms" : ""}`;
+  }
+
+  // A word address grows one symbol per tile crossed, so it can be hundreds of characters after a
+  // minute of dragging. Show the ends and the length rather than wrapping the page.
+  function abbreviate(s) {
+    return s.length <= 28 ? s : `${s.slice(0, 12)}…${s.slice(-12)} (${s.length} chars)`;
   }
   viewport.options.onViewChange = update;
   const original = viewport.options.onFrame;

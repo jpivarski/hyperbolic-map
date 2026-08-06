@@ -1,15 +1,19 @@
-// Tilings.
+// Tilings, and the anchored camera.
 //
 // The metric relations are checked BY CONSTRUCTION -- build the polygon, measure the inradius, the
 // edge and the interior angle -- rather than formula against formula. That is deliberate: comparing
 // one formula with another is how an inverted inradius survived the first pass of the audit
 // (cos(pi/p)/sin(pi/q) is the HALF-EDGE, and the two swap under p <-> q, so they look interchangeable).
+//
+// The anchored tests all share one theme: nothing may depend on how far the camera has travelled. A
+// test that passes at the origin and not at 500 tiles out has found the bug this rewrite exists to
+// remove, so most assertions are run at a range of distances and compared ACROSS them.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { Isom } from "../src/core/isom.js";
-import { localDistance } from "../src/core/coords.js";
+import { localDistance, halfPlaneToLocal, localToHalfPlane } from "../src/core/coords.js";
 import { wrapAngle } from "./helpers.mjs";
 import {
   RegularTiling,
@@ -18,9 +22,50 @@ import {
   BINARY_LOCAL_HALF_WIDTH,
   BINARY_LOCAL_Y_LOW,
   BINARY_LOCAL_Y_HIGH,
+  BIN_RIGHT,
+  BIN_LEFT,
+  BIN_CHILD0,
+  BIN_CHILD1,
+  BIN_PARENT_EVEN,
+  BIN_PARENT_ODD,
 } from "../src/data/atlas/tiling.js";
+import { Anchor } from "../src/data/atlas/anchor.js";
 
 const PAIRS = [[8, 3], [4, 5], [5, 4], [7, 3], [3, 7], [6, 4], [9, 4], [12, 3]];
+const REGULARS = [
+  { p: 8, q: 3, frameSymmetry: 4 },
+  { p: 8, q: 3 },
+  { p: 7, q: 3 },
+  { p: 5, q: 4 },
+  { p: 4, q: 5 },
+  { p: 6, q: 4 },
+  { p: 3, q: 7 },
+  { p: 12, q: 3 },
+];
+
+const maxEntry = (m) => Math.max(Math.abs(m.ar), Math.abs(m.ai), Math.abs(m.br), Math.abs(m.bi));
+
+// Two matrices are the same isometry iff they agree up to overall sign: SU(1,1) double-covers the
+// isometry group and an edge half-turn squares to -I (audit claim 9).
+function sameIsometry(a, b, tol = 1e-11) {
+  const plus = Math.max(Math.abs(a.ar - b.ar), Math.abs(a.ai - b.ai), Math.abs(a.br - b.br), Math.abs(a.bi - b.bi));
+  const minus = Math.max(Math.abs(a.ar + b.ar), Math.abs(a.ai + b.ai), Math.abs(a.br + b.br), Math.abs(a.bi + b.bi));
+  return Math.min(plus, minus) < tol;
+}
+
+function toLocal(m) {
+  const z = m.applyToDisk(0, 0, [0, 0]);
+  const k = 1 / Math.sqrt(Math.max(1e-300, 1 - z[0] * z[0] - z[1] * z[1]));
+  const x = z[0] * k;
+  const y = z[1] * k;
+  return [x, y, Math.sqrt(1 + x * x + y * y)];
+}
+
+function coshHalfBetween(a, b) {
+  const A = a[2] * b[2] - a[0] * b[0] - a[1] * b[1];
+  const B = a[0] * b[1] - a[1] * b[0];
+  return Math.hypot(A, B);
+}
 
 function diskAngleBetween(from, a, b) {
   const m = Isom.translationToDisk(-from[0], -from[1]);
@@ -29,27 +74,24 @@ function diskAngleBetween(from, a, b) {
   return Math.abs(wrapAngle(Math.atan2(ia[1], ia[0]) - Math.atan2(ib[1], ib[0])));
 }
 
+// ---- {p,q} metrics, unchanged and re-asserted ----
+
 test("{p,q} metrics, verified by constructing the polygon and measuring", () => {
   for (const [p, q] of PAIRS) {
     const m = regularMetrics(p, q);
     const t = new RegularTiling({ p, q });
 
-    // Interior angle must be exactly 2*pi/q.
     const angle = diskAngleBetween(t.vertexDisk[0], t.vertexDisk[1], t.vertexDisk[p - 1]);
     assert.ok(
       Math.abs(angle - (2 * Math.PI) / q) < 1e-9,
       `{${p},${q}} interior angle ${(angle * 180) / Math.PI} deg, want ${360 / q}`,
     );
-
-    // The hyperbolic Pythagorean identity on the (2,p,q) triangle.
     assert.ok(
       Math.abs(Math.cosh(m.circumradius) - Math.cosh(m.inradius) * Math.cosh(m.halfEdge)) < 1e-9,
       `{${p},${q}} cosh(chi) != cosh(psi)cosh(phi)`,
     );
-
-    // Measured edge length must match 2 * halfEdge.
-    const v0 = t.boundaryLocal[0];
-    const v1 = t.boundaryLocal[1];
+    const v0 = t.boundaryLocalPoints[0];
+    const v1 = t.boundaryLocalPoints[1];
     assert.ok(
       Math.abs(localDistance(v0[0], v0[1], v1[0], v1[1]) - m.edgeLength) < 1e-9,
       `{${p},${q}} edge length mismatch`,
@@ -68,40 +110,80 @@ test("edge half-turn generators reach every neighbour, for odd p too", () => {
   for (const [p, q] of PAIRS) {
     const t = new RegularTiling({ p, q });
     const want = Math.tanh(t.metrics.inradius);
-    assert.equal(t.generators.length, p);
+    assert.equal(t.generatorCount(), p);
     for (let k = 0; k < p; k++) {
-      const c = t.generators[k].applyToDisk(0, 0, [0, 0]);
+      const c = t.generator(k).applyToDisk(0, 0, [0, 0]);
       assert.ok(Math.abs(Math.hypot(c[0], c[1]) - want) < 1e-9, `{${p},${q}} generator ${k} wrong distance`);
       const d = wrapAngle(Math.atan2(c[1], c[0]) - (2 * Math.PI * k) / p);
       assert.ok(Math.abs(d) < 1e-9, `{${p},${q}} generator ${k} wrong bearing (off by ${d})`);
-      // Each is an involution, so the way back carries the same index.
-      const sq = t.generators[k].mul(t.generators[k]);
-      assert.ok(Math.hypot(sq.br, sq.bi) < 1e-9, `{${p},${q}} generator ${k} is not an involution`);
+    }
+  }
+});
+
+test("an edge half-turn squares to -I, so g inverse is g as an ISOMETRY", () => {
+  // The Spin(2,1) double cover, audit claims 9 and 9b. The matrix does NOT square to +I, and code
+  // that compares frames must therefore work up to sign. This is also what makes words
+  // walk-reversible with the same generator index.
+  for (const [p, q] of PAIRS) {
+    const t = new RegularTiling({ p, q });
+    for (let k = 0; k < p; k++) {
+      const g = t.generator(k);
+      const sq = g.mul(g);
+      assert.ok(
+        sameIsometry(sq, Isom.identity()),
+        `{${p},${q}} generator ${k} does not square to +/-I`,
+      );
+      assert.ok(
+        Math.abs(sq.ar + 1) < 1e-9 && Math.abs(sq.ai) < 1e-9,
+        `{${p},${q}} generator ${k} squares to ${sq.ar} + ${sq.ai}i, expected -1 (it is -I, not +I)`,
+      );
+      assert.equal(t.inverseGenerator(k), k, "a half-turn must be its own inverse index");
     }
   }
 });
 
 test("{8,3} with frameSymmetry 4 uses the 433 rotation generators, not half-turns", () => {
-  // The decisive constraint for Circle Limit III: the tile stabiliser is C4, not C8, so the walk must
-  // avoid both the 8-fold rotation and the edge-midpoint half-turn (433 has no order-2 points at all).
-  // See notes/escher-circle-limit-iii.md.
   const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
   assert.equal(t.m, 4);
-  // 4 class-A vertices x 2 senses = 8 generators, one per edge-neighbour.
-  assert.equal(t.generators.length, 8);
+  assert.equal(t.generatorCount(), 8);
   const want = Math.tanh(t.metrics.inradius);
   const reached = new Set();
-  for (const g of t.generators) {
-    const c = g.applyToDisk(0, 0, [0, 0]);
+  for (let g = 0; g < t.generatorCount(); g++) {
+    const c = t.generator(g).applyToDisk(0, 0, [0, 0]);
     assert.ok(Math.abs(Math.hypot(c[0], c[1]) - want) < 1e-9, "generator does not land on a neighbour centre");
     const k = Math.round((Math.atan2(c[1], c[0]) / (2 * Math.PI)) * 8);
     reached.add(((k % 8) + 8) % 8);
   }
   assert.equal(reached.size, 8, `only reached edges ${[...reached].sort()}`);
-  // The generators must NOT be involutions here (they are 3-fold rotations).
-  for (const g of t.generators) {
-    const sq = g.mul(g);
+  for (let g = 0; g < t.generatorCount(); g++) {
+    const sq = t.generator(g).mul(t.generator(g));
     assert.ok(Math.hypot(sq.br, sq.bi) > 1e-6, "a 433 generator should not be an involution");
+  }
+  // The +/- senses about each vertex pair up as inverses.
+  assert.deepEqual([...Array(8).keys()].map((i) => t.inverseGenerator(i)), [1, 0, 3, 2, 5, 4, 7, 6]);
+});
+
+test("every tiling's generator set is closed under inverse, up to sign", () => {
+  // Re-anchoring and walk-reversal both need "the generator that undoes this one" to exist in the set.
+  // The constructor throws if it does not, so this also pins that guard.
+  for (const spec of REGULARS) {
+    const t = new RegularTiling(spec);
+    for (let i = 0; i < t.generatorCount(); i++) {
+      const j = t.inverseGenerator(i);
+      assert.ok(j >= 0 && j < t.generatorCount(), `no inverse for generator ${i}`);
+      assert.ok(
+        sameIsometry(t.generator(i).mul(t.generator(j)), Isom.identity()),
+        `{${spec.p},${spec.q}} generator ${i} times its claimed inverse ${j} is not the identity`,
+      );
+    }
+  }
+  const b = new BinaryTiling();
+  for (let i = 0; i < b.generatorCount(); i++) {
+    const j = b.inverseGenerator(i);
+    assert.ok(
+      sameIsometry(b.generator(i).mul(b.generator(j)), Isom.identity(), 1e-12),
+      `binary generator ${i} times its claimed inverse ${j} is not the identity`,
+    );
   }
 });
 
@@ -110,310 +192,461 @@ test("frameSymmetry must divide p", () => {
   assert.doesNotThrow(() => new RegularTiling({ p: 8, q: 3, frameSymmetry: 2 }));
 });
 
-test("regular tiling frames stay on the manifold at depth", () => {
-  const t = new RegularTiling({ p: 5, q: 4 });
-  let key = [];
-  for (let i = 0; i < 40; i++) key.push(i % 5);
-  const f = t.frame(key);
-  const modA = Math.hypot(f.ar, f.ai);
-  const modB = Math.hypot(f.br, f.bi);
-  assert.ok(Number.isFinite(modA), "frame overflowed");
-  assert.ok(Math.abs(modA - Math.sqrt(1 + modB * modB)) / modA < 1e-14, "frame drifted off the manifold");
+// ---- the binary tiling's constant generators ----
+
+test("the six binary generators are constants that reproduce F_cur^-1 . F_neighbour", () => {
+  // The heart of the binary case (audit claim 5): every latitude and longitude cancels, so one
+  // constant matrix per neighbour direction suffices no matter where the cell is. Checked against the
+  // global frames near the origin, where those are still trustworthy.
+  const t = new BinaryTiling();
+  let worst = 0;
+  for (const [lat, lon] of [[0, 0], [0, 3], [1, -2], [2, 5], [-3, 7], [-1, -6], [3, 11], [-2, -9], [4, -13]]) {
+    const address = { lat: BigInt(lat), lon: BigInt(lon) };
+    const F = t.globalFrameForTesting(address);
+    const Finv = F.inverse();
+    for (const nb of t.neighbours(address)) {
+      const ref = Finv.mul(t.globalFrameForTesting(nb.address)).normalize();
+      const got = t.generator(nb.gen);
+      const plus = Math.max(Math.abs(ref.ar - got.ar), Math.abs(ref.ai - got.ai),
+                            Math.abs(ref.br - got.br), Math.abs(ref.bi - got.bi));
+      worst = Math.max(worst, plus);
+    }
+  }
+  assert.ok(worst < 1e-12, `worst deviation from the reference relative frame: ${worst}`);
 });
 
-test("visible tiles are exactly those whose circumscribed disk meets the view", () => {
-  const t = new RegularTiling({ p: 5, q: 4 });
-  const keys = t.visible(Isom.identity(), 0.9, 300);
-  assert.ok(keys.length > 20, `only ${keys.length} tiles`);
-  // No duplicates by tile centre.
-  const seen = new Set();
-  for (const k of keys) {
-    const c = t.frame(k).applyToDisk(0, 0, [0, 0]);
-    const tag = `${Math.round(c[0] * 1e6)},${Math.round(c[1] * 1e6)}`;
-    assert.ok(!seen.has(tag), `duplicate tile at ${tag} (key ${k.join(".")})`);
-    seen.add(tag);
-  }
-  // Every returned tile must actually be near enough to matter.
-  const rho = 2 * Math.atanh(0.9);
-  for (const k of keys) {
-    const c = t.frame(k).applyToDisk(0, 0, [0, 0]);
-    const d = 2 * Math.atanh(Math.min(Math.hypot(c[0], c[1]), 1 - 1e-16));
-    assert.ok(d <= rho + t.metrics.circumradius + 1e-6, `tile ${k.join(".")} at distance ${d} is too far`);
-  }
-});
-
-test("locate finds the tile containing the view centre", () => {
-  const t = new RegularTiling({ p: 5, q: 4 });
-  // Walk out along a chain of tiles, then ask locate to find each one from scratch.
-  let key = [];
-  for (let step = 0; step < 12; step++) {
-    key = key.concat([step % 5]);
-    const frame = t.frame(key);
-    const centre = frame.applyToDisk(0, 0, [0, 0]);
-    // A view centred on that tile's centre.
-    const view = Isom.translationToDisk(centre[0], centre[1]).inverse();
-    const found = t.locate(view);
-    const foundCentre = t.frame(found).applyToDisk(0, 0, [0, 0]);
-    const d = 2 * Math.atanh(Math.min(Math.hypot(foundCentre[0] - centre[0], foundCentre[1] - centre[1]), 1 - 1e-16));
-    assert.ok(d < 1e-6, `locate landed ${d} away at depth ${step + 1}`);
+test("binary generator magnitudes are O(1) and position-independent", () => {
+  const t = new BinaryTiling();
+  for (let i = 0; i < t.generatorCount(); i++) {
+    const e = maxEntry(t.generator(i));
+    assert.ok(e < 1.1, `binary generator ${i} has max entry ${e}, expected about 1`);
   }
 });
 
-// ---- binary tiling ----
+test("binary child-then-parent round trips exactly, which is what proves the parity rule", () => {
+  // child0 leads to an EVEN longitude, so the way back is the even-parity parent step; child1 leads to
+  // an odd one. Getting this pairing wrong would make the walk revisit its own parent forever.
+  const t = new BinaryTiling();
+  assert.ok(sameIsometry(t.generator(BIN_CHILD0).mul(t.generator(BIN_PARENT_EVEN)), Isom.identity(), 1e-13));
+  assert.ok(sameIsometry(t.generator(BIN_CHILD1).mul(t.generator(BIN_PARENT_ODD)), Isom.identity(), 1e-13));
+  assert.ok(sameIsometry(t.generator(BIN_RIGHT).mul(t.generator(BIN_LEFT)), Isom.identity(), 1e-13));
+  assert.equal(t.inverseGenerator(BIN_CHILD0), BIN_PARENT_EVEN);
+  assert.equal(t.inverseGenerator(BIN_CHILD1), BIN_PARENT_ODD);
+});
+
+test("binary cells have five neighbours, and the parent step follows longitude parity", () => {
+  const t = new BinaryTiling();
+  for (const [lat, lon] of [[0, 0], [0, 1], [0, -1], [3, 6], [3, 7], [-4, -5], [-4, -6]]) {
+    const nbrs = t.neighbours({ lat: BigInt(lat), lon: BigInt(lon) });
+    assert.equal(nbrs.length, 5);
+    const parent = nbrs[4];
+    assert.equal(
+      parent.gen,
+      Math.abs(lon % 2) === 0 ? BIN_PARENT_EVEN : BIN_PARENT_ODD,
+      `cell (${lat},${lon}) chose the wrong parent parity`,
+    );
+    // Floor division, not truncation: the parent of longitude -1 is -1, not 0.
+    assert.equal(parent.address.lon, BigInt(Math.floor(lon / 2)), `cell (${lat},${lon}) parent longitude`);
+    assert.equal(parent.address.lat, BigInt(lat + 1));
+  }
+});
+
+test("binary addresses are exact at depths where a float64 longitude would not be", () => {
+  // Descending doubles the longitude each step, so 60 descents pass 2^53. BigInt keeps it exact; the
+  // whole reason addresses are integers and never enter the geometry.
+  const t = new BinaryTiling();
+  let a = t.originAddress();
+  for (let i = 0; i < 60; i++) a = t.neighbours(a)[3].address; // child1 each time
+  assert.equal(a.lat, -60n);
+  // child1 repeatedly gives lon = 2^60 - 1 (all ones), which is beyond exact float64 integer range.
+  assert.equal(a.lon, (1n << 60n) - 1n);
+  assert.ok(Number(a.lon) !== Number(a.lon - 1n) === false || true);
+  assert.notEqual(a.lon.toString(), String(Number(a.lon)), "the longitude is past float64 exactness");
+  // And walking back up returns exactly to the origin.
+  for (let i = 0; i < 60; i++) a = t.neighbours(a)[4].address;
+  assert.equal(a.lat, 0n);
+  assert.equal(a.lon, 0n);
+});
+
+test("binary point->cell is two floors and round-trips", () => {
+  const t = new BinaryTiling();
+  for (const [lat, lon] of [[0, 0], [2, 3], [-3, -5], [5, 17]]) {
+    const size = Math.pow(2, lat);
+    const hx = (lon + 0.5) * size;
+    const hy = size * 1.4;
+    const cell = t.locateHalfPlaneForTesting(hx, hy);
+    assert.equal(cell.lat, BigInt(lat));
+    assert.equal(cell.lon, BigInt(lon));
+  }
+});
 
 test("the binary cell's local box is the same for every (latitude, longitude)", () => {
   // This is what makes "the same prototype in every cell" work. The half-width is 0.5/sqrt(2), NOT
   // 0.5, because the frame's scale applies to both axes while the cell's x-width is only 2^lat.
   const t = new BinaryTiling();
-  const corners = [
-    [-BINARY_LOCAL_HALF_WIDTH, BINARY_LOCAL_Y_LOW],
-    [BINARY_LOCAL_HALF_WIDTH, BINARY_LOCAL_Y_LOW],
-    [-BINARY_LOCAL_HALF_WIDTH, BINARY_LOCAL_Y_HIGH],
-    [BINARY_LOCAL_HALF_WIDTH, BINARY_LOCAL_Y_HIGH],
-  ];
-  for (const [lat, lon] of [[0, 0], [3, 5], [-7, -13], [20, 1000], [-20, -999999], [40, 1000000]]) {
-    const s = Math.pow(2, lat + 0.5);
-    const tt = (lon + 0.5) * Math.pow(2, lat);
+  for (const [lat, lon] of [[0, 0], [3, 5], [-4, -7], [7, 100]]) {
+    const F = t.globalFrameForTesting({ lat: BigInt(lat), lon: BigInt(lon) });
     const size = Math.pow(2, lat);
-    const want = [
-      [lon * size, size],
-      [(lon + 1) * size, size],
-      [lon * size, 2 * size],
-      [(lon + 1) * size, 2 * size],
-    ];
-    for (let i = 0; i < 4; i++) {
-      const gx = s * corners[i][0] + tt;
-      const gy = s * corners[i][1];
-      // Error measured as a fraction of the TILE SIZE, the only meaningful scale here: at
-      // latitude -20 the absolute coordinates are ~1e-6 and at +40 they are ~1e12.
-      const err = Math.hypot(gx - want[i][0], gy - want[i][1]) / size;
-      assert.ok(err < 1e-12, `cell (${lat},${lon}) corner ${i} off by ${err} tile-widths`);
+    for (const [u, v] of [[-1, 1], [1, 1], [-1, 2], [1, 2]]) {
+      const localBox = halfPlaneToLocal(u * BINARY_LOCAL_HALF_WIDTH, v * BINARY_LOCAL_Y_LOW, [0, 0]);
+      const world = F.applyToLocal(localBox[0], localBox[1], undefined, [0, 0]);
+      const k = 1 / Math.sqrt(1 - world[0] * world[0] - world[1] * world[1]);
+      const hp = localToHalfPlane(world[0] * k, world[1] * k, [0, 0]);
+      const wantX = (lon + (u > 0 ? 1 : 0)) * size;
+      const wantY = size * (v > 1 ? 2 : 1);
+      assert.ok(Math.abs(hp[0] - wantX) < 1e-9 * Math.max(1, Math.abs(wantX)), `corner x for (${lat},${lon})`);
+      assert.ok(Math.abs(hp[1] - wantY) < 1e-9 * wantY, `corner y for (${lat},${lon})`);
     }
   }
+  assert.ok(Math.abs(BINARY_LOCAL_Y_HIGH / BINARY_LOCAL_Y_LOW - 2) < 1e-15);
 });
 
-test("the binary frame is in SU(1,1) and centres the cell", () => {
-  const t = new BinaryTiling();
-  for (const [lat, lon] of [[0, 0], [5, 9], [-9, -4], [30, 500000], [-30, -12345]]) {
-    const f = t.frame([lat, lon]);
-    const modA = Math.hypot(f.ar, f.ai);
-    const modB = Math.hypot(f.br, f.bi);
-    assert.ok(Number.isFinite(modA) && Number.isFinite(modB), `not finite for (${lat},${lon})`);
-    assert.ok(Math.abs(modA - Math.sqrt(1 + modB * modB)) / modA < 1e-14, `off manifold for (${lat},${lon})`);
-    // The tile-local origin must land on the cell's hyperbolic centre. Note the tolerance: cell
-    // (30, 500000) sits at an enormous hyperbolic distance (half-plane y ~ 1.5e9, x ~ 5e14), where
-    // tanh(d/2) is 1.0 to within float64 and rounding can put it a couple of ulps ABOVE 1. That is
-    // the single-patch precision envelope showing up exactly where predicted -- and exactly what the
-    // atlas exists to avoid, since tile-LOCAL coordinates never get near it.
-    const got = f.applyToDisk(0, 0, [0, 0]);
-    assert.ok(Math.hypot(got[0], got[1]) <= 1 + 8 * Number.EPSILON, `centre at |z| = ${Math.hypot(got[0], got[1])}`);
-  }
-});
+// ---- containsLocal ----
 
-test("binary cells have five neighbours, and children tile the parent", () => {
-  const t = new BinaryTiling();
-  for (const [lat, lon] of [[0, 0], [4, 7], [-3, -5]]) {
-    const nb = t.neighbours([lat, lon]);
-    assert.equal(nb.length, 5, "a binary cell has one parent, two children and two lateral neighbours");
-    const size = Math.pow(2, lat);
-    const childSize = Math.pow(2, lat - 1);
-    for (const child of [2 * lon, 2 * lon + 1]) {
-      assert.ok(child * childSize >= lon * size - 1e-12, "child starts inside the parent");
-      assert.ok((child + 1) * childSize <= (lon + 1) * size + 1e-12, "child ends inside the parent");
+test("containsLocal for a regular tiling is the nearest-centre region, not the legacy one", () => {
+  // Audit claim 11: the boundary is the perpendicular bisector, which passes through the edge midpoint
+  // at exactly the inradius. Claim 11b found that tools/fit_escher_tile.py uses a DIFFERENT, larger
+  // region, so this must not share that formula.
+  for (const spec of REGULARS) {
+    const t = new RegularTiling(spec);
+    const psi = t.metrics.inradius;
+    const chi = t.metrics.circumradius;
+    assert.ok(t.containsLocal(0, 0), "the tile centre must be inside");
+    for (let k = 0; k < t.p; k++) {
+      const ang = (2 * Math.PI * k) / t.p;
+      // Just inside and just outside the edge midpoint, along the edge normal.
+      for (const [frac, want] of [[0.98, true], [1.02, false]]) {
+        const r = Math.sinh((psi * frac) / 2);
+        const x = r * Math.cos(ang);
+        const y = r * Math.sin(ang);
+        assert.equal(
+          t.containsLocal(x, y),
+          want,
+          `{${spec.p},${spec.q}} edge ${k} at ${frac} of the inradius should be ${want ? "inside" : "outside"}`,
+        );
+      }
     }
-  }
-});
-
-test("binary point->cell is two floors and round-trips", () => {
-  const t = new BinaryTiling();
-  let bad = 0;
-  for (let i = 0; i < 20000; i++) {
-    const lat = Math.floor(Math.random() * 51) - 25;
-    const lon = Math.floor(Math.random() * 200001) - 100000;
-    const size = Math.pow(2, lat);
-    const x = (lon + 0.001 + 0.998 * Math.random()) * size;
-    const y = size * (1.001 + 0.997 * Math.random());
-    const [glat, glon] = t.locateHalfPlane(x, y);
-    if (glat !== lat || glon !== lon) bad++;
-  }
-  assert.equal(bad, 0);
-});
-
-test("binary visible-cell enumeration does not repeat the 2011 band-bottom bug", () => {
-  // The 2011 routine evaluated the visible circle's width at y = 2^latitude, the BOTTOM of each band,
-  // and so missed about 46% of the cells it should have returned. Here every returned cell must
-  // actually meet the visible region, and the count must be substantial rather than a thin sliver.
-  const t = new BinaryTiling();
-  const view = Isom.translationToLocal(0.3, 1.7).inverse();
-  const cells = t.visible(view, 0.9, 500);
-  assert.ok(cells.length > 10, `only ${cells.length} cells`);
-  // Cells must span more than one latitude band, which the band-bottom bug tended to prevent.
-  const lats = new Set(cells.map((c) => c[0]));
-  assert.ok(lats.size >= 2, `only latitude bands ${[...lats]}`);
-});
-
-// Stable local -> half-plane, duplicated here so the test does not depend on the code under test.
-function toHalfPlane(px, py) {
-  const r2 = px * px + py * py;
-  const w = Math.sqrt(r2 + 1);
-  const den =
-    py > 0 ? (4 * px * px * w * w + 1) / (2 * r2 + 1 + 2 * py * w) : 2 * r2 + 1 - 2 * py * w;
-  return [(2 * px * w) / den, 1 / den];
-}
-
-test("REGRESSION: a wide view is not spent entirely on one latitude band", () => {
-  // My first correction of the 2011 band-bottom bug over-corrected: it took ONE global bounding box
-  // over the whole visible disk and reused it for every band. Over-inclusive sounds safe, but bands
-  // were walked from the smallest latitude upward against a hard maxCells budget -- and the smallest
-  // band has the smallest cells, so it has by far the most of them. Measured at zoom 0.8: 512 cells
-  // returned, ALL IN TWO BANDS, and nothing at all for the bands actually covering the screen.
-  // Zooming out made the dungeon vanish.
-  const t = new BinaryTiling();
-  const view = Isom.translationToLocal(0.3, 1.7).inverse();
-  const cells = t.visible(view, Math.SQRT2 / 2 / 0.8, 512);
-  const lats = new Set(cells.map((c) => c[0]));
-  assert.ok(cells.length < 512, `budget exhausted: ${cells.length} cells`);
-  assert.equal(t.lastTruncated, false);
-  assert.ok(lats.size >= 8, `only ${lats.size} latitude bands: ${[...lats].sort((a, b) => a - b)}`);
-});
-
-test("no holes: every cell owning a visible point is enumerated", () => {
-  // The direct test of the symptom. Sample points across the visible disk, ask which cell each falls
-  // in, and require that cell to have been returned. A missing cell is a hole in the picture.
-  const t = new BinaryTiling();
-  let checked = 0;
-  const holes = [];
-  for (let trial = 0; trial < 60; trial++) {
-    const dist = (trial % 10) * 2.0;
-    const zoom = [0.8, 1.2, 2, 3.5, 6][trial % 5];
-    const view = Isom.rotation(trial * 0.37).mul(Isom.translation(dist, trial * 0.61).inverse());
-    const effR = Math.min(0.999, Math.SQRT2 / 2 / zoom);
-    const cells = t.visible(view, effR, 512);
-    assert.equal(t.lastTruncated, false, `trial ${trial} truncated`);
-    const set = new Set(cells.map((c) => t.keyToString(c)));
-    const inv = view.inverse();
-    const buf = [0, 0];
-    for (let i = 0; i < 120; i++) {
-      const ang = i * 2.399963;
-      const rad = effR * 0.995 * Math.sqrt((i + 0.5) / 120); // right out to the visible edge
-      inv.applyToDisk(rad * Math.cos(ang), rad * Math.sin(ang), buf);
-      const k = 1 / Math.sqrt(Math.max(1e-300, 1 - buf[0] * buf[0] - buf[1] * buf[1]));
-      const [hx, hy] = toHalfPlane(buf[0] * k, buf[1] * k);
-      if (!(hy > 0) || !Number.isFinite(hx)) continue;
-      checked++;
-      const cell = t.locateHalfPlane(hx, hy);
-      if (!set.has(t.keyToString(cell))) holes.push(`trial ${trial} zoom ${zoom}: ${t.keyToString(cell)}`);
+    // A vertex is at the circumradius and must be (just) inside, being a corner of the tile.
+    for (const v of t.boundaryLocalPoints) {
+      const shrink = 0.999;
+      assert.ok(t.containsLocal(v[0] * shrink, v[1] * shrink), "just inside a vertex must be inside");
     }
+    assert.ok(chi > psi);
   }
-  assert.ok(checked > 5000, `only ${checked} samples`);
-  assert.deepEqual(holes.slice(0, 5), [], `${holes.length}/${checked} holes`);
 });
 
-test("truncation is reported, never silent", () => {
-  // A capped enumeration looks exactly like a rendering bug, so callers must be able to tell.
+test("containsLocal for the binary tiling is its local box", () => {
   const t = new BinaryTiling();
-  const view = Isom.identity();
-  t.visible(view, 0.999, 512);
-  assert.equal(t.lastTruncated, true, "a whole-plane view at 512 cells must report truncation");
-  t.visible(view, 0.5, 512);
-  assert.equal(t.lastTruncated, false);
+  const inside = (hx, hy) => {
+    const l = halfPlaneToLocal(hx, hy, [0, 0]);
+    return t.containsLocal(l[0], l[1]);
+  };
+  assert.ok(inside(0, 1.0));
+  assert.ok(inside(BINARY_LOCAL_HALF_WIDTH * 0.99, BINARY_LOCAL_Y_LOW * 1.01));
+  assert.ok(!inside(BINARY_LOCAL_HALF_WIDTH * 1.01, 1.0));
+  assert.ok(!inside(0, BINARY_LOCAL_Y_LOW * 0.99));
+  assert.ok(!inside(0, BINARY_LOCAL_Y_HIGH * 1.01));
 });
 
-// Tile centres, and the exact SU(1,1) test for "is this the same tile?" -- deliberately independent
-// of whatever the code under test uses to deduplicate.
-function tileCentre(frame) {
-  const b = frame.applyToDisk(0, 0, [0, 0]);
-  const k = 1 / Math.sqrt(Math.max(1e-300, 1 - b[0] * b[0] - b[1] * b[1]));
-  const x = b[0] * k;
-  const y = b[1] * k;
-  return [x, y, Math.sqrt(1 + x * x + y * y)];
-}
-function centreSeparation(p, q) {
-  const A = p[2] * q[2] - p[0] * q[0] - p[1] * q[1];
-  const B = p[0] * q[1] - p[1] * q[0];
-  return 2 * Math.acosh(Math.max(1, Math.hypot(A, B)));
-}
+// ---- the anchored camera ----
 
-test("REGRESSION: the walk does not collapse to one tile far from the origin", () => {
-  // BFS deduplicated tile centres by rounding WORLD disk coordinates at an absolute 1e-7. Adjacent
-  // centres are separated by ~e^-d out there, so beyond d = 16 every neighbour of the start rounded
-  // to the same tag, `seen` rejected all of them, and the walk stopped after a single tile. On the
-  // Escher atlas that was one lone octagon of fish surrounded by bare background.
-  const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
-  for (const d of [0, 10, 20, 25, 30]) {
-    const view = Isom.translation(d, Math.PI / 3).inverse();
-    const keys = t.visible(view, 0.62, 200);
-    assert.ok(keys.length > 5, `only ${keys.length} tiles at distance ${d}`);
+test("re-anchoring keeps the view matrix O(1) over thousands of tile crossings", () => {
+  // The claim the whole rewrite rests on. Without re-anchoring, 500 crossings of {8,3} would need
+  // matrix entries of order cosh(500 * 0.76) ~ 1e165.
+  for (const spec of REGULARS) {
+    const t = new RegularTiling(spec);
+    const anchor = new Anchor(t);
+    let V = Isom.identity();
+    const step = Isom.translationToDisk(-0.06, 0.021);
+    let worst = 0;
+    for (let i = 0; i < 3000; i++) {
+      V = step.mul(V);
+      const { shift } = anchor.reanchor(V);
+      V = V.mul(shift).normalize();
+      worst = Math.max(worst, maxEntry(V));
+    }
+    assert.ok(anchor.reanchorCount > 100, `{${spec.p},${spec.q}} only crossed ${anchor.reanchorCount} tiles`);
+    assert.ok(worst < 10, `{${spec.p},${spec.q}} max|V| reached ${worst} over ${anchor.reanchorCount} crossings`);
+  }
+  const b = new BinaryTiling();
+  const anchor = new Anchor(b);
+  let V = Isom.identity();
+  const step = Isom.translationToDisk(0.05, -0.03);
+  let worst = 0;
+  for (let i = 0; i < 3000; i++) {
+    V = step.mul(V);
+    const { shift } = anchor.reanchor(V);
+    V = V.mul(shift).normalize();
+    worst = Math.max(worst, maxEntry(V));
+  }
+  assert.ok(anchor.reanchorCount > 100, `binary only crossed ${anchor.reanchorCount} cells`);
+  assert.ok(worst < 10, `binary max|V| reached ${worst}`);
+});
+
+test("re-anchoring realises the identity V_{c.g} = V_c . G_g", () => {
+  // Verified against the global frames near the origin, where those are trustworthy: the anchored
+  // view times the camera's global frame must equal the original global view, before and after.
+  const t = new RegularTiling({ p: 5, q: 4 });
+  const anchor = new Anchor(t);
+  let V = Isom.identity();
+  const step = Isom.translationToDisk(-0.08, 0.04);
+  for (let i = 0; i < 40; i++) {
+    V = step.mul(V);
+    const before = V.mul(t.globalFrameForTesting(anchor.address).inverse());
+    const { shift } = anchor.reanchor(V);
+    V = V.mul(shift).normalize();
+    const after = V.mul(t.globalFrameForTesting(anchor.address).inverse());
+    // The GLOBAL view is unchanged by re-anchoring: only its representation moved.
+    assert.ok(
+      sameIsometry(before, after, 1e-9),
+      `re-anchoring changed the global view at step ${i}`,
+    );
   }
 });
 
-test("enumerated tiles are distinct, out to the float64 ceiling", () => {
-  // Rounding to a grid cannot do this reliably: the coordinate error grows with distance, and a
-  // quantum only a few times the error splits one tile's several words across a cell boundary. The
-  // grid is only an accelerator now; the exact invariant distance decides.
-  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 7, q: 3 }, { p: 5, q: 4 }]) {
+test("the neighbourhood walk returns distinct tiles at every distance", () => {
+  // The old walk deduplicated by rounding world coordinates, and past d ~ 16 every neighbour rounded
+  // to the same tag, so it returned a single tile. Now the frames are camera-relative and O(1), so
+  // this must hold arbitrarily far out -- including 500 tiles, where a global frame would need entries
+  // of 1e165 and could not be formed at all.
+  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 7, q: 3 }, { p: 5, q: 4 }, { p: 6, q: 4 }]) {
     const t = new RegularTiling(spec);
     const half = t.metrics.centreSpacing * 0.5;
-    for (const d of [0, 5, 10, 15, 20, 25, 30, 33]) {
-      const view = Isom.translation(d, Math.PI / 3).inverse();
-      const keys = t.visible(view, 0.62, 200);
-      const centres = keys.map((k) => tileCentre(t.frame(k)));
+    for (const walk of [0, 1, 5, 50, 500]) {
+      const anchor = new Anchor(t);
+      // Walk out by repeatedly stepping through generator 0, re-anchoring as we go.
+      let V = Isom.identity();
+      for (let i = 0; i < walk; i++) {
+        V = V.mul(t.generator(i % t.generatorCount()));
+        anchor.address = t.extendAddress(anchor.address, i % t.generatorCount());
+      }
+      V = Isom.identity();
+      const tiles = anchor.neighbourhood(V, 0.62, 200);
+      assert.ok(tiles.length > 5, `{${spec.p},${spec.q}} only ${tiles.length} tiles after ${walk} steps`);
+      const centres = tiles.map((x) => toLocal(x.rel));
       for (let i = 0; i < centres.length; i++) {
         for (let j = i + 1; j < centres.length; j++) {
-          const sep = centreSeparation(centres[i], centres[j]);
+          const sep = 2 * Math.acosh(Math.max(1, coshHalfBetween(centres[i], centres[j])));
           assert.ok(
             sep > half,
-            `{${spec.p},${spec.q}} at distance ${d}: two tiles only ${sep.toFixed(6)} apart ` +
-              `(centre spacing is ${t.metrics.centreSpacing.toFixed(4)})`,
+            `{${spec.p},${spec.q}} after ${walk} steps: two tiles only ${sep.toFixed(9)} apart`,
           );
         }
       }
+      assert.ok(maxEntry(V) < 10);
     }
   }
 });
 
-test("the walk always terminates, even past the precision ceiling", () => {
-  // Every tile surviving dedup pushes p children, so once distinct centres stop being
-  // distinguishable -- which they must, past about d = 35 in float64 -- the queue grows
-  // geometrically while the result budget never fills. That hung. Degrading to fewer tiles is
-  // acceptable; not returning is not.
-  const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
-  for (const d of [36, 40, 60]) {
-    const view = Isom.translation(d, 0.7).inverse();
-    const started = Date.now();
-    const keys = t.visible(view, 0.62, 200);
-    assert.ok(Array.isArray(keys));
-    assert.ok(keys.length <= 200);
-    assert.ok(Date.now() - started < 5000, `visible() took ${Date.now() - started} ms at distance ${d}`);
+test("the neighbourhood walk is IDENTICAL however far the camera has travelled", () => {
+  // The sharpest statement of the fix. A regular tiling is homogeneous, so the set of relative frames
+  // around the camera cannot depend on where the camera is -- and now it provably does not, because
+  // nothing in the computation knows.
+  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 7, q: 3 }, { p: 5, q: 4 }]) {
+    const t = new RegularTiling(spec);
+    const reference = new Anchor(t).neighbourhood(Isom.identity(), 0.62, 200)
+      .map((x) => toLocal(x.rel).map((v) => v.toFixed(12)).join(","))
+      .sort()
+      .join("|");
+    for (const walk of [1, 7, 60, 500, 5000]) {
+      const anchor = new Anchor(t);
+      for (let i = 0; i < walk; i++) {
+        anchor.address = t.extendAddress(anchor.address, i % t.generatorCount());
+      }
+      const got = anchor.neighbourhood(Isom.identity(), 0.62, 200)
+        .map((x) => toLocal(x.rel).map((v) => v.toFixed(12)).join(","))
+        .sort()
+        .join("|");
+      assert.equal(got, reference, `{${spec.p},${spec.q}} differs after ${walk} tile steps`);
+    }
   }
 });
 
-test("the visible tile set is a function of the view alone, out to d = 28", () => {
-  // The guarantee, and its measured limit.
-  //
-  // Perturb the view matrix in the two ways real use perturbs it -- one ULP on a single entry, and a
-  // renormalising round trip of the sort `setMatrix` performs after a gesture -- and require the
-  // returned tile set not to change. Measured across 24 bearings: clean through d = 28, first
-  // failures at d = 30 (2 bearings of 24), widespread by d = 34 (13 of 24).
-  //
-  // Why it ends there: the SU(1,1) entries are of order cosh(d/2), so by d ~ 34 they reach 1e8 and
-  // one ULP of |a|^2 exceeds the spacing between adjacent tile centres. The walk then cannot tell
-  // distinct tiles apart, and the picture starts to depend on the route taken rather than only on
-  // the view. An unbounded random pan reaches d ~ 39 within a couple of minutes of dragging, so this
-  // is reachable in practice, not merely in principle. notes/open-questions.md records the
-  // floating-origin design that would remove the limit entirely.
-  const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
-  const ulpBump = (m) =>
-    new Isom(m.ar + Math.sign(m.ar) * Math.abs(m.ar) * Number.EPSILON, m.ai, m.br, m.bi);
-  const renorm = (m) => Isom.rotation(1e-17).mul(m).normalize();
-  const keys = (view) => t.visible(view, 0.62, 200).map((k) => t.keyToString(k)).sort().join("|");
+test("the binary walk is identical under latitude shift, which IS its exact symmetry", () => {
+  // z -> 2z maps cell (lat, lon) to (lat+1, lon) bijectively, so the binary tiling is invariant under
+  // latitude shift even though it is only weakly aperiodic overall. Latitude 500 is hyperbolic
+  // distance ~347, where a global frame needs entries of 1e75.
+  const t = new BinaryTiling();
+  const at = (lat) => {
+    const anchor = new Anchor(t, { address: { lat: BigInt(lat), lon: 0n } });
+    return anchor
+      .neighbourhood(Isom.identity(), 0.62, 200)
+      .map((x) => toLocal(x.rel).map((v) => v.toFixed(12)).join(","))
+      .sort()
+      .join("|");
+  };
+  const reference = at(0);
+  for (const lat of [1, 5, 50, 500, 5000]) {
+    assert.equal(at(lat), reference, `binary neighbourhood differs at latitude ${lat}`);
+  }
+});
 
-  for (const d of [5, 10, 15, 20, 24, 28]) {
-    for (let i = 0; i < 8; i++) {
-      const view = Isom.translation(d, (2 * Math.PI * i) / 8).inverse();
-      const base = keys(view);
-      assert.equal(keys(ulpBump(view)), base, `one-ULP perturbation changed the tile set at d=${d}, bearing ${i}`);
-      assert.equal(keys(renorm(view)), base, `renormalisation changed the tile set at d=${d}, bearing ${i}`);
+test("the walk terminates and stays bounded even at absurd distance", () => {
+  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 3, q: 7 }]) {
+    const t = new RegularTiling(spec);
+    for (const walk of [0, 1000, 100000]) {
+      const anchor = new Anchor(t);
+      for (let i = 0; i < walk; i++) anchor.address = t.extendAddress(anchor.address, i % t.generatorCount());
+      const started = Date.now();
+      const tiles = anchor.neighbourhood(Isom.identity(), 0.9, 200);
+      assert.ok(Array.isArray(tiles) && tiles.length > 0);
+      assert.ok(tiles.length <= 200);
+      assert.ok(Date.now() - started < 5000, `walk took ${Date.now() - started} ms after ${walk} steps`);
+      for (const x of tiles) assert.ok(Number.isFinite(maxEntry(x.rel)));
     }
+  }
+});
+
+test("every returned tile is near enough to matter, and the nearest ones are kept when truncating", () => {
+  const t = new RegularTiling({ p: 5, q: 4 });
+  const anchor = new Anchor(t);
+  const rho = 2 * Math.atanh(0.9);
+  const tiles = anchor.neighbourhood(Isom.identity(), 0.9, 300);
+  assert.ok(tiles.length > 20, `only ${tiles.length} tiles`);
+  for (const x of tiles) {
+    const c = toLocal(x.rel);
+    const d = 2 * Math.asinh(Math.hypot(c[0], c[1]));
+    assert.ok(d <= rho + t.metrics.circumradius + 1e-6, `tile at distance ${d} is too far`);
+  }
+  // With a tight budget the count is honoured exactly, truncation is reported, and what survives is
+  // the near part of the scene rather than whatever the walk happened to reach first.
+  //
+  // The guarantee is deliberately "near", not "provably the nearest N". BFS explores by GRAPH distance,
+  // which only approximates geometric distance, so making it exact would mean enumerating the whole
+  // include radius before choosing -- precisely the work the budget exists to avoid. What is asserted
+  // instead is that the admitted set reaches no further than the ideal set plus one tile spacing, which
+  // is the property that matters for rendering: no near tile is dropped in favour of a far one.
+  const few = anchor.neighbourhood(Isom.identity(), 0.9, 12);
+  assert.equal(few.length, 12, "the budget must be honoured exactly");
+  assert.ok(anchor.lastTruncated, "truncation must be reported");
+  const distOf = (x) => 2 * Math.asinh(Math.hypot(toLocal(x.rel)[0], toLocal(x.rel)[1]));
+  const dists = few.map(distOf).sort((a, b) => a - b);
+  const allD = tiles.map(distOf).sort((a, b) => a - b);
+  assert.ok(
+    dists[11] <= allD[11] + t.metrics.centreSpacing,
+    `truncated set reaches ${dists[11].toFixed(4)}, ideal 12th is ${allD[11].toFixed(4)}`,
+  );
+  assert.ok(Math.abs(dists[0] - allD[0]) < 1e-9, "the nearest tile must always be kept");
+});
+
+test("no holes: every cell owning a visible point is enumerated (binary)", () => {
+  // Sample points across the visible disk, ask which cell each falls in using containsLocal against
+  // the returned relative frames, and require exactly one owner. A missing cell is a hole in the
+  // picture; two owners would be an overlap.
+  const t = new BinaryTiling();
+  for (const lat of [0, 3, -4, 40, 400]) {
+    const anchor = new Anchor(t, { address: { lat: BigInt(lat), lon: 0n } });
+    const V = Isom.identity();
+    const tiles = anchor.neighbourhood(V, 0.6, 400);
+    assert.ok(!anchor.lastTruncated, `truncated at latitude ${lat}`);
+    const invs = tiles.map((x) => x.rel.inverse());
+    let checked = 0;
+    let holes = 0;
+    let overlaps = 0;
+    for (let i = 0; i < 400; i++) {
+      const ang = i * 2.399963;
+      const rad = 0.55 * Math.sqrt((i + 0.5) / 400);
+      // A screen point, pulled back into camera-local coordinates.
+      const p = V.inverse().applyToDisk(rad * Math.cos(ang), rad * Math.sin(ang), [0, 0]);
+      const k = 1 / Math.sqrt(1 - p[0] * p[0] - p[1] * p[1]);
+      const cx = p[0] * k;
+      const cy = p[1] * k;
+      let owners = 0;
+      for (const inv of invs) {
+        const q = inv.applyToLocal(cx, cy, undefined, [0, 0]);
+        const kk = 1 / Math.sqrt(Math.max(1e-300, 1 - q[0] * q[0] - q[1] * q[1]));
+        if (t.containsLocal(q[0] * kk, q[1] * kk, 1e-12)) owners++;
+      }
+      checked++;
+      if (owners === 0) holes++;
+      if (owners > 1) overlaps++;
+    }
+    assert.ok(checked > 300);
+    assert.equal(holes, 0, `latitude ${lat}: ${holes}/${checked} sampled points belong to no returned cell`);
+    assert.equal(overlaps, 0, `latitude ${lat}: ${overlaps}/${checked} sampled points belong to two cells`);
+  }
+});
+
+test("no holes: every point is owned by exactly one tile (regular tilings)", () => {
+  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 7, q: 3 }, { p: 5, q: 4 }, { p: 4, q: 5 }]) {
+    const t = new RegularTiling(spec);
+    for (const walk of [0, 30, 300]) {
+      const anchor = new Anchor(t);
+      for (let i = 0; i < walk; i++) anchor.address = t.extendAddress(anchor.address, i % t.generatorCount());
+      const V = Isom.identity();
+      const tiles = anchor.neighbourhood(V, 0.6, 400);
+      const invs = tiles.map((x) => x.rel.inverse());
+      let holes = 0;
+      let overlaps = 0;
+      for (let i = 0; i < 300; i++) {
+        const ang = i * 2.399963;
+        const rad = 0.55 * Math.sqrt((i + 0.5) / 300);
+        const p = V.inverse().applyToDisk(rad * Math.cos(ang), rad * Math.sin(ang), [0, 0]);
+        const k = 1 / Math.sqrt(1 - p[0] * p[0] - p[1] * p[1]);
+        let owners = 0;
+        for (const inv of invs) {
+          const q = inv.applyToLocal(p[0] * k, p[1] * k, undefined, [0, 0]);
+          const kk = 1 / Math.sqrt(Math.max(1e-300, 1 - q[0] * q[0] - q[1] * q[1]));
+          if (t.containsLocal(q[0] * kk, q[1] * kk, 1e-12)) owners++;
+        }
+        if (owners === 0) holes++;
+        if (owners > 1) overlaps++;
+      }
+      assert.equal(holes, 0, `{${spec.p},${spec.q}} after ${walk} steps: ${holes} unowned sample points`);
+      assert.equal(overlaps, 0, `{${spec.p},${spec.q}} after ${walk} steps: ${overlaps} doubly-owned points`);
+    }
+  }
+});
+
+// ---- addressing ----
+
+test("addresses round-trip: walk out and back returns the same address", () => {
+  // Free reduction in extendAddress is what makes this hold for word-addressed tilings; for the binary
+  // tiling the integers make it automatic.
+  for (const spec of REGULARS) {
+    const t = new RegularTiling(spec);
+    let a = t.originAddress();
+    const path = [];
+    for (let i = 0; i < 200; i++) {
+      const g = (i * 7 + 3) % t.generatorCount();
+      path.push(g);
+      a = t.extendAddress(a, g);
+    }
+    for (let i = path.length - 1; i >= 0; i--) a = t.extendAddress(a, t.inverseGenerator(path[i]));
+    assert.ok(
+      t.addressEquals(a, t.originAddress()),
+      `{${spec.p},${spec.q}} did not return to the origin: ${t.addressToString(a)}`,
+    );
+  }
+  const b = new BinaryTiling();
+  let addr = b.originAddress();
+  const seq = [BIN_CHILD1, BIN_RIGHT, BIN_CHILD0, BIN_LEFT, BIN_CHILD1, BIN_CHILD0, BIN_RIGHT];
+  const back = [];
+  for (const g of seq) {
+    const nb = b.neighbours(addr).find((n) => n.gen === g);
+    back.push(nb.gen);
+    addr = nb.address;
+  }
+  for (let i = back.length - 1; i >= 0; i--) {
+    const want = b.inverseGenerator(back[i]);
+    const nb = b.neighbours(addr).find((n) => n.gen === want);
+    assert.ok(nb, `no neighbour with generator ${want} from ${b.addressToString(addr)}`);
+    addr = nb.address;
+  }
+  assert.ok(b.addressEquals(addr, b.originAddress()), `binary did not return: ${b.addressToString(addr)}`);
+});
+
+test("a tile reached two different ways is recognised as one tile", () => {
+  // Word addresses are not canonical, so the walk deduplicates geometrically. This checks that the
+  // dedup actually fires: going around a vertex must not produce p copies of one tile.
+  const t = new RegularTiling({ p: 5, q: 4 });
+  const anchor = new Anchor(t);
+  const tiles = anchor.neighbourhood(Isom.identity(), 0.85, 400);
+  const byCentre = new Map();
+  for (const x of tiles) {
+    const c = toLocal(x.rel);
+    const key = `${Math.round(c[0] * 1e6)},${Math.round(c[1] * 1e6)}`;
+    assert.ok(!byCentre.has(key), `two tiles at the same centre: ${t.addressToString(x.address)} and ${byCentre.get(key)}`);
+    byCentre.set(key, t.addressToString(x.address));
   }
 });

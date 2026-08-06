@@ -87,9 +87,12 @@ try {
             ctx.save();
             ctx.strokeStyle = "rgba(0,0,0,0.35)";
             ctx.lineWidth = 1;
-            for (const key of tiling.visible(view.matrix, view.effectiveRadius, 200)) {
-              const net = view.matrix.mul(tiling.frame(key));
-              const pts = tiling.boundaryLocal.map((p) => {
+            // Draw the boundaries in the SAME frames the renderer just used. There is no global frame
+            // to rebuild them from any more, and that is the point: `net` is already the composed
+            // camera-relative transform, so this overlay is correct however far out the camera is.
+            for (const t of viewport.atlas.lastTiles) {
+              const net = t.net;
+              const pts = tiling.boundaryLocal().points.map((p) => {
                 const z = net.applyToLocal(p[0], p[1], undefined, [0, 0]);
                 return [z[0] * view.radius + view.cx, -z[1] * view.radius + view.cy];
               });

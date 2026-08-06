@@ -78,24 +78,23 @@ try {
   const numAt = HyperbolicMap.halfPlaneToLocal(0, 1.2 / SQRT2, [0, 0]);
   const numUp = HyperbolicMap.halfPlaneToLocal(0, 1.4 / SQRT2, [0, 0]);
 
-  // Start on the hero's room, cell (latitude -1, longitude 0), which prints as row 0 column 0.
-  const heroFrame = tiling.frame([-1, 0]);
-  const heroDisk = heroFrame.applyToDisk(0, 0, [0, 0]);
-  const heroK = 1 / Math.sqrt(1 - heroDisk[0] * heroDisk[0] - heroDisk[1] * heroDisk[1]);
-  const heroLocal = [heroDisk[0] * heroK, heroDisk[1] * heroK];
+  // Start on the hero's room, cell (latitude -1, longitude 0), which prints as row 0 column 0. The
+  // camera is ANCHORED to that cell, so the starting view is the identity in the cell's own frame --
+  // no global coordinate is computed for it at all.
+  const HERO = { lat: -1n, lon: 0n };
 
   let viewport = null;
   function build() {
     const clip = document.getElementById("clip").checked;
     const wantNumbers = document.getElementById("numbers").checked;
-    const keep = viewport ? viewport.getMatrix() : null;
+    const keep = viewport ? viewport.getCamera() : null;
     if (viewport) viewport.destroy();
 
     viewport = new HyperbolicMap.HyperbolicViewport({
       container: "#map",
       width: 620,
       height: 620,
-      center: heroLocal,
+      anchor: HERO,
       zoom: 2.2,
       minZoom: 0.5,
       maxZoom: 12,
@@ -109,14 +108,16 @@ try {
         // Three overlays merged here. The callback returns DATA, never URLs or geometry
         // transformations -- the library rotates each tile's contents into place.
         tileData: (tile) => {
-          const [lat, lon] = tile.key;
+          // Addresses are BigInt, exact at any depth: descending one latitude doubles the longitude,
+          // so a plain number stops being exact around fifty levels down.
+          const { lat, lon } = tile.key;
           const drawables = doc.room.slice();
           const chars = doc.critters[`${lat},${lon}`];
           if (chars) drawables.push(...chars);
           // The hero's room is left unlabelled, as in 2012.
-          if (wantNumbers && !(lat === -1 && lon === 0)) {
+          if (wantNumbers && !(lat === -1n && lon === 0n)) {
             drawables.push({
-              type: "text", text: String(-lat - 1), at: numAt, up: numUp,
+              type: "text", text: String(-lat - 1n), at: numAt, up: numUp,
               fill: "#000000", baseline: "bottom", align: "center",
             });
             drawables.push({
@@ -128,7 +129,7 @@ try {
         },
       },
     });
-    if (keep) viewport.setMatrix(keep);
+    if (keep) viewport.setCamera(keep);
     attachReadout(viewport, document.getElementById("readout"));
     window.viewport = viewport;
     window.tiling = tiling;
@@ -141,12 +142,10 @@ try {
   document.getElementById("go").addEventListener("click", () => {
     const row = parseInt(document.getElementById("row").value, 10) || 0;
     const col = parseInt(document.getElementById("col").value, 10) || 0;
-    const lat = -row - 1;
-    const lon = -col;
-    const frame = tiling.frame([lat, lon]);
-    const c = frame.applyToDisk(0, 0, [0, 0]);
-    const k = 1 / Math.sqrt(1 - c[0] * c[0] - c[1] * c[1]);
-    viewport.panTo(c[0] * k, c[1] * k);
+    // panToTile takes the ADDRESS, so this works at any depth -- no global frame is ever formed, and
+    // there is no coordinate to lose precision. The previous version built the cell's global frame and
+    // panned to its centre, which is exactly the pattern this rewrite removed.
+    viewport.panToTile({ lat: BigInt(-row - 1), lon: BigInt(-col) }, [0, 0]);
   });
 } catch (err) {
   errorBox(err);

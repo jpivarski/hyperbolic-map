@@ -19,10 +19,12 @@ import { Surface } from "./render/surface.js";
 import { PointerInput, clampToRadius } from "./input/pointer.js";
 import { geodesicArc, Arc } from "./render/geodesic.js";
 import { Atlas, CLIP_AUTO, CLIP_ALWAYS, CLIP_NEVER } from "./data/atlas/atlas.js";
-import { RegularTiling, BinaryTiling, regularMetrics, binaryCellCentreLocal, BINARY_LOCAL_HALF_WIDTH, BINARY_LOCAL_Y_LOW, BINARY_LOCAL_Y_HIGH } from "./data/atlas/tiling.js";
+import { Anchor } from "./data/atlas/anchor.js";
+import { RegularTiling, BinaryTiling, regularMetrics, binaryCellCentreLocal, BINARY_LOCAL_HALF_WIDTH, BINARY_LOCAL_Y_LOW, BINARY_LOCAL_Y_HIGH, BIN_RIGHT, BIN_LEFT, BIN_CHILD0, BIN_CHILD1, BIN_PARENT_EVEN, BIN_PARENT_ODD } from "./data/atlas/tiling.js";
 
 export {
   Atlas,
+  Anchor,
   CLIP_AUTO,
   CLIP_ALWAYS,
   CLIP_NEVER,
@@ -33,6 +35,12 @@ export {
   BINARY_LOCAL_HALF_WIDTH,
   BINARY_LOCAL_Y_LOW,
   BINARY_LOCAL_Y_HIGH,
+  BIN_RIGHT,
+  BIN_LEFT,
+  BIN_CHILD0,
+  BIN_CHILD1,
+  BIN_PARENT_EVEN,
+  BIN_PARENT_ODD,
   HyperbolicViewport,
   DEFAULT_OPTIONS,
   compileDrawables,

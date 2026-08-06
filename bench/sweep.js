@@ -199,11 +199,11 @@
     await settle(vp);
     // Three round trips, not one: promotion needs a few paints, and a single warm gesture still
     // left a step-0 difference of 11.36.
-    const warmFrom = vp.getMatrix();
+    const warmFrom = vp.getCamera();
     for (let i = 0; i < 3; i++) {
       await drag(mid[0], mid[1], mid[0] + 25, mid[1] - 15, 4);
       await settle(vp);
-      vp.setMatrix(warmFrom);
+      vp.setCamera(warmFrom);
       await settle(vp);
     }
 
@@ -241,12 +241,12 @@
         survivors: vp.stats.survivors,
         drawn: vp.stats.drawn,
       };
-      const m = vp.getMatrix();
+      const m = vp.getCamera();
 
 
       // Path independence: re-set the very same matrix and re-render. Same view must give the same
       // picture, whatever route led here.
-      vp.setMatrix(m);
+      vp.setCamera(m);
       await settle(vp);
       const sig2 = signature();
       let diff = compare(sig, sig2);

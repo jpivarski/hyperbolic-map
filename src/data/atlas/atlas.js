@@ -5,8 +5,13 @@
 //   * Data far from the origin loses precision when expressed in one global patch. At hyperbolic
 //     distance 20 a disk coordinate is 1 - 3.6e-9, so there are only ~7 significant digits left in
 //     the quantity that matters. Splitting the data into tiles means every coordinate is small and
-//     measured from its own tile's centre, and the tile's frame is built by multiplying generator
-//     matrices rather than derived from a huge number.
+//     measured from its own tile's centre.
+//
+//     Crucially, the tile's frame is never expressed relative to the WORLD either. Everything here is
+//     relative to the camera's own tile -- see anchor.js -- because a global frame has entries of
+//     order cosh(d/2) (1.08e75 at binary cell (500, 0)) and multiplying it by an equally large view
+//     matrix to obtain an O(1) screen position cancels away every digit. That was the original design
+//     and it is why this was rebuilt.
 //   * A repeating pattern becomes genuinely infinite: return the same tile data for every key.
 //
 // The tile -> data mapping is a callback that returns DATA, not URLs, so it can fetch, synthesise, or
@@ -16,8 +21,8 @@
 import { Isom } from "../../core/isom.js";
 import { compileDrawables } from "../drawable.js";
 import { geodesicArc, Arc } from "../../render/geodesic.js";
-import { BINARY_LOCAL_HALF_WIDTH, BINARY_LOCAL_Y_LOW, BINARY_LOCAL_Y_HIGH } from "./tiling.js";
 import { halfPlaneToLocal } from "../../core/coords.js";
+import { Anchor } from "./anchor.js";
 
 export const CLIP_AUTO = "auto";
 export const CLIP_ALWAYS = "always";
@@ -53,21 +58,14 @@ export class Atlas {
     this.cache = new Map();
     // key string -> promise, so concurrent frames do not issue duplicate requests
     this.pending = new Map();
-    this.frames = new Map();
-  }
-
-  frameFor(keyString, key) {
-    let f = this.frames.get(keyString);
-    if (!f) {
-      f = this.tiling.frame(key);
-      this.frames.set(keyString, f);
-    }
-    return f;
+    // The camera. Owned here so that the tiling, the walk and the cache all share one notion of where
+    // "here" is.
+    this.anchor = new Anchor(tiling);
   }
 
   // Ask for a tile's data. Returns the compiled drawables if they are ready, or null while a request
   // is outstanding. Never throws: a failing tile is reported and then skipped.
-  request(key, keyString, onReady) {
+  request(address, keyString, rel, onReady) {
     const hit = this.cache.get(keyString);
     if (hit) {
       // Refresh LRU position.
@@ -77,14 +75,15 @@ export class Atlas {
     }
     if (this.pending.has(keyString)) return null;
 
-    const frame = this.frameFor(keyString, key);
-    const centre = frame.applyToDisk(0, 0, [0, 0]);
+    // What the callback is told about the tile. Deliberately NOT a world frame -- there is no such
+    // thing here any more -- but the tile's address plus its position relative to the camera, which is
+    // all a provider can meaningfully use. The contract is unchanged in the way that matters: the
+    // callback returns data in TILE-LOCAL coordinates and the library places it.
     const tile = {
-      key: key.slice ? key.slice() : key,
+      key: address,
       id: keyString,
-      centreDisk: centre,
-      orientation: frame.screenRotation(),
-      frame: frame.clone(),
+      relativeFrame: rel.clone(),
+      centreRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
     };
 
     const p = Promise.resolve()
@@ -120,21 +119,34 @@ export class Atlas {
 
   // Build the render passes for the current view: one per visible tile, each with its own matrix and
   // clip path.
+  // The tiles the last render used, each with the composed matrix that placed it. Kept so overlays and
+  // diagnostics can work in the same frames the renderer used, instead of recomputing a global frame
+  // (which is what the outline overlay in the Escher demo used to do, and cannot any more).
+  //
+  // Populated by passes(); `net` maps tile-local coordinates straight to screen-disk coordinates.
+  lastTiles = [];
+
   passes(view, onReady) {
-    const keys = this.tiling.visible(view.matrix, view.effectiveRadius, this.maxTiles);
+    // `view.matrix` is the CAMERA-RELATIVE view when an atlas is present; the viewport re-anchors
+    // before every render so this stays O(1).
+    const Vc = view.matrix;
+    const tiles = this.anchor.neighbourhood(Vc, view.effectiveRadius, this.maxTiles);
     const out = [];
-    for (const key of keys) {
-      const keyString = this.tiling.keyToString(key);
-      const entry = this.request(key, keyString, onReady);
+    this.lastTiles = [];
+    for (const t of tiles) {
+      const keyString = this.tiling.addressToString(t.address);
+      const entry = this.request(t.address, keyString, t.rel, onReady);
       if (!entry || entry.drawables.length === 0) continue;
-      const frame = this.frameFor(keyString, key);
-      const net = view.matrix.mul(frame);
+      // The composition the whole rewrite is about: camera-relative view times camera-relative tile
+      // frame. Both factors O(1); no world frame is ever formed.
+      const net = Vc.mul(t.rel);
+      this.lastTiles.push({ address: t.address, id: keyString, net: net, rel: t.rel });
       const wantClip =
         this.clip === CLIP_ALWAYS || (this.clip === CLIP_AUTO && !entry.withinTile);
       out.push({
         drawables: entry.drawables,
         matrix: net,
-        clip: wantClip ? this.clipPathFor(key, net) : null,
+        clip: wantClip ? this.clipPathFor(net) : null,
       });
     }
     return out;
@@ -142,8 +154,8 @@ export class Atlas {
 
   // A clip region for one tile, expressed as a callback that traces the boundary into a canvas path.
   // Kept as a closure so the renderer does not need to know about tiling shapes.
-  clipPathFor(key, net) {
-    const b = this.tiling.boundary(key);
+  clipPathFor(net) {
+    const b = this.tiling.boundaryLocal();
     if (b.kind === "binary-cell") return binaryCellClip(net, b);
     return polygonClip(net, b.points);
   }
@@ -187,37 +199,59 @@ function polygonClip(net, localPoints) {
   };
 }
 
-// Clip to a binary-tiling cell. Its two vertical sides are geodesics and its two horizontal sides are
-// HOROCYCLES (circles internally tangent to the disk boundary), so this cannot reuse the polygon path
-// builder. Approximating each horocyclic side by a short polyline is exact enough at any zoom -- a
-// horocycle is very flat over one cell's width -- and avoids having to solve for tangency on screen.
+// Clip to a binary-tiling cell.
+//
+// The cell has FOUR sides and they are not alike: two are horocycles (y = const, circles internally
+// tangent to the disk boundary) and two are GEODESICS (x = const, circles orthogonal to it -- audit
+// claim 13). The first version sampled the horocyclic sides with twelve segments each, which is
+// plenty, but joined the two geodesic sides with a single straight lineTo.
+//
+// That was wrong by a measurable amount. The chord cuts inside the true arc by a sagitta of 0.004889
+// disk units, which is 1.5 px at zoom 1, 3.3 px at the dungeon's default zoom 2.2, and 9.1 px at
+// zoom 6 -- a visible band along every vertical cell boundary, and exactly the "clipping in the wrong
+// places" symptom. So both kinds of side are now sampled, each to a target pixel sagitta.
+//
+// Sampling in the tile's own half-plane and projecting each sample is what keeps this exact: every
+// sample lies ON the true curve, so the only error is the polyline's departure from it between
+// samples, which the step count controls.
 function binaryCellClip(net, box) {
   const hw = box.halfWidth;
   const yLow = box.yLow;
   const yHigh = box.yHigh;
-  const STEPS = 12;
-  // Trace the box boundary in the tile's own half-plane coordinates.
-  const ring = [];
-  for (let i = 0; i <= STEPS; i++) ring.push([-hw + (2 * hw * i) / STEPS, yLow]);
-  ring.push([hw, yLow]);
-  for (let i = 0; i <= STEPS; i++) ring.push([hw - (2 * hw * i) / STEPS, yHigh]);
-  ring.push([-hw, yHigh]);
-
-  const local = ring.map(([hx, hy]) => halfPlaneToLocal(hx, hy, [0, 0]));
 
   return (ctx, view) => {
     const scale = view.radius;
     const sx = view.cx;
     const sy = view.cy;
     const buf = [0, 0];
-    ctx.beginPath();
-    for (let i = 0; i < local.length; i++) {
-      net.applyToLocal(local[i][0], local[i][1], undefined, buf);
+
+    // Segment counts from the on-screen size of each side, so a zoomed-in cell is subdivided more.
+    // The 0.25 px target matches the renderer's own arc tolerance.
+    const spanPx = 2 * hw * scale;
+    const risePx = (yHigh - yLow) * scale;
+    const horoSteps = Math.max(8, Math.min(64, Math.ceil(Math.sqrt(spanPx / 0.25))));
+    const geoSteps = Math.max(8, Math.min(64, Math.ceil(Math.sqrt(risePx / 0.25))));
+
+    const emit = (hx, hy, first) => {
+      const l = halfPlaneToLocal(hx, hy, buf);
+      net.applyToLocal(l[0], l[1], undefined, buf);
       const X = buf[0] * scale + sx;
       const Y = -buf[1] * scale + sy;
-      if (i === 0) ctx.moveTo(X, Y);
+      if (first) ctx.moveTo(X, Y);
       else ctx.lineTo(X, Y);
-    }
+    };
+
+    ctx.beginPath();
+    // Bottom horocycle, left to right.
+    for (let i = 0; i <= horoSteps; i++) emit(-hw + (2 * hw * i) / horoSteps, yLow, i === 0);
+    // Right geodesic, bottom to top. Sampled logarithmically in y: the half-plane metric is dy/y, so
+    // equal hyperbolic steps are equal RATIOS, and uniform sampling in y would crowd the samples at
+    // the top while leaving the bottom coarse.
+    for (let i = 1; i <= geoSteps; i++) emit(hw, yLow * Math.pow(yHigh / yLow, i / geoSteps), false);
+    // Top horocycle, right to left.
+    for (let i = 1; i <= horoSteps; i++) emit(hw - (2 * hw * i) / horoSteps, yHigh, false);
+    // Left geodesic, top to bottom.
+    for (let i = 1; i < geoSteps; i++) emit(-hw, yHigh * Math.pow(yLow / yHigh, i / geoSteps), false);
     ctx.closePath();
     ctx.clip();
   };

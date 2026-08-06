@@ -76,6 +76,8 @@ window.compare = function (a, b) {
 window.frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
 window.setView = async function (cx, cy, zoom, rotation) {
+  // panTo is GLOBAL and stays correct here: this harness builds single-patch viewports, and in atlas
+  // mode it would throw rather than mislead once the camera left the origin tile.
   vp.panTo(cx, cy);
   vp.setZoom(zoom);
   vp.setRotation(rotation);
