@@ -769,3 +769,88 @@ than reported. The discipline that made the difference, in order of how much it 
    not.
 4. **Make the harness confirm before reporting.** Settle again and re-measure; a difference that
    does not survive that was never a difference.
+
+
+## 2026-08-06 — The atlas rebuilt: no global coordinate anywhere
+
+The user rejected the atlas on the right grounds: floating-point failures far from the origin are
+evidence of a wrong APPROACH, not of tolerances needing a nudge. The old `passes()` computed
+`net = view.matrix.mul(frame(key))`, two matrices with entries of order cosh(d/2) multiplied to give an
+O(1) result. Measured: the global frame of binary cell (500, 0) has entries of 1.08e75.
+
+Rebuilt as described in notes/math-audit.md. The one-line summary: the view is stored relative to the
+CAMERA'S OWN TILE, and every other tile's frame is a product of constant generators reached by walking
+from the camera. Nothing in the render path knows how far the camera has travelled, so nothing can
+depend on it.
+
+### The symbolic audit came first, and earned its keep
+
+31 claims, run before any implementation code. It found that `inside_octagon_local` in
+`fit_escher_tile.py` is not the perpendicular bisector of two tile centres -- at the edge midpoint,
+which must lie exactly on the boundary, its value is -0.63 at the {8,3} inradius. Harmless where it is
+used (that cutter deliberately over-includes and relies on render-time clipping) but it would have been
+a real bug in `containsLocal`, which re-anchoring and the ownership diagnostic both depend on. Caught
+for the price of writing the claim down.
+
+The first run reported 13 failures and every one was in the harness: comparing a sympy Matrix to the
+scalar 0 is always false; hyperbolic perfect squares survive `simplify()`; and claim 12 compared `G.P`
+without re-canonicalising the transported point. Plus a fourth defect in the REPORTING -- the flag
+separating "proved" from "sampled" was keyed off a variable that was always None, so numeric fallbacks
+were silently presented as proofs. In an audit harness.
+
+### The numerical audit, 60 digits, three cross-validated routes
+
+`tools/audit_atlas_numeric.py`. The oracle is computed three independent ways and its self-agreement is
+the gate before the code is judged at all. Over nine tilings at 0/1/5/50/500/5000 tiles:
+
+    anchored path      IDENTICAL at every distance, ~5e-16, growth factor 1.0
+    old global route   1e-17 near the origin, then 1e11, 1e63, 1e140, 1e273, and at
+                       5000 tiles all nine lose it entirely to overflow or NaN
+
+The contrast is the point. Without it, "the anchored path agrees at every distance" could just mean the
+test is insensitive.
+
+### The diagnostics, and what they caught
+
+`docs/tiling-diagnostics.html` with nine tilings, four motifs and jump buttons out to 5000 tiles.
+Deliberately plain artwork: an asymmetric hook per tile so orientation and handedness are readable, and
+a colour hashed from the address so geometry and addressing fail visibly and independently.
+
+Seven automated checks, all passing:
+
+1. near-origin ground truth -- anchored vs naive global agree to 8.7e-16 across nine tilings
+2. translation invariance -- **45/45 views BYTE-IDENTICAL** to the origin view at 1/5/50/500/5000 tiles
+3. tile ownership -- 6982/6982 pixels painted by the tile that contains them, with art deliberately
+   overflowing its tile so clipping has to trim it
+4. nothing outside the disk -- 0 stray pixels
+5. coverage -- 0 pixels showing background through a seam
+6. address round-trip -- 9/9 tilings restore the origin address after 300 random steps and back
+7. boundedness -- max|V| = 1.0000 at every distance; max relative-frame entry 2.8
+
+Three of these took a wrong turn first, and all three were the harness:
+
+* **Check 1 failed only for the binary tiling**, by 0.8 disk units. `view.matrix` is V_c = V . F_c, so
+  the global composite is `V_c . (F_c^-1 . F_k)`; omitting the `F_c^-1` works by accident for regular
+  tilings, whose origin tile is the empty word and hence the identity, but the binary origin CELL has
+  frame `z -> 2^0.5 z + 0.5`. The test was wrong, not the code.
+* **Check 3 was initially unable to fail.** Filling each tile exactly to its own boundary and then
+  clipping it to that boundary is a no-op: clipped and unclipped renders came out identical whether the
+  clip worked or not. Added an `over` motif that pushes the fill past the boundary, so clipping has
+  something to do.
+* **Check 2 reported 0/20 byte-identical**, with the same 28,841 channels differing at 5, 50 and 500
+  tiles. Saturating rather than growing, so not precision. The control settled it: the SAME view
+  rendered twice also differed by 28,841 channels, while two genuinely different views differed by 6 --
+  an alternating canvas state, Chrome's software/GPU promotion, which notes/legacy-decoded.md already
+  records as requiring a fresh canvas per capture. With a fresh viewport per capture the control is
+  exactly 0 and all 45 comparisons are byte-identical.
+
+Visual proof kept: the binary tiling at latitude 5000 (hyperbolic distance ~3470, where a global frame
+would need entries around 1e1500) renders with geometry identical to latitude 0, differing only in the
+hashed colours -- which is precisely what the colours are for.
+
+### Clipping
+
+The binary cell's two GEODESIC sides (x = const) were drawn as single straight chords. Measured
+sagitta 0.004889 disk units: 3.3 px at the dungeon's default zoom, 9.1 px at zoom 6, a visible band
+along every vertical cell boundary. Both kinds of side are now sampled to a pixel sagitta target, the
+geodesic ones logarithmically in y because the half-plane metric is dy/y. After: 0.0026 px at zoom 2.2.

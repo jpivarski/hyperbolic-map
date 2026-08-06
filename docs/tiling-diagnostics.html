@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiling diagnostics — hyperbolic-map-widget</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 1000px; padding: 16px; }
+  h1 { font-size: 1.3rem; }
+  .row { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  #map { flex: 0 0 auto; }
+  canvas { border: 1px solid #ccc; touch-action: none; }
+  .panel { flex: 1 1 300px; min-width: 280px; }
+  fieldset { border: 1px solid #ddd; margin: 0 0 10px; padding: 8px 10px; }
+  legend { font-weight: 600; font-size: 0.85rem; color: #444; }
+  label { display: block; font-size: 0.87rem; margin: 2px 0; }
+  select, button { font: inherit; }
+  #readout, #verdict { font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; }
+  #verdict { margin-top: 8px; }
+  .note { color: #555; font-size: 0.87rem; }
+  .ok { color: #060; } .bad { color: #a00; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Tiling diagnostics</h1>
+
+<p class="note">Deliberately plain artwork, so mistakes are obvious. Each tile carries the same
+<b>asymmetric</b> open line — a stroke from the tile centre to edge&nbsp;0's midpoint, then a hook
+turning one way, plus a dot at the centre. Handedness and orientation are both readable at a glance,
+so a mirrored, rotated or misplaced tile stands out. The stroke colour is a hash of the tile's
+address, so an addressing mistake shows as a wrong colour while the geometry stays right.</p>
+
+<p class="note"><b>The property to check by eye:</b> a regular tiling is homogeneous, so however far
+you scroll, the picture should look exactly as it did at the origin. Use the distance buttons to jump
+hundreds of tiles out and compare. <code>max|V|</code> in the readout is the number that matters
+underneath: it must stay near 1 forever.</p>
+
+<div class="row">
+  <div id="map"></div>
+  <div class="panel">
+    <fieldset>
+      <legend>tiling</legend>
+      <select id="tiling">
+        <option value="8,3,4">{8,3} with 4-fold tile symmetry (Circle Limit III's group)</option>
+        <option value="8,3,0">{8,3} octagons, edge half-turns</option>
+        <option value="7,3,0">{7,3} heptagons</option>
+        <option value="5,4,0">{5,4} pentagons, 4 per vertex</option>
+        <option value="4,5,0">{4,5} squares, 5 per vertex</option>
+        <option value="6,4,0">{6,4} hexagons, 4 per vertex</option>
+        <option value="3,7,0">{3,7} triangles, 7 per vertex</option>
+        <option value="12,3,0">{12,3} dodecagons</option>
+        <option value="binary">binary (Böröczky) cells</option>
+      </select>
+    </fieldset>
+    <fieldset>
+      <legend>artwork</legend>
+      <label><input type="radio" name="motif" value="asym" checked> asymmetric line (shows orientation)</label>
+      <label><input type="radio" name="motif" value="sym"> symmetrised (exactly tile-symmetric)</label>
+      <label><input type="radio" name="motif" value="fill"> flat fill (shows tile ownership)</label>
+      <label><input type="radio" name="motif" value="over"> overflowing fill (tests clipping)</label>
+      <label><input type="checkbox" id="hashColour" checked> colour by address hash</label>
+      <label><input type="checkbox" id="clip" checked> clip each tile to its own boundary</label>
+      <label><input type="checkbox" id="outline"> outline tile boundaries</label>
+    </fieldset>
+    <fieldset>
+      <legend>jump (tiles from here)</legend>
+      <button data-jump="1">1</button>
+      <button data-jump="5">5</button>
+      <button data-jump="50">50</button>
+      <button data-jump="500">500</button>
+      <button data-jump="5000">5000</button>
+      <button data-jump="0">back to origin</button>
+    </fieldset>
+    <div id="readout"></div>
+    <fieldset>
+      <legend>self-checks</legend>
+      <button id="run">run all checks</button>
+      <div id="verdict"></div>
+    </fieldset>
+  </div>
+</div>
+
+<script src="./lib/hyperbolic-map.iife.js"></script>
+<script type="module">
+import { errorBox } from "./demo/common.js";
+import { makeTiling, motifFor, colourFor, DIAG_TILINGS } from "./demo/diagnostics.js";
+
+try {
+  const H = window.HyperbolicMap;
+  let viewport = null;
+  let tiling = null;
+  let spec = null;
+
+  function options() {
+    return {
+      motif: document.querySelector('input[name="motif"]:checked').value,
+      hashColour: document.getElementById("hashColour").checked,
+      clip: document.getElementById("clip").checked,
+      outline: document.getElementById("outline").checked,
+    };
+  }
+
+  function build(keepCamera) {
+    const o = options();
+    const key = document.getElementById("tiling").value;
+    spec = DIAG_TILINGS[key];
+    const nextTiling = makeTiling(key);
+    const cam = keepCamera && viewport ? viewport.getCamera() : null;
+    if (viewport) viewport.destroy();
+    tiling = nextTiling;
+
+    viewport = new H.HyperbolicViewport({
+      container: "#map",
+      width: 560,
+      height: 560,
+      zoom: 0.95,
+      minZoom: 0.35,
+      maxZoom: 20,
+      interactRadius: 0.92,
+      background: "#ffffff",
+      rimFill: "#eeeeee",
+      atlas: {
+        tiling: tiling,
+        maxTiles: 260,
+        // Surface a failing tile loudly. By default a callback that throws is reported and the tile
+        // cached as empty, which keeps the page alive but is easy to miss -- and a silently empty tile
+        // looks exactly like a rendering bug. (It caught a real mistake here: this page first asked for
+        // `tile.address` before the atlas provided that alias.)
+        onTileError: (tile, err) => {
+          const el = document.getElementById("verdict");
+          el.innerHTML = `<span class="bad">FAIL</span> tile ${tile.id} failed: ${String(err)}`;
+        },
+        clip: o.clip ? "always" : "never",
+        // The callback returns DATA in tile-local coordinates and never does geometry. It is handed
+        // the tile's ADDRESS, which is what the colour hash keys off.
+        tileData: (tile) => ({
+          version: 1,
+          coordinates: "local",
+          drawables: motifFor(tiling, spec, tile.address, o),
+        }),
+      },
+      onAfterDraw: o.outline
+        ? (ctx, view) => {
+            ctx.save();
+            ctx.strokeStyle = "rgba(0,0,0,0.30)";
+            ctx.lineWidth = 1;
+            for (const t of viewport.atlas.lastTiles) drawBoundary(ctx, view, t.net);
+            ctx.restore();
+          }
+        : null,
+    });
+    if (cam) viewport.setCamera(cam);
+    window.viewport = viewport;
+    window.tiling = tiling;
+    window.diagSpec = spec;
+    window.diagOptions = options;
+    update();
+  }
+
+  // Outline in the SAME frames the renderer used: `net` is already the composed camera-relative
+  // transform, so this stays correct arbitrarily far out. There is no global frame to rebuild it from.
+  function drawBoundary(ctx, view, net) {
+    const b = tiling.boundaryLocal();
+    const buf = [0, 0];
+    const emit = (lx, ly, first) => {
+      net.applyToLocal(lx, ly, undefined, buf);
+      const X = buf[0] * view.radius + view.cx;
+      const Y = -buf[1] * view.radius + view.cy;
+      if (first) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    };
+    ctx.beginPath();
+    if (b.kind === "binary-cell") {
+      const N = 24;
+      const hp = (hx, hy) => H.halfPlaneToLocal(hx, hy, [0, 0]);
+      let first = true;
+      for (let i = 0; i <= N; i++) { const l = hp(-b.halfWidth + 2 * b.halfWidth * i / N, b.yLow); emit(l[0], l[1], first); first = false; }
+      for (let i = 1; i <= N; i++) { const l = hp(b.halfWidth, b.yLow * Math.pow(b.yHigh / b.yLow, i / N)); emit(l[0], l[1], false); }
+      for (let i = 1; i <= N; i++) { const l = hp(b.halfWidth - 2 * b.halfWidth * i / N, b.yHigh); emit(l[0], l[1], false); }
+      for (let i = 1; i < N; i++) { const l = hp(-b.halfWidth, b.yHigh * Math.pow(b.yLow / b.yHigh, i / N)); emit(l[0], l[1], false); }
+    } else {
+      b.points.forEach((p, i) => emit(p[0], p[1], i === 0));
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  function update() {
+    const s = viewport.stats;
+    const cam = viewport.getCamera();
+    const addr = tiling.addressToString(cam.address);
+    const shown = addr.length <= 30 ? addr : `${addr.slice(0, 14)}…${addr.slice(-10)} (${addr.length} chars)`;
+    document.getElementById("readout").textContent =
+      `tiling        ${spec.label}\n` +
+      `anchor tile   ${shown}\n` +
+      `max|V|        ${(s.maxViewEntry || 0).toFixed(6)}      <- must stay near 1 at any distance\n` +
+      `re-anchors    ${s.reanchorCount || 0}\n` +
+      `tiles drawn   ${viewport.atlas.lastTiles.length}${viewport.atlas.anchor.lastTruncated ? " (budget truncated)" : ""}\n` +
+      `drawables     ${s.drawn} of ${s.drawables}\n` +
+      `frame         ${s.frameMs ? s.frameMs.toFixed(1) + " ms" : "-"}`;
+  }
+
+  // Jump N tiles away by walking the ADDRESS only -- no global coordinate is formed, which is exactly
+  // why 5000 tiles is as cheap and as accurate as 1.
+  function jump(n) {
+    let address = n === 0 ? tiling.originAddress() : viewport.atlas.anchor.address;
+    let s = 2246 + n;
+    const rand = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    for (let i = 0; i < n; i++) {
+      const nbrs = tiling.neighbours(address);
+      address = nbrs[Math.floor(rand() * nbrs.length)].address;
+    }
+    viewport.panToTile(address, [0, 0]);
+    update();
+  }
+
+  document.getElementById("tiling").addEventListener("change", () => build(false));
+  for (const id of ["hashColour", "clip", "outline"]) {
+    document.getElementById(id).addEventListener("change", () => build(true));
+  }
+  for (const r of document.querySelectorAll('input[name="motif"]')) {
+    r.addEventListener("change", () => build(true));
+  }
+  for (const b of document.querySelectorAll("button[data-jump]")) {
+    b.addEventListener("click", () => jump(parseInt(b.dataset.jump, 10)));
+  }
+  document.getElementById("run").addEventListener("click", async () => {
+    const el = document.getElementById("verdict");
+    el.textContent = "running…";
+    const { runAllChecks } = await import("./demo/diagnostic-checks.js");
+    const res = await runAllChecks();
+    el.innerHTML = res.lines
+      .map((l) => `<span class="${l.ok ? "ok" : "bad"}">${l.ok ? "ok  " : "FAIL"}</span> ${l.text}`)
+      .join("\n");
+  });
+
+  build(false);
+  setInterval(update, 400);
+  window.rebuildDiagnostics = build;
+} catch (err) {
+  errorBox(err);
+}
+</script>
+</body>
+</html>
