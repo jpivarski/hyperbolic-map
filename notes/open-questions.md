@@ -136,6 +136,31 @@ the rest end 4 to 15 symbols away.** Two things were tried and neither closes it
   containing it in 4,500 of 4,500 frames -- but it cannot fix a word-theoretic problem;
 * free reduction, which by construction only cancels adjacent inverse pairs.
 
+### A sharper form of the same thing: generators of finite order
+
+**Measured, 2026-08-06.** The drift above is bounded in practice, but the underlying non-canonicality is
+not bounded at all, and there is a clean demonstration. For `{8,3}` with `frameSymmetry: 4` the steps are
+`2*pi/3` rotations about octagon *vertices* — legitimate edge-neighbour moves, since three octagons meet
+at a vertex and pairwise share edges — and such a rotation has **order 3**: `g0^3 = -I`, `g0^6 = +I`.
+
+So the word `"0.0.0.0.0"` has five symbols and names a tile **1.53 units** from the origin, and `g0^5000`
+names that same tile. Word length is not distance, and an address can grow without bound while the tile it
+names does not move.
+
+Consequences beyond spelling: nothing for geometry (the frame composes to the right isometry either way),
+but two practical ones.
+
+* Address strings can grow unboundedly along a bounded journey, so `addressToString` cost and word memory
+  are not bounded by distance travelled. The cons-cell representation keeps extension O(1) and the
+  compound-scroll stress reached only 3,203 symbols over 354 gestures, so this is a latent cost rather
+  than an observed problem — but it is not bounded by anything structural.
+* It defeats the obvious anti-vacuity guard in tests. Asserting `address.len >= n` does NOT establish that
+  an `n`-step walk went anywhere, and refusing to backtrack does not either. Two rounds of vacuous-walk
+  repair were spent learning this; `test/helpers.mjs` now measures real hyperbolic distance instead, and
+  `advanceAddress` throws rather than return a walk that stalled.
+
+Shortlex normalisation would fix the spelling; it would not make word length a distance.
+
 ### What it does and does not affect
 
 Not the geometry. The camera tile still contains the view centre, the picture is still a function of

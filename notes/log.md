@@ -1060,3 +1060,18 @@ Compass mode over 60 gestures and 197 re-anchors drifts north by **exactly 0**; 
 skip the compass pull-back drifts it 3.105 rad, so the check has teeth. The node-level version of that
 sensitivity is now a test too — the pre-existing "target stays on the ideal boundary" test would pass
 even if `rebase` ignored the target completely.
+
+### Also verified in the same pass
+
+* **The dungeon atlas, by address, at absurd depth.** `panToTile` to rooms (0,0), (3,1), (40,7),
+  (500,123), (5000,98765) and (100000,0) — the last about 69,300 hyperbolic units out. Every jump lands
+  on exactly the requested cell (BigInt equality), `max|V|` is **1.000** at all six, every relative frame
+  finite, 0 stray pixels, frame time 0.8 ms. Room 100000 draws identically to room 0. This is the
+  original complaint's page, now working at a depth where the old code could not form a frame at all.
+* **Zoom extremes.** 0.05 and 500 clamp to `minZoom`/`maxZoom` exactly; at zoom 40 a single tile fills the
+  disk with no truncation, no stray pixels, all frames finite.
+* **Hi-dpi.** devicePixelRatio 1, 2, 3: backing store scales (300/600/900 px), the disk scales with it,
+  painted fraction agrees to 0.2 % and the same CSS-relative points sample the same colours. 0 stray.
+  Worth noting the trap: the view's `cx/cy/radius` are CSS pixels while `getImageData` is device pixels,
+  so a naive stray-pixel test reports 207,698 stray pixels at dpr 2 on a perfectly correct canvas. That
+  was my measurement, not the renderer.
