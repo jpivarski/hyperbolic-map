@@ -11,8 +11,30 @@ import { Isom, localCompanion, movePointToPoint } from "./core/isom.js";
 import { localToDisk, diskToLocal, localRadiusToDistance, distanceToLocalRadius, localDistance, halfPlaneToLocal, localToHalfPlane } from "./core/coords.js";
 import { Cap, coshHalfDistance, coshHalfDistanceSquared, screenRadiusToThresholdSquared, capMayBeVisible, capThreshold } from "./core/minkowski.js";
 import { ViewState, ROTATION_PARALLEL_TRANSPORT, ROTATION_COMPASS } from "./core/view.js";
+import { HyperbolicViewport, DEFAULT_OPTIONS } from "./viewport.js";
+import { compileDrawables, readLegacyDrawable, DEFAULT_STYLE } from "./data/drawable.js";
+import { StaticSource, CallbackSource } from "./data/source.js";
+import { Renderer, CULL_CAP, CULL_ENDPOINTS } from "./render/renderer.js";
+import { Surface } from "./render/surface.js";
+import { PointerInput, clampToRadius } from "./input/pointer.js";
+import { geodesicArc, Arc } from "./render/geodesic.js";
 
 export {
+  HyperbolicViewport,
+  DEFAULT_OPTIONS,
+  compileDrawables,
+  readLegacyDrawable,
+  DEFAULT_STYLE,
+  StaticSource,
+  CallbackSource,
+  Renderer,
+  CULL_CAP,
+  CULL_ENDPOINTS,
+  Surface,
+  PointerInput,
+  clampToRadius,
+  geodesicArc,
+  Arc,
   ViewState,
   ROTATION_PARALLEL_TRANSPORT,
   ROTATION_COMPASS,

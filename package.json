@@ -1,7 +1,7 @@
 {
   "name": "hyperbolic-map-widget",
   "version": "0.1.0",
-  "description": "Interactive viewer for vector maps of the hyperbolic plane, drawn in the Poincaré disk. Zero dependencies.",
+  "description": "Interactive viewer for vector maps of the hyperbolic plane, drawn in the Poincar\u00e9 disk. Zero dependencies.",
   "keywords": [
     "hyperbolic",
     "poincare-disk",
@@ -32,7 +32,7 @@
   ],
   "scripts": {
     "check": "node tools/check-bundle.mjs",
-    "build": "node tools/check-bundle.mjs && node tools/build.mjs",
+    "build": "node tools/check-bundle.mjs && node tools/build.mjs && node -e \"require('fs').copyFileSync('dist/hyperbolic-map.iife.js','docs/lib/hyperbolic-map.iife.js')\"",
     "test": "node --test \"test/**/*.test.mjs\"",
     "bench": "node bench/bench.mjs",
     "serve": "python3 -m http.server --directory docs 8000"

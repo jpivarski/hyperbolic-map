@@ -216,3 +216,58 @@ cosh(d/2)` overflows a double. Two things came out of that:
 
 I kept the stress test (bounded to 1000 gestures) and set its threshold with headroom at 1e-12
 rather than tuning it to just pass the measured 2.8e-14.
+
+---
+
+## 2026-08-05 — Steps 4-6: rendering, input, widget, and the four examples (CHECKPOINT A)
+
+**What.** `src/data/{drawable,source}.js`, `src/render/{geodesic,renderer,surface}.js`,
+`src/input/pointer.js`, `src/viewport.js`, `test/{geodesic,input}.test.mjs`, `test/fake-dom.mjs`,
+`docs/{index,escher,dungeon,clock,relativity}.html` and `docs/demo/*`. 52 tests pass; all four
+examples verified rendering in Chrome via the DevTools MCP server.
+
+**Three bugs of my own, each caught a different way.** Worth recording because the *detection method*
+is the transferable part:
+
+1. **Arc sweep sense inverted** — caught by *looking at the screen*. The canvas y-flip negates the
+   angles, which also reverses the sweep direction, so every geodesic took the MAJOR arc and swept
+   outside the disk; the render looked like fish scattered across the whole canvas. The circle
+   parameters were all correct, so a test on those alone would have passed. Now pinned three ways: a
+   differential test against the 2011 edge computation including the boolean, and a test that walks
+   the swept arc and asserts every sample stays inside the disk.
+2. **Text size read as pixels** — caught by *comparing against the original*. The 2011 renderer set a
+   fixed `14pt` font and then applied `ctx.scale(size, size)`, so its `size` was a dimensionless
+   multiplier and its `MIN_TEXT_SIZE = 0.5` was too. Reading it as a pixel height makes every glyph
+   sub-pixel, so the clock face lost all 43,932 of its numerals — silently, because the code path
+   that skips small text is the same one. `notes/math-audit.md` had actually flagged the `ctx.scale`
+   detail; I noted it and then mis-implemented it anyway, which is an argument for testing against
+   the original rather than trusting one's own notes.
+3. **Cell enumeration negated** — caught by *the readout*. `dungeon.html` generated 3,600 room
+   drawables and drew them, but nothing was visible: I confused "centre" (the data point in the
+   middle of the screen) with the old "offset" (its negation), so every cell was generated on the
+   far side of the plane. The stats line saying `drawn 7744/8870` while the canvas was empty is what
+   made it obvious.
+
+**Room art verified by transcription diff, not by eye.** The dungeon rooms look like crosses rather
+than rooms, which was suspicious enough to check properly: a script now compares the JS arrays
+against `GeographicalTiles.writeDungeon` and confirms 7 polygons / 32 points match exactly, and the
+number anchors match. The cross plates really are what the 2012 art was. That same diff also
+confirmed the `ax`/`up` swap from the audit: the format string lists `"upx","upy","ax","ay"` while
+the arguments are `boxCenter, box1up`.
+
+**Design points.**
+
+- The renderer takes an array of *passes* (`{drawables, matrix}`), one per named source. That is what
+  makes the clock's hands a matrix change rather than a rebuild.
+- The rim annulus is bounded by the **interaction** radius, not the draw radius: that ring is what
+  you drag to rotate, so drawing it there is what makes the affordance visible.
+- Legacy behaviours that are *choices* rather than bugs are kept as options, so A/B comparison does
+  not need a checkout: `cullMode: "endpoints"` (the 2011 test that drops long crossing edges),
+  `arcMode: "fixed"` (its zoom-independent 0.1 threshold), `devicePixelRatio: 1`,
+  `radiusBasis: "width"`, `panClamp: false` (the freeze-past-the-rim behaviour).
+- Unknown option names throw. A silently ignored typo in an options object is a miserable way to
+  lose an afternoon.
+
+**This is CHECKPOINT A.** Still carrying the 2011 mathematical errors, deliberately:
+`coords.js` has both half-plane conversions in their original cancelling forms, and `updatePinch`
+uses arithmetic means. Checkpoint B replaces them.
