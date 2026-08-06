@@ -603,3 +603,54 @@ buffers directly gives **0 differing pixels out of 250,000**. This is Chrome pro
 from the software rasterizer to the GPU, which is already recorded in `notes/legacy-decoded.md`, and
 the two rasterizers antialias differently. Three warm gestures before measuring reduce but do not
 eliminate it. Not a library defect; left visible in the output rather than suppressed.
+
+
+## 2026-08-05 (night, later) — The regular-tiling walk collapsed far from the origin
+
+Found by panning the Escher atlas out along a geodesic: at hyperbolic distance 20 the screen showed
+**one lone octagon of fish surrounded by bare background**, where at distance 8 it showed thirteen
+tiles. Exactly the "polygons disappear" symptom, at long range.
+
+### Bug 8 — dedup by absolute world coordinates
+
+`RegularTiling.visible` deduplicated tile centres by rounding WORLD disk coordinates at an absolute
+1e-7. Adjacent centres are separated by tanh(inradius) near the origin but by only ~e^-d far out,
+where they crowd against the unit circle. Past d = 16 every neighbour of the starting tile rounded to
+the same tag, `seen` rejected all of them, and the walk stopped after one tile. The code's own comment
+said to quantise relative to the local spacing; the code did not.
+
+### The fix took three attempts, and the failures are the interesting part
+
+**Attempt 1 -- conjugate by the start frame.** Right idea: express centres relative to the starting
+tile, where the neighbourhood sits near the origin and spacing is O(1) again. But `ref` and `frame`
+both have entries of magnitude cosh(d/2), and their product is O(1) for a nearby tile: a cancellation.
+Keeping a fixed 1e-9 quantum made every word of the same tile land in a different cell, so the walk
+filled its entire budget with duplicates. Measured: 13 tiles at distance 8, then the full 200-tile cap
+at distance 15, of which 671 pairs were repeats.
+
+**Attempt 2 -- scale the quantum with the error.** A quantum only ~3x the error still splits a tile's
+words across a cell boundary a good fraction of the time. Duplicates persisted from d = 15.
+
+**Attempt 3 -- stop trying to make rounding reliable.** Grid rounding cannot be made reliable here,
+because there is no quantum that is simultaneously bigger than the error and smaller than the
+spacing at every distance. So the grid is now only an ACCELERATOR: a 5x5 neighbourhood is searched
+and every candidate is checked with the exact SU(1,1) invariant distance, two tiles being the same
+iff their centres are closer than half the centre spacing. Cell boundaries stop mattering, and
+making the cell too large is harmless -- it only means scanning more candidates.
+
+One more correction along the way: I sized the cell from the cancellation error alone,
+eps*cosh(d/2)^2. That is 25x too small, because `frame(key)` is already a product of ~d/(2*psi)
+generators and carries its own error before the two matrices are multiplied. The realistic figure at
+d = 30 is ~1e-2, not 6e-4, and duplicates at exactly d = 30 were the evidence.
+
+**Result: no duplicates out to d = 33** for {8,3}, {7,3} and {5,4}, verified with an exact test
+independent of the code's own dedup. It breaks at d = 36, which is the float64 ceiling for a single
+patch documented in `notes/su11-core.md` -- past there, distinct tile centres genuinely cannot be
+told apart, and no dedup scheme can fix it.
+
+### Bug 9 — the walk could run away and never return
+
+Every tile surviving dedup pushes p children, so when dedup fails the queue grows geometrically while
+the result budget never fills. A sweep out to distance 36 simply stopped returning. There is now a
+hard bound on dequeues, separate from the bound on results, and `lastTruncated` reports it. Degrading
+to fewer tiles is acceptable; hanging is not.

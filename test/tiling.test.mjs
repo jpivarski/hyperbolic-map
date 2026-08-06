@@ -318,3 +318,72 @@ test("truncation is reported, never silent", () => {
   t.visible(view, 0.5, 512);
   assert.equal(t.lastTruncated, false);
 });
+
+// Tile centres, and the exact SU(1,1) test for "is this the same tile?" -- deliberately independent
+// of whatever the code under test uses to deduplicate.
+function tileCentre(frame) {
+  const b = frame.applyToDisk(0, 0, [0, 0]);
+  const k = 1 / Math.sqrt(Math.max(1e-300, 1 - b[0] * b[0] - b[1] * b[1]));
+  const x = b[0] * k;
+  const y = b[1] * k;
+  return [x, y, Math.sqrt(1 + x * x + y * y)];
+}
+function centreSeparation(p, q) {
+  const A = p[2] * q[2] - p[0] * q[0] - p[1] * q[1];
+  const B = p[0] * q[1] - p[1] * q[0];
+  return 2 * Math.acosh(Math.max(1, Math.hypot(A, B)));
+}
+
+test("REGRESSION: the walk does not collapse to one tile far from the origin", () => {
+  // BFS deduplicated tile centres by rounding WORLD disk coordinates at an absolute 1e-7. Adjacent
+  // centres are separated by ~e^-d out there, so beyond d = 16 every neighbour of the start rounded
+  // to the same tag, `seen` rejected all of them, and the walk stopped after a single tile. On the
+  // Escher atlas that was one lone octagon of fish surrounded by bare background.
+  const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  for (const d of [0, 10, 20, 25, 30]) {
+    const view = Isom.translation(d, Math.PI / 3).inverse();
+    const keys = t.visible(view, 0.62, 200);
+    assert.ok(keys.length > 5, `only ${keys.length} tiles at distance ${d}`);
+  }
+});
+
+test("enumerated tiles are distinct, out to the float64 ceiling", () => {
+  // Rounding to a grid cannot do this reliably: the coordinate error grows with distance, and a
+  // quantum only a few times the error splits one tile's several words across a cell boundary. The
+  // grid is only an accelerator now; the exact invariant distance decides.
+  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 7, q: 3 }, { p: 5, q: 4 }]) {
+    const t = new RegularTiling(spec);
+    const half = t.metrics.centreSpacing * 0.5;
+    for (const d of [0, 5, 10, 15, 20, 25, 30, 33]) {
+      const view = Isom.translation(d, Math.PI / 3).inverse();
+      const keys = t.visible(view, 0.62, 200);
+      const centres = keys.map((k) => tileCentre(t.frame(k)));
+      for (let i = 0; i < centres.length; i++) {
+        for (let j = i + 1; j < centres.length; j++) {
+          const sep = centreSeparation(centres[i], centres[j]);
+          assert.ok(
+            sep > half,
+            `{${spec.p},${spec.q}} at distance ${d}: two tiles only ${sep.toFixed(6)} apart ` +
+              `(centre spacing is ${t.metrics.centreSpacing.toFixed(4)})`,
+          );
+        }
+      }
+    }
+  }
+});
+
+test("the walk always terminates, even past the precision ceiling", () => {
+  // Every tile surviving dedup pushes p children, so once distinct centres stop being
+  // distinguishable -- which they must, past about d = 35 in float64 -- the queue grows
+  // geometrically while the result budget never fills. That hung. Degrading to fewer tiles is
+  // acceptable; not returning is not.
+  const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  for (const d of [36, 40, 60]) {
+    const view = Isom.translation(d, 0.7).inverse();
+    const started = Date.now();
+    const keys = t.visible(view, 0.62, 200);
+    assert.ok(Array.isArray(keys));
+    assert.ok(keys.length <= 200);
+    assert.ok(Date.now() - started < 5000, `visible() took ${Date.now() - started} ms at distance ${d}`);
+  }
+});

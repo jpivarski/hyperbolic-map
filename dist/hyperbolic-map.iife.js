@@ -2099,6 +2099,7 @@ class RegularTiling {
   // walk CONTINUES through a slightly larger radius, so that a tile touching only at a vertex is
   // still reachable via a neighbour that was itself included.
   visible(viewMatrix, visibleRadius, maxTiles = 256) {
+    this.lastTruncated = false;
     const rho = 2 * Math.atanh(Math.min(visibleRadius, 0.9995));
     const chi = this.metrics.circumradius;
     const includeCosh = Math.cosh((rho + chi) / 2);
@@ -2124,27 +2125,115 @@ class RegularTiling {
     };
 
     const start = this.locate(viewMatrix, maxTiles);
-    const seen = new Set();
     const out = [];
     const queue = [start];
-    const mark = (frame) => {
-      frame.applyToDisk(0, 0, buf);
-      // Adjacent tile centres are separated by tanh(inradius) in disk coordinates near the origin and
-      // by ~e^-d far out, so quantise relative to the local spacing rather than absolutely.
-      return `${Math.round(buf[0] * 1e7)},${Math.round(buf[1] * 1e7)}`;
+
+    // Deduplicate tile centres RELATIVE TO THE STARTING TILE, not in world coordinates.
+    //
+    // Adjacent tile centres are separated by tanh(inradius) in disk coordinates near the origin but
+    // by only ~e^-d far out, where they crowd against the unit circle. An earlier version quantised
+    // world disk coordinates at an absolute 1e-7 -- so beyond d ~ 16 every neighbour of the starting
+    // tile rounded to the SAME tag, `seen` rejected all of them, and the walk stopped after one tile.
+    // Measured on the Escher atlas: 13 tiles at distance 15, exactly 1 at distance 20 and beyond, a
+    // single lone octagon of fish surrounded by bare background.
+    //
+    // Conjugating by the start frame moves the neighbourhood back to the origin, where the spacing is
+    // O(1) again, so a fixed quantum has enormous margin. The remaining scale dependence -- tiles far
+    // from the START rather than from the world origin -- is handled by making the quantum relative
+    // to the magnitude.
+    // Rounding coordinates to a grid cannot be made reliable here, and trying was a mistake worth
+    // recording. The precision available degrades with distance -- `ref` and `frame` both have
+    // entries of magnitude cosh(d/2), and their product is O(1) for a nearby tile, a cancellation
+    // costing about eps*cosh(d/2)^2 -- so the quantum has to grow with distance. But a quantum only
+    // three times the error still splits a tile's several words across a cell boundary a good
+    // fraction of the time, and each split is a duplicate. Measured: 115 tiles returned at distance
+    // 15 where about 12 are visible, 671 of the pairs being repeats of one another.
+    //
+    // So the grid is now only an ACCELERATOR, and every candidate it retrieves is checked with the
+    // exact SU(1,1) invariant distance. Cell boundaries no longer matter, because a 5x5 neighbourhood
+    // is searched and the verdict comes from the exact test: two tiles are the same iff their centres
+    // are closer than half the centre spacing, a threshold ~1e9 times the error.
+    // The grid cell must exceed the coordinate error, or one tile's two words land more than two
+    // cells apart and the 5x5 search never compares them. Making the cell TOO large is harmless --
+    // it only means scanning more candidates, since the exact test below decides -- so err large.
+    //
+    // The error is not merely the cancellation in ref*frame. `frame(key)` is a product of ~d/(2*psi)
+    // generators whose entries reach cosh(d/2), so it already carries an absolute error of about
+    // depth*eps*cosh(d/2); multiplying two such matrices squares that magnitude. At distance 30 the
+    // realistic figure is ~1e-2, not the 6e-4 the cancellation alone suggests -- a factor of 25 I
+    // got wrong first time, and duplicates at d=30 were the evidence.
+    //
+    // Distinct tile centres are about 0.3 apart in these coordinates, so once the error approaches
+    // that, no test can tell tiles apart. That is the real ceiling, and it is the float64 limit of a
+    // single patch (notes/su11-core.md) rather than anything this dedup can fix.
+    const ref = this.frame(start).inverse();
+    const relative = new Isom(0, 0, 0, 0);
+    const refMag2 = ref.ar * ref.ar + ref.ai * ref.ai; // cosh(d/2)^2
+    const CELL = Math.max(1e-4, 1.2e-13 * refMag2);
+    const dupCosh = Math.cosh(this.metrics.centreSpacing / 4); // cosh(d/2) at d = spacing/2
+    const grid = new Map();
+    const accX = [];
+    const accY = [];
+    const accW = [];
+
+    // True if this tile centre has already been accepted; otherwise records it and returns false.
+    const seenBefore = (frame) => {
+      Isom.composeInto(relative, ref, frame);
+      relative.applyToDisk(0, 0, buf);
+      const zx = buf[0];
+      const zy = buf[1];
+      const k = 1 / Math.sqrt(Math.max(1e-300, 1 - zx * zx - zy * zy));
+      const lx = zx * k;
+      const ly = zy * k;
+      const lw = Math.sqrt(1 + lx * lx + ly * ly);
+      const gx = Math.floor(zx / CELL);
+      const gy = Math.floor(zy / CELL);
+      for (let dx = -2; dx <= 2; dx++) {
+        for (let dy = -2; dy <= 2; dy++) {
+          const bucket = grid.get(`${gx + dx},${gy + dy}`);
+          if (!bucket) continue;
+          for (let i = 0; i < bucket.length; i++) {
+            const j = bucket[i];
+            const A = accW[j] * lw - accX[j] * lx - accY[j] * ly;
+            const B = accX[j] * ly - accY[j] * lx;
+            if (Math.hypot(A, B) < dupCosh) return true;
+          }
+        }
+      }
+      const home = `${gx},${gy}`;
+      let bucket = grid.get(home);
+      if (!bucket) {
+        bucket = [];
+        grid.set(home, bucket);
+      }
+      bucket.push(accX.length);
+      accX.push(lx);
+      accY.push(ly);
+      accW.push(lw);
+      return false;
     };
 
+    // A hard bound on dequeues, independent of the budget on RESULTS. Every tile that survives dedup
+    // pushes p children, so if dedup ever fails -- and past the float64 ceiling around d = 35 it must,
+    // because distinct tile centres stop being distinguishable -- the queue grows geometrically while
+    // `out` never fills, and the walk runs away. Found by hanging: a sweep out to distance 36 stopped
+    // returning. Degrading to fewer tiles is acceptable; not returning is not.
+    let examined = 0;
+    const maxExamined = 24 * maxTiles;
     while (queue.length && out.length < maxTiles) {
+      if (++examined > maxExamined) {
+        this.lastTruncated = true;
+        break;
+      }
       const key = queue.shift();
       const frame = this.frame(key);
-      const tag = mark(frame);
-      if (seen.has(tag)) continue;
-      seen.add(tag);
+      if (seenBefore(frame)) continue;
       const ch = coshHalfTo(frame);
       if (ch > walkCosh) continue;
       if (ch <= includeCosh) out.push(key);
       for (let g = 0; g < this.generators.length; g++) queue.push(key.concat([g]));
     }
+    if (out.length >= maxTiles && queue.length) this.lastTruncated = true;
     return out;
   }
 
