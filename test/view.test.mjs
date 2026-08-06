@@ -225,15 +225,22 @@ test("commit renormalises, so repeated gestures cannot drift off the manifold", 
   assert.ok(worst < 1e-12, `off-manifold by ${worst}`);
 });
 
-test("the representation overflows only past hyperbolic distance ~1400", () => {
+test("the overflow ceilings: ~710 for the action, ~1420 for the representation", () => {
   // The hard ceiling of a single global patch: |a| = cosh(d/2), and a double overflows at ~1.8e308,
   // so d ~ 2*acosh(1.8e308) ~ 1419. Recorded as a test so the limit is a known quantity rather
   // than a surprise, and because it is one of the structural arguments for the atlas -- tile-local
   // coordinates never form a number anywhere near this.
   const ok = Isom.translation(1400, 0.3);
-  assert.ok(Number.isFinite(ok.ar) && Number.isFinite(ok.br), "d = 1400 should still be finite");
+  assert.ok(Number.isFinite(ok.ar) && Number.isFinite(ok.br), "d = 1400 should still be representable");
   const overflowed = Isom.translation(1440, 0.3);
-  assert.ok(!Number.isFinite(overflowed.ar), "d = 1440 is expected to overflow");
+  assert.ok(!Number.isFinite(overflowed.ar), "d = 1440 is expected to overflow the entries");
+
+  // The ACTION gives out earlier, because it squares the denominator: entries near 1e154 square to
+  // near 1e308. So applying a transform is usable to about d = 710, not 1420.
+  const acts = Isom.translation(700, 0.3).applyToDisk(0.2, -0.1, [0, 0]);
+  assert.ok(Number.isFinite(acts[0]) && Number.isFinite(acts[1]), "d = 700 should still act");
+  const cannot = Isom.translation(1000, 0.3).applyToDisk(0.2, -0.1, [0, 0]);
+  assert.ok(!Number.isFinite(cannot[0]), "d = 1000 is expected to overflow the action");
   // Well inside the range anything real uses, the round trip is exact.
   const m = Isom.translation(40, 1.1);
   assert.ok(Math.abs(m.distanceMoved() - 40) < 1e-9, `distanceMoved gave ${m.distanceMoved()}`);

@@ -107,6 +107,13 @@ export class Renderer {
 
     if (passes && passes.length) {
       for (const pass of passes) {
+        // A pass may carry a clip region: that is how atlas tiles abut without overlapping. Each is
+        // a closure that traces the tile boundary and calls ctx.clip(), so the renderer stays
+        // ignorant of tiling shapes (geodesic polygons vs. horocyclic cells).
+        if (pass.clip) {
+          ctx.save();
+          pass.clip(ctx, view);
+        }
         this.drawContent(ctx, view, pass.drawables, pass.matrix, {
           cullMode,
           arcMode,
@@ -114,6 +121,7 @@ export class Renderer {
           minTextPx,
           minFeaturePx,
         });
+        if (pass.clip) ctx.restore();
       }
     }
 

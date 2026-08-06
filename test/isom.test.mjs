@@ -297,3 +297,35 @@ test("Cap.enclosing actually encloses", () => {
     }
   }
 });
+
+test("normalize is stable across the whole representable range", () => {
+  // Spot-check both branches of the diagonal rebuild, across the whole USABLE range.
+  //
+  // The usable ceiling is set by the ACTION, not the representation. applyTo* forms
+  // dr*dr + di*di, which overflows once the matrix entries pass ~1e154, i.e. cosh(d/2) ~ 1e154,
+  // i.e. hyperbolic distance ~710 -- half the ~1420 at which the entries themselves overflow.
+  // Beyond that the result is NaN rather than merely imprecise.
+  //
+  // Rescaling the denominator would fix it at the cost of two divisions per point in the hottest
+  // loop in the library, which is not a trade worth making for distances no data can reach: e^710
+  // is past any conceivable map, and the dungeon's own extreme is 20. Documented rather than fixed;
+  // if that ever changes, scale by max(|dr|, |di|) before dividing.
+  for (const d of [0, 1e-8, 1, 10, 20, 37, 40, 100, 400, 700]) {
+    const m = Isom.translation(d, 0.7).mul(Isom.rotation(0.3));
+    const beforeCentre = m.applyToDisk(0.2, -0.1, [0, 0]);
+    m.normalize();
+    const afterCentre = m.applyToDisk(0.2, -0.1, [0, 0]);
+    assert.ok(Number.isFinite(m.ar) && Number.isFinite(m.br), `not finite at d = ${d}`);
+    const modA = Math.hypot(m.ar, m.ai);
+    const modB = Math.hypot(m.br, m.bi);
+    // The constructive manifold condition.
+    const rel = Math.abs(modA - Math.sqrt(1 + modB * modB)) / modA;
+    assert.ok(rel < 1e-15, `off-manifold by ${rel} at d = ${d}`);
+    // And the action must not have moved.
+    assert.ok(
+      Math.hypot(beforeCentre[0] - afterCentre[0], beforeCentre[1] - afterCentre[1]) < 1e-12,
+      `normalize changed the action at d = ${d}`,
+    );
+    if (d > 0) assert.ok(Math.abs(m.distanceMoved() - d) / d < 1e-9, `distance drifted at d = ${d}`);
+  }
+});

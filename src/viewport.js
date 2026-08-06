@@ -13,6 +13,7 @@ import { Renderer, CULL_CAP } from "./render/renderer.js";
 import { PointerInput } from "./input/pointer.js";
 import { StaticSource, CallbackSource } from "./data/source.js";
 import { DEFAULT_STYLE } from "./data/drawable.js";
+import { Atlas } from "./data/atlas/atlas.js";
 
 export const DEFAULT_OPTIONS = {
   container: null,
@@ -25,6 +26,7 @@ export const DEFAULT_OPTIONS = {
 
   data: null,
   dataProvider: null,
+  atlas: null,
   styles: null,
 
   center: null,
@@ -164,6 +166,14 @@ export class HyperbolicViewport {
       });
     }
 
+    // The atlas, if configured, contributes one render pass per visible tile.
+    this.atlas = null;
+    if (opts.atlas) {
+      this.atlas = new Atlas(
+        Object.assign({ styleSheet: this.styleSheet }, opts.atlas),
+      );
+    }
+
     this.layers = (opts.layers || []).slice().sort((a, b) => (a.z || 0) - (b.z || 0));
     for (const layer of this.layers) if (layer.attach) layer.attach(this);
 
@@ -220,6 +230,9 @@ export class HyperbolicViewport {
         drawables: drawables,
         matrix: entry.transform ? view.matrix.mul(entry.transform) : view.matrix,
       });
+    }
+    if (this.atlas) {
+      for (const p of this.atlas.passes(view, () => this.invalidate())) passes.push(p);
     }
     this.renderer.draw(this.surface.context, view, passes, {
       background: this.options.background,

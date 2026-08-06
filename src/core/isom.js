@@ -102,12 +102,16 @@ export class Isom {
     const modA = Math.hypot(this.ar, this.ai);
     if (!(modA > 0) || !Number.isFinite(modA)) return this;
     const theta = 2 * Math.atan2(this.ai, this.ar);
-    // beta = b * conj(a) / |a|  -- the exact translation part
+    // Polar decomposition M = Rot(theta) . T(beta), so beta = b * conj(a)/|a| = b * e^{-i theta/2}.
+    // Note |beta| = |b|: this is a LOCAL coordinate (sinh(d/2)), not a disk coordinate.
     const betaR = (this.br * this.ar + this.bi * this.ai) / modA;
     const betaI = (this.bi * this.ar - this.br * this.ai) / modA;
     const modBeta2 = betaR * betaR + betaI * betaI;
-    // sqrt(1 + |beta|^2) loses the 1 once |beta| ~ 1e8 (d ~ 37); use the factored form there.
-    const w = modBeta2 > 1e15 ? Math.sqrt((modA - 1) * (modA + 1)) : Math.sqrt(1 + modBeta2);
+    // The rebuilt diagonal is sqrt(1 + |beta|^2). Once |beta| exceeds about 1e8 (hyperbolic distance
+    // ~37) the `1` is below the ulp of |beta|^2 and the sum is exactly |beta|^2, so the square root
+    // just returns |beta| -- at which point |a| (which we already have to full precision, with no
+    // cancellation, from hypot) is the better answer. Both agree to ~1/(2|a|^2).
+    const w = modBeta2 > 1e15 ? modA : Math.sqrt(1 + modBeta2);
     const c = Math.cos(theta / 2);
     const s = Math.sin(theta / 2);
     this.ar = c * w;
@@ -208,8 +212,12 @@ export class Isom {
   }
 
   // Hyperbolic distance from the origin to this isometry's image of the origin.
+  //
+  // Read from |b| = sinh(d/2), not |a| = cosh(d/2): cosh(d/2) rounds to exactly 1.0 for any
+  // d below about 3e-8, so the acosh route silently reports zero for small translations. sinh is
+  // well conditioned at both ends.
   distanceMoved() {
-    return 2 * Math.acosh(Math.max(1, Math.hypot(this.ar, this.ai)));
+    return 2 * Math.asinh(Math.hypot(this.br, this.bi));
   }
 }
 

@@ -311,3 +311,66 @@ Checkpoint A in the git history still has the originals, so the two commits can 
 **Verified in the browser.** All four examples still render after the swap. The dungeon zoomed out to
 0.5 shows the world-turtle carrying the disk across a star field — the 2012 look, produced entirely
 from `docs/demo/layers.js` with no turtle-specific code anywhere in `src/`.
+
+---
+
+## 2026-08-05 — The atlas feature (CHECKPOINT E)
+
+**What.** `src/data/atlas/{tiling,atlas}.js`, per-tile clipping in the renderer, an `atlas` option on
+the viewport, `tools/{fit_escher_tile,make_dungeon_atlas}.py`, and
+`docs/{escher-atlas,dungeon-atlas}.{html,json}`. `test/tiling.test.mjs`. 78 tests pass.
+
+**Both tilings, because they answer different questions.** Regular `{p,q}` is tile-transitive, so
+repeating one tile gives a genuinely group-invariant pattern — that is what Escher needs. The binary
+(Böröczky) tiling is *not* tile-transitive (it is only weakly aperiodic, symmetry group essentially
+`⟨z ↦ 2z⟩`), so it can never do that; what it gives instead is O(1) point-to-cell lookup from two
+`floor`s and a well-defined per-cell frame, which is what a *map* wants — and is why the 2011 server
+chose it. Using either one for the other's job would be a mistake.
+
+**`frameSymmetry` is the load-bearing option.** Repeating identical data in every tile yields a
+consistent pattern only if the art is invariant under the tile's stabiliser in the walk group. For
+Circle Limit III on `{8,3}` under `433` that stabiliser is **C₄, not C₈**, so the walk must avoid both
+the 8-fold rotation *and* the edge-midpoint half-turn (`433` has no order-2 points at all). The
+half-turn is the natural general-purpose generator, so this is a real trap; `RegularTiling` switches
+to 3-fold rotations about alternate vertices when `frameSymmetry < p`, which is exactly Escher's own
+"connect alternate vertices" construction.
+
+**Two bugs found, one by a test and one by the bundle test.**
+
+1. The binary frame's closed form had `b`'s real and imaginary parts swapped. Caught by comparing
+   against the actual matrix product `C·A·C⁻¹` rather than trusting the hand algebra — worth doing
+   whenever a closed form replaces a product.
+2. `renderer.js` and `atlas.js` both declared a module-private `const arc`. Legal ESM, a
+   `SyntaxError` once concatenated into the single-scope bundle. The bundle test caught it, and it
+   revealed a genuine gap in `tools/check-bundle.mjs`, which only checked *exported* names. It now
+   checks top-level private declarations too.
+
+**Two more precision findings, both now pinned by tests.**
+
+- `distanceMoved()` read the distance from `|a| = cosh(d/2)`, which rounds to exactly 1.0 for any
+  `d < 3e-8`, so small translations silently reported zero. Reading it from `|b| = sinh(d/2)` is well
+  conditioned at both ends.
+- The usable ceiling is set by the **action**, not the representation: `applyTo*` forms
+  `dr² + di²`, which overflows once entries pass ~1e154, i.e. hyperbolic distance ~710 — half the
+  ~1420 at which the entries themselves overflow. Fixing it would cost two divides per point in the
+  hottest loop in the library, for distances no data can reach (the dungeon's extreme is 20), so it
+  is documented and tested rather than fixed. If that ever changes, scale by `max(|dr|, |di|)`.
+
+**The wrap-angle trap, for the third time.** JavaScript's `%` keeps the sign of the *dividend*, so
+`((x + π) % 2π) − π` is correct only for `x > −π`. It made a correct generator bearing look 360°
+wrong. Now written once in `test/helpers.mjs` with a comment, rather than a fourth time.
+
+**Escher tile: what was actually done.** The stored 38,640 polygons could not be re-tiled, because
+they are not on any regular tiling — the 2012 replication used translations of 1.86 in nine
+directions at `2π/9`, while `{8,3}`'s true centre spacing is 1.5286. So `fit_escher_tile.py` goes back
+to the traced SVG, re-anchors it from its 3-fold centre (an `{8,3}` *vertex*) onto an octagon centre,
+symmetrises to exact C₄, and clips to the octagon: 84 shapes. The demo then returns that one tile for
+every key and the library places it. **The tiling is exact; the art is a documented approximation** —
+Escher's woodcut is hand-drawn and the tracing was admittedly imperfect, so seams are visible where
+tiles abut. The page says so and offers a no-clip toggle.
+
+**Dungeon atlas: the three-way overlay the brief asked for.** One callback merges a 7-shape prototype
+room drawn in every cell, characters looked up by cell coordinate (5,270 drawables across 400 cells),
+and room numbers computed on the fly from the cell's own coordinates. Verified by panning to room
+19-200000 — hyperbolic distance 13.55, view centre at local `(−161, −407)` — where the geometry and
+the numbers are still crisp.

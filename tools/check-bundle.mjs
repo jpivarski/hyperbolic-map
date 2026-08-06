@@ -15,6 +15,9 @@ const SRC = join(ROOT, "src");
 
 const IMPORT_RE = /^import\s*\{([^}]*)\}\s*from\s*"([^"]+)"\s*;?$/;
 const EXPORT_RE = /^export\s+(?:class|function|const|let|async\s+function)\s+([A-Za-z_$][\w$]*)/;
+// Module-PRIVATE top-level declarations collide in the bundle too, because it is one scope. Only
+// column-zero declarations are top level, which is why this anchors with no leading whitespace.
+const TOPLEVEL_RE = /^(?:class|function|const|let|var|async\s+function)\s+([A-Za-z_$][\w$]*)/;
 
 function walk(dir) {
   const out = [];
@@ -34,8 +37,11 @@ function fail(file, line, msg) {
 const files = walk(SRC).sort();
 if (files.length === 0) fail(SRC, 0, "no .js files found under src/");
 
-// name -> file that exports it, for cross-module collision detection
+// name -> file that declares it at top level (exported or not). The bundle shares one scope, so BOTH
+// kinds collide. Missing the private ones is a real gap: `const arc = new Arc()` in two different
+// render modules is perfectly legal ESM and a SyntaxError once concatenated.
 const exportedBy = new Map();
+const declaredBy = new Map();
 
 for (const file of files) {
   const text = readFileSync(file, "utf8");
@@ -93,6 +99,17 @@ for (const file of files) {
         exportedBy.set(name, file);
       }
     }
+
+    const tm = raw.match(TOPLEVEL_RE);
+    if (tm) {
+      const name = tm[1];
+      const prev = declaredBy.get(name);
+      if (prev && prev !== file) {
+        fail(file, n, `top-level identifier "${name}" also declared in ${relative(ROOT, prev)} — the bundle shares one scope, so module-private names collide too`);
+      } else {
+        declaredBy.set(name, file);
+      }
+    }
   });
 }
 
@@ -105,4 +122,4 @@ bundler dependency. See AGENTS.md.`);
   process.exit(1);
 }
 
-console.log(`check-bundle: ok — ${files.length} module(s), ${exportedBy.size} exported name(s), no collisions`);
+console.log(`check-bundle: ok — ${files.length} module(s), ${exportedBy.size} exported and ${declaredBy.size} top-level name(s), no collisions`);

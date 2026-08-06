@@ -110,12 +110,16 @@ class Isom {
     const modA = Math.hypot(this.ar, this.ai);
     if (!(modA > 0) || !Number.isFinite(modA)) return this;
     const theta = 2 * Math.atan2(this.ai, this.ar);
-    // beta = b * conj(a) / |a|  -- the exact translation part
+    // Polar decomposition M = Rot(theta) . T(beta), so beta = b * conj(a)/|a| = b * e^{-i theta/2}.
+    // Note |beta| = |b|: this is a LOCAL coordinate (sinh(d/2)), not a disk coordinate.
     const betaR = (this.br * this.ar + this.bi * this.ai) / modA;
     const betaI = (this.bi * this.ar - this.br * this.ai) / modA;
     const modBeta2 = betaR * betaR + betaI * betaI;
-    // sqrt(1 + |beta|^2) loses the 1 once |beta| ~ 1e8 (d ~ 37); use the factored form there.
-    const w = modBeta2 > 1e15 ? Math.sqrt((modA - 1) * (modA + 1)) : Math.sqrt(1 + modBeta2);
+    // The rebuilt diagonal is sqrt(1 + |beta|^2). Once |beta| exceeds about 1e8 (hyperbolic distance
+    // ~37) the `1` is below the ulp of |beta|^2 and the sum is exactly |beta|^2, so the square root
+    // just returns |beta| -- at which point |a| (which we already have to full precision, with no
+    // cancellation, from hypot) is the better answer. Both agree to ~1/(2|a|^2).
+    const w = modBeta2 > 1e15 ? modA : Math.sqrt(1 + modBeta2);
     const c = Math.cos(theta / 2);
     const s = Math.sin(theta / 2);
     this.ar = c * w;
@@ -216,8 +220,12 @@ class Isom {
   }
 
   // Hyperbolic distance from the origin to this isometry's image of the origin.
+  //
+  // Read from |b| = sinh(d/2), not |a| = cosh(d/2): cosh(d/2) rounds to exactly 1.0 for any
+  // d below about 3e-8, so the acosh route silently reports zero for small translations. sinh is
+  // well conditioned at both ends.
   distanceMoved() {
-    return 2 * Math.acosh(Math.max(1, Math.hypot(this.ar, this.ai)));
+    return 2 * Math.asinh(Math.hypot(this.br, this.bi));
   }
 }
 
@@ -1299,6 +1307,13 @@ class Renderer {
 
     if (passes && passes.length) {
       for (const pass of passes) {
+        // A pass may carry a clip region: that is how atlas tiles abut without overlapping. Each is
+        // a closure that traces the tile boundary and calls ctx.clip(), so the renderer stays
+        // ignorant of tiling shapes (geodesic polygons vs. horocyclic cells).
+        if (pass.clip) {
+          ctx.save();
+          pass.clip(ctx, view);
+        }
         this.drawContent(ctx, view, pass.drawables, pass.matrix, {
           cullMode,
           arcMode,
@@ -1306,6 +1321,7 @@ class Renderer {
           minTextPx,
           minFeaturePx,
         });
+        if (pass.clip) ctx.restore();
       }
     }
 
@@ -1922,6 +1938,624 @@ class CallbackSource {
   }
 }
 
+// ===== src/data/atlas/tiling.js =====
+// Tilings of the hyperbolic plane.
+//
+// A tiling supplies, for each tile: an integer key, the isometry carrying tile-local coordinates into
+// the world, and the tile's boundary (for clipping). Two are built in.
+//
+// All the metric relations below were verified BY CONSTRUCTION -- build the polygon and measure --
+// rather than formula against formula, which is how an inverted inradius slipped through the first
+// time. See notes/tilings.md.
+
+// Boundary edge kinds. Geodesics are circles orthogonal to the unit circle; horocycles are circles
+// internally TANGENT to it. The binary tiling needs both.
+const EDGE_GEODESIC = "geodesic";
+const EDGE_HOROCYCLE = "horocycle";
+
+// ---------------------------------------------------------------------------------------------
+// Regular {p, q}
+// ---------------------------------------------------------------------------------------------
+
+// At curvature K = -1, for a regular p-gon with vertex angle 2*pi/q:
+//
+//     circumradius   cosh(chi) = cot(pi/p) * cot(pi/q)
+//     inradius       cosh(psi) = cos(pi/q) / sin(pi/p)
+//     half-edge      cosh(phi) = cos(pi/p) / sin(pi/q)
+//     check          cosh(chi) = cosh(psi) * cosh(phi)
+//
+// TRAP: cos(pi/p)/sin(pi/q) is the HALF-EDGE, not the inradius. The two swap under p <-> q and
+// coincide for self-dual {p,p}, so an inverted formula survives casual checking.
+function regularMetrics(p, q) {
+  if (!(1 / p + 1 / q < 0.5)) {
+    throw new Error(`hyperbolic-map: {${p},${q}} is not hyperbolic (need 1/p + 1/q < 1/2)`);
+  }
+  const chi = Math.acosh(1 / (Math.tan(Math.PI / p) * Math.tan(Math.PI / q)));
+  const psi = Math.acosh(Math.cos(Math.PI / q) / Math.sin(Math.PI / p));
+  const phi = Math.acosh(Math.cos(Math.PI / p) / Math.sin(Math.PI / q));
+  return {
+    p,
+    q,
+    circumradius: chi,
+    inradius: psi,
+    halfEdge: phi,
+    edgeLength: 2 * phi,
+    centreSpacing: 2 * psi,
+  };
+}
+
+class RegularTiling {
+  // `frameSymmetry` (m, a divisor of p) is the rotational symmetry the tile art is promised to have.
+  // It selects the walk group so that the tile stabiliser is C_m, which is what makes "the same data
+  // in every tile" produce a consistent pattern. See notes/tilings.md and
+  // notes/escher-circle-limit-iii.md -- for Circle Limit III this must be 4, not 8, and using the
+  // default half-turn generators there would silently shred the pattern.
+  constructor({ p, q, frameSymmetry = null } = {}) {
+    this.metrics = regularMetrics(p, q);
+    this.p = p;
+    this.q = q;
+    this.m = frameSymmetry || p;
+    if (p % this.m !== 0) {
+      throw new Error(`hyperbolic-map: frameSymmetry ${this.m} must divide p = ${p}`);
+    }
+
+    const psi = this.metrics.inradius;
+    const chi = this.metrics.circumradius;
+
+    // Vertices at angles pi/p + 2*pi*k/p, so that EDGE MIDPOINTS land on 2*pi*k/p (edge 0's midpoint
+    // is on the +x axis).
+    this.vertexDisk = [];
+    for (let k = 0; k < p; k++) {
+      const a = Math.PI / p + (2 * Math.PI * k) / p;
+      this.vertexDisk.push([Math.tanh(chi / 2) * Math.cos(a), Math.tanh(chi / 2) * Math.sin(a)]);
+    }
+
+    // Generators.
+    if (this.m === p) {
+      // Half-turn about each edge midpoint. Always a symmetry of {p,q} -- it is the "2" of the
+      // (2,p,q) triangle group -- including for ODD p. (Only pure TRANSLATIONS between adjacent
+      // tiles need even p; do not confuse the two.) Each is an involution, so the edge back to the
+      // parent carries the same index in the child, which makes words walk-reversible for free.
+      const g0 = new Isom(0, Math.cosh(psi), 0, -Math.sinh(psi));
+      this.generators = [];
+      for (let k = 0; k < p; k++) {
+        const s = Isom.rotation((2 * Math.PI * k) / p);
+        this.generators.push(s.mul(g0).mul(Isom.rotation((-2 * Math.PI * k) / p)));
+      }
+    } else {
+      // The half-turn is generally outside the subgroup with stabiliser C_m, so use rotations about
+      // the vertices instead. Every m-th vertex is a "class A" vertex; rotating about one by
+      // +/- 2*pi/q reaches the two tiles across the edges incident there, which covers all p
+      // neighbours.
+      const order = this.q;
+      this.generators = [];
+      for (let k = 0; k < p; k += p / this.m) {
+        const v = this.vertexDisk[k];
+        for (const sense of [1, -1]) {
+          this.generators.push(
+            Isom.translationToDisk(v[0], v[1])
+              .mul(Isom.rotation((sense * 2 * Math.PI) / order))
+              .mul(Isom.translationToDisk(-v[0], -v[1])),
+          );
+        }
+      }
+      // The tile's own rotation, which the art must respect.
+      this.selfRotation = Isom.rotation((2 * Math.PI) / this.m);
+    }
+
+    // The tile boundary in tile-local coordinates: p geodesic edges between consecutive vertices.
+    this.boundaryLocal = this.vertexDisk.map(([zx, zy]) => {
+      const k = 1 / Math.sqrt(1 - zx * zx - zy * zy);
+      return [zx * k, zy * k];
+    });
+  }
+
+  keyToString(key) {
+    return key.length === 0 ? "root" : key.join(".");
+  }
+
+  frame(key) {
+    let m = Isom.identity();
+    for (let i = 0; i < key.length; i++) {
+      m = m.mul(this.generators[key[i]]);
+      // Renormalise periodically: entries grow like exp(depth * inradius), and the product drifts
+      // off the manifold at O(n * eps) without it.
+      if ((i & 7) === 7) m.normalize();
+    }
+    return m.normalize();
+  }
+
+  boundary(/* key */) {
+    return { kind: EDGE_GEODESIC, points: this.boundaryLocal };
+  }
+
+  neighbourCount() {
+    return this.generators.length;
+  }
+
+  // Tiles whose polygon can be on screen.
+  //
+  // Breadth-first from the tile containing the view centre, following generators, deduplicating by
+  // rounded tile centre. BFS from the ROOT would be hopeless -- a tile at hyperbolic distance 20 sits
+  // behind about e^20 others -- so the walk starts where the camera is.
+  //
+  // Two radii matter: tiles are INCLUDED if their circumscribed disk meets the visible disk, and the
+  // walk CONTINUES through a slightly larger radius, so that a tile touching only at a vertex is
+  // still reachable via a neighbour that was itself included.
+  visible(viewMatrix, visibleRadius, maxTiles = 256) {
+    const rho = 2 * Math.atanh(Math.min(visibleRadius, 0.9995));
+    const chi = this.metrics.circumradius;
+    const includeCosh = Math.cosh((rho + chi) / 2);
+    const walkCosh = Math.cosh((rho + chi + this.metrics.centreSpacing) / 2);
+
+    // The view centre in world local coordinates, and its companion.
+    const c = viewMatrix.centreLocal([0, 0]);
+    const cx = c[0];
+    const cy = c[1];
+    const cw = Math.sqrt(1 + cx * cx + cy * cy);
+
+    // cosh(d/2) between a tile centre (as local coords) and the view centre -- the modulus form.
+    const buf = [0, 0];
+    const coshHalfTo = (frame) => {
+      frame.applyToDisk(0, 0, buf);
+      const k = 1 / Math.sqrt(1 - buf[0] * buf[0] - buf[1] * buf[1]);
+      const tx = buf[0] * k;
+      const ty = buf[1] * k;
+      const tw = Math.sqrt(1 + tx * tx + ty * ty);
+      const A = tw * cw - tx * cx - ty * cy;
+      const B = tx * cy - ty * cx;
+      return Math.hypot(A, B);
+    };
+
+    const start = this.locate(viewMatrix, maxTiles);
+    const seen = new Set();
+    const out = [];
+    const queue = [start];
+    const mark = (frame) => {
+      frame.applyToDisk(0, 0, buf);
+      // Adjacent tile centres are separated by tanh(inradius) in disk coordinates near the origin and
+      // by ~e^-d far out, so quantise relative to the local spacing rather than absolutely.
+      return `${Math.round(buf[0] * 1e7)},${Math.round(buf[1] * 1e7)}`;
+    };
+
+    while (queue.length && out.length < maxTiles) {
+      const key = queue.shift();
+      const frame = this.frame(key);
+      const tag = mark(frame);
+      if (seen.has(tag)) continue;
+      seen.add(tag);
+      const ch = coshHalfTo(frame);
+      if (ch > walkCosh) continue;
+      if (ch <= includeCosh) out.push(key);
+      for (let g = 0; g < this.generators.length; g++) queue.push(key.concat([g]));
+    }
+    return out;
+  }
+
+  // The tile containing the view centre, found by greedy descent: repeatedly step to whichever
+  // neighbour brings the tile centre closer to the target. O(depth), which is what makes this usable
+  // far from the origin.
+  locate(viewMatrix, maxSteps = 256) {
+    const c = viewMatrix.centreLocal([0, 0]);
+    const cx = c[0];
+    const cy = c[1];
+    const cw = Math.sqrt(1 + cx * cx + cy * cy);
+    const buf = [0, 0];
+    const distTo = (frame) => {
+      frame.applyToDisk(0, 0, buf);
+      const k = 1 / Math.sqrt(1 - buf[0] * buf[0] - buf[1] * buf[1]);
+      const tx = buf[0] * k;
+      const ty = buf[1] * k;
+      const tw = Math.sqrt(1 + tx * tx + ty * ty);
+      const A = tw * cw - tx * cx - ty * cy;
+      const B = tx * cy - ty * cx;
+      return Math.hypot(A, B);
+    };
+
+    let key = [];
+    let best = distTo(Isom.identity());
+    for (let step = 0; step < maxSteps; step++) {
+      let bestG = -1;
+      let bestD = best;
+      const base = this.frame(key);
+      for (let g = 0; g < this.generators.length; g++) {
+        const d = distTo(base.mul(this.generators[g]));
+        if (d < bestD - 1e-12) {
+          bestD = d;
+          bestG = g;
+        }
+      }
+      if (bestG < 0) break;
+      key = key.concat([bestG]);
+      best = bestD;
+    }
+    return key;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Binary (Boroczky) tiling
+// ---------------------------------------------------------------------------------------------
+
+// In the upper half-plane, cell (latitude, longitude) is
+//
+//     x in [longitude * 2^latitude, (longitude + 1) * 2^latitude]
+//     y in [2^latitude, 2^(latitude + 1)]
+//
+// Every cell is congruent, of hyperbolic area exactly 1/2. Cells are NOT regular polygons and NOT
+// convex: two sides are geodesics (x = const) and two are horocycles (y = const). The tiling is not
+// edge-to-edge -- each cell has FIVE neighbours (one parent, two children, two lateral), because a
+// cell's bottom edge is the union of its two children's top edges.
+//
+// It is also only weakly aperiodic: monohedral but NOT tile-transitive, its symmetry group being
+// essentially <z -> 2z>. So it cannot produce a seamless group-invariant pattern the way {p,q} can.
+// What it does give is a well-defined per-cell frame and O(1) point-to-cell lookup, which is exactly
+// what a map database wants -- and why the 2011 server used it.
+//
+// Tile-local coordinates: every cell is the SAME box in its own frame,
+//
+//     x in +/- 1/(2*sqrt(2)),   y in [2^-0.5, 2^0.5]
+//
+// The half-width is 0.5/sqrt(2), NOT 0.5, because the frame's scale factor applies to both axes while
+// the cell's x-width is only 2^latitude. That (lat, lon)-independence is what makes "the same
+// prototype in every cell" work.
+const BINARY_LOCAL_HALF_WIDTH = 0.5 / Math.SQRT2;
+const BINARY_LOCAL_Y_LOW = 1 / Math.SQRT2;
+const BINARY_LOCAL_Y_HIGH = Math.SQRT2;
+
+class BinaryTiling {
+  constructor() {
+    this.frameCache = new Map();
+  }
+
+  keyToString(key) {
+    return `${key[0]},${key[1]}`;
+  }
+
+  // Point -> cell, in half-plane coordinates. Two floors.
+  locateHalfPlane(hx, hy) {
+    const latitude = Math.floor(Math.log2(hy));
+    const longitude = Math.floor(hx * Math.pow(2, -latitude));
+    return [latitude, longitude];
+  }
+
+  // The isometry taking tile-local coordinates to the world.
+  //
+  // In the half-plane it is z -> s*z + t with s = 2^(lat+0.5) and t = (lon+0.5)*2^lat, which sends
+  // the basepoint i to the cell's hyperbolic centre. Conjugating by the Cayley transform
+  // C = [[i, 1], [1, i]] lands directly in SU(1,1) form -- verified with zero deviation.
+  frame(key) {
+    const cacheKey = this.keyToString(key);
+    const hit = this.frameCache.get(cacheKey);
+    if (hit) return hit.clone();
+
+    const [lat, lon] = key;
+    const s = Math.pow(2, lat + 0.5);
+    const t = (lon + 0.5) * Math.pow(2, lat);
+    // C * [[sqrt(s), t/sqrt(s)], [0, 1/sqrt(s)]] * C^-1, worked out in closed form.
+    //   a = ((s + 1) + i*t) / (2*sqrt(s)) ... derived below by direct multiplication
+    const rs = Math.sqrt(s);
+    const inv = 1 / rs;
+    // Worked out by hand and checked against the matrix product. With C = [[i,1],[1,i]] (which is
+    // z -> i(z-i)/(z+i)) and det C = -2, so C^-1 = [[-i/2, 1/2],[1/2, -i/2]]:
+    //
+    //   a = (sqrt(s) + 1/sqrt(s))/2  +  i * t/(2 sqrt(s))
+    //   b =            t/(2 sqrt(s)) +  i * (sqrt(s) - 1/sqrt(s))/2
+    //
+    // and |a|^2 - |b|^2 = ((sqrt(s)+1/sqrt(s))^2 - (sqrt(s)-1/sqrt(s))^2)/4 = 1 identically.
+    // (First attempt had b's real and imaginary parts swapped, which a direct comparison against
+    // C*A*C^-1 caught immediately -- worth doing rather than trusting the algebra.)
+    const ar = (rs + inv) / 2;
+    const ai = (t * inv) / 2;
+    const br = (t * inv) / 2;
+    const bi = (rs - inv) / 2;
+    const m = new Isom(ar, ai, br, bi).normalize();
+    this.frameCache.set(cacheKey, m);
+    return m.clone();
+  }
+
+  // The cell boundary in tile-local coordinates: two geodesic sides and two horocyclic sides. Given
+  // in the tile's own HALF-PLANE box, which the renderer maps through the frame.
+  boundary(/* key */) {
+    return {
+      kind: "binary-cell",
+      halfWidth: BINARY_LOCAL_HALF_WIDTH,
+      yLow: BINARY_LOCAL_Y_LOW,
+      yHigh: BINARY_LOCAL_Y_HIGH,
+    };
+  }
+
+  // The five neighbours of a cell.
+  neighbours(key) {
+    const [lat, lon] = key;
+    return [
+      [lat + 1, Math.floor(lon / 2)],
+      [lat - 1, 2 * lon],
+      [lat - 1, 2 * lon + 1],
+      [lat, lon - 1],
+      [lat, lon + 1],
+    ];
+  }
+
+  // Cells whose box meets the visible disk. Uses the WIDEST y in each latitude band, not the bottom
+  // edge -- the 2011 routine sampled the bottom and so missed about 46% of the cells it should have
+  // returned (hence its "fix missing rooms" commit).
+  visible(viewMatrix, visibleRadius, maxCells = 512) {
+    const rho = 2 * Math.atanh(Math.min(visibleRadius, 0.9995));
+    const inv = viewMatrix.inverse();
+    const r = Math.tanh(rho / 2);
+
+    let xmin = Infinity;
+    let xmax = -Infinity;
+    let ymin = Infinity;
+    let ymax = -Infinity;
+    const N = 64;
+    const buf = [0, 0];
+    const hp = [0, 0];
+    for (let i = 0; i < N; i++) {
+      const t = (2 * Math.PI * i) / N;
+      inv.applyToDisk(r * Math.cos(t), r * Math.sin(t), buf);
+      const k = 1 / Math.sqrt(1 - buf[0] * buf[0] - buf[1] * buf[1]);
+      localToHalfPlaneInto(buf[0] * k, buf[1] * k, hp);
+      if (!Number.isFinite(hp[0]) || !Number.isFinite(hp[1]) || hp[1] <= 0) continue;
+      if (hp[0] < xmin) xmin = hp[0];
+      if (hp[0] > xmax) xmax = hp[0];
+      if (hp[1] < ymin) ymin = hp[1];
+      if (hp[1] > ymax) ymax = hp[1];
+    }
+    if (!Number.isFinite(xmin) || ymin <= 0) return [];
+
+    const latMin = Math.floor(Math.log2(ymin));
+    const latMax = Math.floor(Math.log2(ymax));
+    const out = [];
+    for (let lat = latMin; lat <= latMax && out.length < maxCells; lat++) {
+      const size = Math.pow(2, lat);
+      const lo = Math.floor(xmin / size) - 1;
+      const hi = Math.floor(xmax / size) + 1;
+      for (let lon = lo; lon <= hi && out.length < maxCells; lon++) out.push([lat, lon]);
+    }
+    return out;
+  }
+}
+
+// Local module helper so `visible` does not allocate.
+function localToHalfPlaneInto(px, py, out) {
+  const r2 = px * px + py * py;
+  const w = Math.sqrt(r2 + 1.0);
+  const denom =
+    py > 0.0
+      ? (4.0 * px * px * w * w + 1.0) / (2.0 * r2 + 1.0 + 2.0 * py * w)
+      : 2.0 * r2 + 1.0 - 2.0 * py * w;
+  out[0] = (2.0 * px * w) / denom;
+  out[1] = 1.0 / denom;
+  return out;
+}
+
+// The half-plane point at the centre of a binary cell, for callers that want it.
+function binaryCellCentreLocal(lat, lon) {
+  return halfPlaneToLocal((lon + 0.5) * Math.pow(2, lat), Math.pow(2, lat + 0.5), [0, 0]);
+}
+
+// ===== src/data/atlas/atlas.js =====
+// The atlas: an independent coordinate patch per tile.
+//
+// Why this exists, in two use cases:
+//
+//   * Data far from the origin loses precision when expressed in one global patch. At hyperbolic
+//     distance 20 a disk coordinate is 1 - 3.6e-9, so there are only ~7 significant digits left in
+//     the quantity that matters. Splitting the data into tiles means every coordinate is small and
+//     measured from its own tile's centre, and the tile's frame is built by multiplying generator
+//     matrices rather than derived from a huge number.
+//   * A repeating pattern becomes genuinely infinite: return the same tile data for every key.
+//
+// The tile -> data mapping is a callback that returns DATA, not URLs, so it can fetch, synthesise, or
+// compose overlays. Rotation into each tile's frame is the library's job, never the callback's: the
+// callback only ever sees and returns tile-local coordinates.
+
+const CLIP_AUTO = "auto";
+const CLIP_ALWAYS = "always";
+const CLIP_NEVER = "never";
+
+const atlasArc = new Arc();
+
+class Atlas {
+  constructor(options = {}) {
+    const {
+      tiling,
+      tileData,
+      clip = CLIP_AUTO,
+      cacheSize = 512,
+      maxTiles = 256,
+      styleSheet = null,
+      onTileLoad = null,
+      onTileError = null,
+    } = options;
+    if (!tiling) throw new Error("hyperbolic-map: atlas needs a tiling");
+    if (typeof tileData !== "function") throw new Error("hyperbolic-map: atlas needs a tileData callback");
+
+    this.tiling = tiling;
+    this.tileData = tileData;
+    this.clip = clip;
+    this.cacheSize = cacheSize;
+    this.maxTiles = maxTiles;
+    this.styleSheet = styleSheet;
+    this.onTileLoad = onTileLoad;
+    this.onTileError = onTileError;
+
+    // key string -> {drawables, withinTile} once resolved
+    this.cache = new Map();
+    // key string -> promise, so concurrent frames do not issue duplicate requests
+    this.pending = new Map();
+    this.frames = new Map();
+  }
+
+  frameFor(keyString, key) {
+    let f = this.frames.get(keyString);
+    if (!f) {
+      f = this.tiling.frame(key);
+      this.frames.set(keyString, f);
+    }
+    return f;
+  }
+
+  // Ask for a tile's data. Returns the compiled drawables if they are ready, or null while a request
+  // is outstanding. Never throws: a failing tile is reported and then skipped.
+  request(key, keyString, onReady) {
+    const hit = this.cache.get(keyString);
+    if (hit) {
+      // Refresh LRU position.
+      this.cache.delete(keyString);
+      this.cache.set(keyString, hit);
+      return hit;
+    }
+    if (this.pending.has(keyString)) return null;
+
+    const frame = this.frameFor(keyString, key);
+    const centre = frame.applyToDisk(0, 0, [0, 0]);
+    const tile = {
+      key: key.slice ? key.slice() : key,
+      id: keyString,
+      centreDisk: centre,
+      orientation: frame.screenRotation(),
+      frame: frame.clone(),
+    };
+
+    const p = Promise.resolve()
+      .then(() => this.tileData(tile))
+      .then((data) => {
+        this.pending.delete(keyString);
+        if (data == null) {
+          this.cache.set(keyString, { drawables: [], withinTile: true });
+          return;
+        }
+        const entry = {
+          drawables: compileDrawables(data, this.styleSheet),
+          withinTile: !!(data && data.withinTile),
+        };
+        this.cache.set(keyString, entry);
+        while (this.cache.size > this.cacheSize) {
+          const oldest = this.cache.keys().next().value;
+          this.cache.delete(oldest);
+        }
+        if (this.onTileLoad) this.onTileLoad(tile, entry.drawables);
+        if (onReady) onReady();
+      })
+      .catch((err) => {
+        this.pending.delete(keyString);
+        // Cache the failure as empty so a broken tile is not retried every frame.
+        this.cache.set(keyString, { drawables: [], withinTile: true });
+        if (this.onTileError) this.onTileError(tile, err);
+        else if (typeof console !== "undefined") console.error(`hyperbolic-map: tile ${keyString} failed`, err);
+      });
+    this.pending.set(keyString, p);
+    return null;
+  }
+
+  // Build the render passes for the current view: one per visible tile, each with its own matrix and
+  // clip path.
+  passes(view, onReady) {
+    const keys = this.tiling.visible(view.matrix, view.effectiveRadius, this.maxTiles);
+    const out = [];
+    for (const key of keys) {
+      const keyString = this.tiling.keyToString(key);
+      const entry = this.request(key, keyString, onReady);
+      if (!entry || entry.drawables.length === 0) continue;
+      const frame = this.frameFor(keyString, key);
+      const net = view.matrix.mul(frame);
+      const wantClip =
+        this.clip === CLIP_ALWAYS || (this.clip === CLIP_AUTO && !entry.withinTile);
+      out.push({
+        drawables: entry.drawables,
+        matrix: net,
+        clip: wantClip ? this.clipPathFor(key, net) : null,
+      });
+    }
+    return out;
+  }
+
+  // A clip region for one tile, expressed as a callback that traces the boundary into a canvas path.
+  // Kept as a closure so the renderer does not need to know about tiling shapes.
+  clipPathFor(key, net) {
+    const b = this.tiling.boundary(key);
+    if (b.kind === "binary-cell") return binaryCellClip(net, b);
+    return polygonClip(net, b.points);
+  }
+}
+
+// Clip to a hyperbolic polygon: p geodesic arcs through the projected vertices.
+function polygonClip(net, localPoints) {
+  return (ctx, view) => {
+    const scale = view.radius;
+    const sx = view.cx;
+    const sy = view.cy;
+    const n = localPoints.length;
+    const px = new Float64Array(n);
+    const py = new Float64Array(n);
+    const buf = [0, 0];
+    for (let i = 0; i < n; i++) {
+      net.applyToLocal(localPoints[i][0], localPoints[i][1], undefined, buf);
+      px[i] = buf[0];
+      py[i] = buf[1];
+    }
+    ctx.beginPath();
+    ctx.moveTo(px[0] * scale + sx, -py[0] * scale + sy);
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      geodesicArc(px[i], py[i], px[j], py[j], atlasArc, 0, 0.25 / scale);
+      if (atlasArc.straight) {
+        ctx.lineTo(px[j] * scale + sx, -py[j] * scale + sy);
+      } else {
+        ctx.arc(
+          atlasArc.cx * scale + sx,
+          -atlasArc.cy * scale + sy,
+          atlasArc.r * scale,
+          -atlasArc.startAngle,
+          -atlasArc.endAngle,
+          atlasArc.anticlockwise,
+        );
+      }
+    }
+    ctx.closePath();
+    ctx.clip();
+  };
+}
+
+// Clip to a binary-tiling cell. Its two vertical sides are geodesics and its two horizontal sides are
+// HOROCYCLES (circles internally tangent to the disk boundary), so this cannot reuse the polygon path
+// builder. Approximating each horocyclic side by a short polyline is exact enough at any zoom -- a
+// horocycle is very flat over one cell's width -- and avoids having to solve for tangency on screen.
+function binaryCellClip(net, box) {
+  const hw = box.halfWidth;
+  const yLow = box.yLow;
+  const yHigh = box.yHigh;
+  const STEPS = 12;
+  // Trace the box boundary in the tile's own half-plane coordinates.
+  const ring = [];
+  for (let i = 0; i <= STEPS; i++) ring.push([-hw + (2 * hw * i) / STEPS, yLow]);
+  ring.push([hw, yLow]);
+  for (let i = 0; i <= STEPS; i++) ring.push([hw - (2 * hw * i) / STEPS, yHigh]);
+  ring.push([-hw, yHigh]);
+
+  const local = ring.map(([hx, hy]) => halfPlaneToLocal(hx, hy, [0, 0]));
+
+  return (ctx, view) => {
+    const scale = view.radius;
+    const sx = view.cx;
+    const sy = view.cy;
+    const buf = [0, 0];
+    ctx.beginPath();
+    for (let i = 0; i < local.length; i++) {
+      net.applyToLocal(local[i][0], local[i][1], undefined, buf);
+      const X = buf[0] * scale + sx;
+      const Y = -buf[1] * scale + sy;
+      if (i === 0) ctx.moveTo(X, Y);
+      else ctx.lineTo(X, Y);
+    }
+    ctx.closePath();
+    ctx.clip();
+  };
+}
+
 // ===== src/viewport.js =====
 // HyperbolicViewport -- the public widget.
 //
@@ -1942,6 +2576,7 @@ const DEFAULT_OPTIONS = {
 
   data: null,
   dataProvider: null,
+  atlas: null,
   styles: null,
 
   center: null,
@@ -2081,6 +2716,14 @@ class HyperbolicViewport {
       });
     }
 
+    // The atlas, if configured, contributes one render pass per visible tile.
+    this.atlas = null;
+    if (opts.atlas) {
+      this.atlas = new Atlas(
+        Object.assign({ styleSheet: this.styleSheet }, opts.atlas),
+      );
+    }
+
     this.layers = (opts.layers || []).slice().sort((a, b) => (a.z || 0) - (b.z || 0));
     for (const layer of this.layers) if (layer.attach) layer.attach(this);
 
@@ -2137,6 +2780,9 @@ class HyperbolicViewport {
         drawables: drawables,
         matrix: entry.transform ? view.matrix.mul(entry.transform) : view.matrix,
       });
+    }
+    if (this.atlas) {
+      for (const p of this.atlas.passes(view, () => this.invalidate())) passes.push(p);
     }
     this.renderer.draw(this.surface.context, view, passes, {
       background: this.options.background,
@@ -2306,6 +2952,17 @@ global.HyperbolicMap = {
   clampToRadius: clampToRadius,
   geodesicArc: geodesicArc,
   Arc: Arc,
+  Atlas: Atlas,
+  CLIP_AUTO: CLIP_AUTO,
+  CLIP_ALWAYS: CLIP_ALWAYS,
+  CLIP_NEVER: CLIP_NEVER,
+  RegularTiling: RegularTiling,
+  BinaryTiling: BinaryTiling,
+  regularMetrics: regularMetrics,
+  binaryCellCentreLocal: binaryCellCentreLocal,
+  BINARY_LOCAL_HALF_WIDTH: BINARY_LOCAL_HALF_WIDTH,
+  BINARY_LOCAL_Y_LOW: BINARY_LOCAL_Y_LOW,
+  BINARY_LOCAL_Y_HIGH: BINARY_LOCAL_Y_HIGH,
   VERSION: "0.1.0",
 };
 })(typeof globalThis !== "undefined" ? globalThis : self);
