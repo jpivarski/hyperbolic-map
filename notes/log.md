@@ -374,3 +374,34 @@ room drawn in every cell, characters looked up by cell coordinate (5,270 drawabl
 and room numbers computed on the fly from the cell's own coordinates. Verified by panning to room
 19-200000 — hyperbolic distance 13.55, view centre at local `(−161, −407)` — where the geometry and
 the numbers are still crisp.
+
+---
+
+## 2026-08-05 — Documentation and browser verification (CHECKPOINT F)
+
+**What.** `README.md` (API, options, the drawable format, the atlas, the alias table for the 2011
+option names) and `docs/MATH.md` (the geometry, written for clarity with derivations in `<details>`).
+
+**Verified in a real browser via the DevTools MCP server**, not only in Node:
+
+- All six examples load with a clean console and render correctly.
+- **All five stuck-drag scenarios pass in Chrome**: release far off-canvas then hover back; a
+  swallowed `pointerup` detected by `buttons === 0`; `pointercancel`; `lostpointercapture`; and
+  window blur mid-drag. In each case the view is unchanged by subsequent button-less movement.
+- **Draw-during-drag confirmed**: over a six-step drag the drawable count moves continuously
+  (581 → 536 → 851 → 761 → 680 → 581 → 518) and does **not** jump on release. The 2011 behaviour
+  would have been a flat count during the drag and a jump at the end.
+- **Far-from-origin**: panned the tiled dungeon to room 19-200000 — hyperbolic distance 13.55, view
+  centre at local `(−161, −407)` — with geometry and room numbers still crisp.
+
+**On MATH.md's shape.** The brief asked for clarity, with equations only where they help. The
+organising idea is that a data point *is* an isometry, which makes the half-angle a consequence of
+the spin double cover rather than an unexplained convention, and makes the projection four complex
+multiplies. Everything the reader might otherwise take on faith — why it is not the hyperboloid
+model, why zoom is not an isometry, why the pinch is exactly determined, where the precision runs
+out — is in a `<details>` block rather than either omitted or inflicted.
+
+The deliberate approximations get their own section, including the honest statement that the Escher
+tiling is exact but the *art* is a fit with visible seams.
+
+**Left to do.** Only the performance work, which needs an idle machine. See `performance.md`.
