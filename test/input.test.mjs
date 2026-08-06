@@ -247,3 +247,65 @@ test("clampToRadius preserves direction and leaves interior points alone", () =>
   assert.ok(Math.abs(Math.atan2(cy, cx) - Math.atan2(4, 3)) < 1e-15);
   assert.deepEqual(clampToRadius(0, 0, 0.9), [0, 0]);
 });
+
+test("REGRESSION: a pinch pins both fingers, even when the zoom changes a lot", () => {
+  // The pinch solver is handed finger positions measured against the zoom in force when the gesture
+  // BEGAN, and divides by the scale it solves for. The input layer was passing coordinates mapped
+  // with the LIVE zoom instead, so the scale was applied twice.
+  //
+  // This was easy to miss because the error is proportional to |scale - 1|: measured in the browser,
+  // a twist that barely changed the zoom drifted 2.7 px while a 1.5x spread drifted 30 px. Only
+  // vigorous pinches visibly slid the picture out from under the fingers. So this test deliberately
+  // uses a LARGE zoom change -- a gentle one passes even with the bug.
+  const SIZE = 400;
+  const { el, view, input } = setup();
+
+  // Client pixel <-> screen disk coordinate, at a given zoom; the same mapping makeHost uses.
+  const toDisk = (cx, cy, zoom) => {
+    const radius = (zoom * SIZE) / 2;
+    return [(cx - el.rect.left - SIZE / 2) / radius, -(cy - el.rect.top - SIZE / 2) / radius];
+  };
+  // Where does a world point land, in client pixels, under the current live view?
+  const toClient = (wx, wy) => {
+    const out = view.liveMatrix.applyToLocal(wx, wy, undefined, [0, 0]);
+    const radius = (view.liveZoom * SIZE) / 2;
+    return [out[0] * radius + el.rect.left + SIZE / 2, -out[1] * radius + el.rect.top + SIZE / 2];
+  };
+  // The world point currently under a client pixel.
+  const grabbed = (cx, cy) => {
+    const [zx, zy] = toDisk(cx, cy, view.liveZoom);
+    const p = view.liveMatrix.inverse().applyToDisk(zx, zy, [0, 0]);
+    const k = 1 / Math.sqrt(1 - p[0] * p[0] - p[1] * p[1]);
+    return [p[0] * k, p[1] * k];
+  };
+
+  const A0 = [180, 200];
+  const B0 = [220, 200];
+  const A1 = [130, 180]; // a spread of well over 2x, plus a twist
+  const B1 = [280, 230];
+
+  const touch = (id, xy, extra) =>
+    pointerEvent(Object.assign({ pointerId: id, pointerType: "touch", clientX: xy[0], clientY: xy[1] }, extra));
+
+  el.dispatch("pointerdown", touch(1, A0));
+  el.dispatch("pointerdown", touch(2, B0));
+  assert.equal(input.mode, MODE_PINCH);
+  const worldA = grabbed(A0[0], A0[1]);
+  const worldB = grabbed(B0[0], B0[1]);
+
+  for (let i = 1; i <= 10; i++) {
+    const s = i / 10;
+    el.dispatch("pointermove", touch(1, [A0[0] + (A1[0] - A0[0]) * s, A0[1] + (A1[1] - A0[1]) * s]));
+    el.dispatch("pointermove", touch(2, [B0[0] + (B1[0] - B0[0]) * s, B0[1] + (B1[1] - B0[1]) * s]));
+  }
+
+  const scale = view.liveZoom / view.zoom;
+  assert.ok(scale > 1.8, `the gesture must actually change the zoom a lot (scale ${scale.toFixed(3)})`);
+
+  const gotA = toClient(worldA[0], worldA[1]);
+  const gotB = toClient(worldB[0], worldB[1]);
+  const errA = Math.hypot(gotA[0] - A1[0], gotA[1] - A1[1]);
+  const errB = Math.hypot(gotB[0] - B1[0], gotB[1] - B1[1]);
+  assert.ok(errA < 1e-6, `finger 1 drifted ${errA.toFixed(4)} px`);
+  assert.ok(errB < 1e-6, `finger 2 drifted ${errB.toFixed(4)} px`);
+});

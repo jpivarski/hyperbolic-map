@@ -1651,7 +1651,10 @@ class PointerInput {
       // Some environments (and the test double) do not implement capture; the window-level
       // fallbacks still cover us.
     }
-    this.pointers.set(e.pointerId, { x, y });
+    // Keep the raw client position too. The pinch has to re-map its fingers against the COMMITTED
+    // zoom rather than the live one (see handleMove), and a stored disk coordinate cannot be
+    // converted after the fact.
+    this.pointers.set(e.pointerId, { x, y, clientX: e.clientX, clientY: e.clientY });
     if (e.preventDefault) e.preventDefault();
 
     const interact = this.options.interactRadius;
@@ -1672,7 +1675,13 @@ class PointerInput {
       // Commit whatever the single-pointer gesture achieved, then start the pinch from there.
       this.view.commit();
       this.mode = MODE_PINCH;
-      this.view.beginPinch(p1.x, p1.y, p2.x, p2.y);
+      // Re-map both fingers against the just-committed zoom, for the same reason handleMove does:
+      // the first finger's stored coordinate was taken at whatever the live zoom was then, which a
+      // wheel-zoom during the one-finger pan could have changed.
+      const z = this.view.zoom;
+      const [s1x, s1y] = this.host.toDisk(p1, z);
+      const [s2x, s2y] = this.host.toDisk(p2, z);
+      this.view.beginPinch(s1x, s1y, s2x, s2y);
       if (this.callbacks.onGestureStart) this.callbacks.onGestureStart(this.mode);
     }
     this.changed();
@@ -1690,8 +1699,11 @@ class PointerInput {
     }
 
     const [x, y] = this.host.toDisk(e, this.view.liveZoom);
-    this.pointers.get(e.pointerId).x = x;
-    this.pointers.get(e.pointerId).y = y;
+    const p = this.pointers.get(e.pointerId);
+    p.x = x;
+    p.y = y;
+    p.clientX = e.clientX;
+    p.clientY = e.clientY;
     if (e.preventDefault) e.preventDefault();
 
     if (this.mode === MODE_PAN) {
@@ -1707,9 +1719,22 @@ class PointerInput {
       this.view.updateRotate(x, y);
       this.changed();
     } else if (this.mode === MODE_PINCH && this.pointers.size >= 2) {
+      // Pan and rotate work in the CURRENT frame's screen coordinates, so they want the live zoom --
+      // that is what keeps a wheel-zoom in the middle of a drag consistent, one of the 2011 bugs.
+      // The pinch solver is different: it is handed finger positions measured against the zoom in
+      // force when the gesture began and divides by the scale it solves for. Feeding it live-zoom
+      // coordinates applies the scale twice.
+      //
+      // The symptom was subtle because the error is proportional to |scale - 1|: a twist that barely
+      // changed the zoom drifted 2.7 px, while a spread to 1.5x drifted 30 px, so the fingers slid
+      // out from under the picture only on vigorous pinches. Re-map both fingers here against the
+      // committed zoom, which is exactly what beginPinch recorded them in.
       const [p1, p2] = [...this.pointers.values()];
+      const z = this.view.zoom;
+      const [q1x, q1y] = this.host.toDisk(p1, z);
+      const [q2x, q2y] = this.host.toDisk(p2, z);
       this.view.updatePinch(
-        p1.x, p1.y, p2.x, p2.y,
+        q1x, q1y, q2x, q2y,
         this.options.allowZoom,
         this.options.allowRotate,
       );

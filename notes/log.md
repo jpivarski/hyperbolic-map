@@ -654,3 +654,40 @@ Every tile surviving dedup pushes p children, so when dedup fails the queue grow
 the result budget never fills. A sweep out to distance 36 simply stopped returning. There is now a
 hard bound on dequeues, separate from the bound on results, and `lastTruncated` reports it. Degrading
 to fewer tiles is acceptable; hanging is not.
+
+
+## 2026-08-05 (night) — The pinch applied its zoom twice
+
+Verified the pinch in a real browser for the first time (synthetic two-pointer sequences; the MCP
+drag tool cannot do multi-touch). Spread, pinch and twist all responded correctly -- a 90 degree
+finger rotation produced 1.5745 rad -- but the fingers did not stay under the picture.
+
+### Bug 10 — live zoom where committed zoom was required
+
+`updatePinch` is handed finger positions measured against the zoom in force when the gesture BEGAN,
+and divides by the scale it solves for; that bookkeeping is spelled out in its own comment. The input
+layer was mapping pointer coordinates with the LIVE zoom, so the scale got applied twice.
+
+Pan and rotate genuinely do want the live zoom -- that is what keeps a wheel-zoom in the middle of a
+drag consistent, one of the 2011 bugs this port fixed -- so the two paths need different conventions,
+and the pinch path now re-maps both fingers against the committed zoom. `beginPinch` does the same,
+since the first finger's stored coordinate could have been taken before a mid-pan wheel-zoom.
+
+The error is proportional to |scale - 1|, which is why it survived until now: a twist that barely
+changed the zoom drifted 2.7 px, while a 1.5x spread drifted 30 px. Only vigorous pinches visibly
+slid the picture out from under the fingers, and the unit tests used gentle ones.
+
+**Measured after the fix: both fingers pinned to 0.00000 px** across a 2.1x spread, a 0.23x pinch, a
+90 degree twist, and a combined spread-and-twist.
+
+### How it was found, which is the reusable part
+
+By a CONTROL EXPERIMENT rather than by reading code. The first measurement said the fingers drifted
+30 px -- but given how many harness defects this session has produced, that was as likely to be my
+coordinate mapping as the library. So I ran the identical measurement on a SINGLE-finger drag, whose
+solver pins the grabbed point by construction. That came back at exactly 0 px, which cleared the
+mapping and left the pinch. Worth doing every time: measure something known-good with the same
+instrument before believing what it says about the thing under test.
+
+The regression test deliberately uses a large zoom change and asserts sub-micron pinning; against the
+old code it reports 35.3 px. A gentle pinch passes either way, which is exactly how this hid.
