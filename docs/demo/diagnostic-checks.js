@@ -75,7 +75,10 @@ async function settle(vp) {
     vp.render();
     if (!vp.atlas || vp.atlas.pending.size === 0) break;
     await Promise.all([...vp.atlas.pending.values()]);
-    await new Promise((r) => requestAnimationFrame(r));
+    // Not rAF: an automated run often has the tab backgrounded, where rAF throttles to ~1 Hz.
+    // Nothing here needs the compositor -- getImageData reads the backing store, which draw calls
+    // update synchronously, and settle() calls render() explicitly.
+    await new Promise((r) => setTimeout(r, 0));
   }
   vp.render();
 }

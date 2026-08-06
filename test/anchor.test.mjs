@@ -403,3 +403,71 @@ test("neighbourhood cost does not grow with distance", () => {
   }
   assert.ok(new Set(counts).size === 1, `tile counts differ by distance: ${counts.join(", ")}`);
 });
+
+test("REGRESSION: the camera can move in every direction, from every parity of cell", () => {
+  // A refactor made `stepToward` name a GENERATOR rather than an index into the neighbour list. For the
+  // binary tiling that cannot work: the parent step comes in two parities, so an odd-longitude cell
+  // offers only PARENT_ODD and a request for PARENT_EVEN found nothing. The camera could then never move
+  // UP, and chased downward instead -- max|V| reached 2.6e24 and the latitude ran to several hundred
+  // digits before anything noticed.
+  //
+  // Caught by driving all eight directions rather than one, which is why this test does the same.
+  const tilings = [
+    ["binary", new BinaryTiling()],
+    ...REGULARS.map((spec) => [`{${spec.p},${spec.q}}`, new RegularTiling(spec)]),
+  ];
+  for (const [name, t] of tilings) {
+    for (let k = 0; k < 8; k++) {
+      const bearing = (2 * Math.PI * k) / 8;
+      // Start from BOTH parities of binary cell, since that is what the bug depended on.
+      const starts = name === "binary"
+        ? [{ lat: 0n, lon: 0n }, { lat: 0n, lon: 1n }, { lat: -3n, lon: 7n }, { lat: 4n, lon: -5n }]
+        : [t.originAddress()];
+      for (const start of starts) {
+        const anchor = new Anchor(t, { address: start });
+        let V = Isom.identity();
+        const step = Isom.translationToDisk(0.05 * Math.cos(bearing), 0.05 * Math.sin(bearing));
+        let totalSteps = 0;
+        for (let i = 0; i < 300; i++) {
+          V = step.mul(V);
+          const r = anchor.reanchor(V);
+          totalSteps += r.steps;
+          V = V.mul(r.shift).normalize();
+        }
+        const c = anchor.viewCentreLocal(V, [0, 0, 0]);
+        assert.ok(
+          t.containsLocal(c[0], c[1], 1e-9),
+          `${name} bearing ${k} from ${t.addressToString(start)}: camera lost the view centre`,
+        );
+        assert.ok(
+          maxEntry(V) < 10,
+          `${name} bearing ${k} from ${t.addressToString(start)}: max|V| = ${maxEntry(V)}`,
+        );
+        // Each move is well under one tile, so re-anchoring must be cheap. A cycling descent shows up
+        // here as a step count orders of magnitude too large -- it was 143,407 for 500 moves once.
+        assert.ok(
+          totalSteps < 300 * 4,
+          `${name} bearing ${k}: ${totalSteps} re-anchor steps for 300 small moves -- the descent is thrashing`,
+        );
+      }
+    }
+  }
+});
+
+test("re-anchoring is cheap: one step per tile crossed, not more", () => {
+  // The cost model the design assumes. If this regresses, something is cycling.
+  for (const [name, t] of [["binary", new BinaryTiling()], ["{8,3}", new RegularTiling({ p: 8, q: 3 })], ["{3,7}", new RegularTiling({ p: 3, q: 7 })]]) {
+    const anchor = new Anchor(t);
+    let V = Isom.identity();
+    let steps = 0;
+    const step = Isom.translationToDisk(-0.03, 0.011);
+    for (let i = 0; i < 500; i++) {
+      V = step.mul(V);
+      const r = anchor.reanchor(V);
+      steps += r.steps;
+      V = V.mul(r.shift).normalize();
+    }
+    assert.equal(steps, anchor.reanchorCount, `${name}: step count and crossing count must agree`);
+    assert.ok(steps < 200, `${name}: ${steps} re-anchor steps for 500 small moves`);
+  }
+});

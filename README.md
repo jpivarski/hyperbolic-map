@@ -162,9 +162,22 @@ Also available: `onDrawBackground`, `onDrawRim`, `onViewChange`, `onGestureStart
 ### Methods
 
 `getView()`, `getMatrix()`, `setMatrix(isom)`, `setZoom(z)`, `setRotation(θ)`, `panTo(x, y)`,
+`getCamera()`, `setCamera(camera)`, `panToTile(address, local?)`,
 `setData(data, name?)`, `addSource(name, dataOrCallback, {transform})`, `removeSource(name)`,
 `setSourceTransform(name, isom)`, `toScreen(x, y)`, `fromScreen(px, py)`, `invalidate()`,
 `render()`, `resize(w, h)`, `destroy()`.
+
+**In atlas mode, use `getCamera`/`setCamera`/`panToTile`.** The first four take and return *global*
+coordinates, and far from the origin no global coordinate can be represented — that is the whole
+reason the atlas is anchored (see [Atlas of tiles](#atlas-of-tiles)). Their meaning is unchanged and
+they remain correct in single-patch mode and while the camera is still anchored to the origin tile;
+past that they **throw**, naming `getCamera()`, rather than returning a plausible wrong number.
+
+```js
+const cam = viewport.getCamera();   // { address, matrix, zoom } -- matrix is anchor-relative
+viewport.setCamera(cam);            // exact round trip
+viewport.panToTile(address, [0, 0]); // centre a tile, at any distance
+```
 
 `setSourceTransform` is worth knowing about: it applies an extra isometry to one named source without
 recompiling its drawables. The clock example rotates its hands with it once a second, which is an
@@ -266,7 +279,27 @@ Instead of one global coordinate system, give each tile of a tiling its own. Two
   20 the disk coordinate is `1 − 3.6e-9`, so only about seven significant digits remain in the
   quantity that matters. In an atlas every coordinate is small and measured from its own tile's
   centre.
-- **Infinite repeats.** Return the same tile for every key and the pattern never ends.
+- **Infinite repeats.** Return the same tile for every address and the pattern never ends.
+
+### Nothing is ever expressed globally
+
+This is the part that makes the atlas actually work, rather than merely postponing the problem. A
+tile's frame relative to the *world* has entries of order `cosh(d/2)` — 1.08e75 for binary cell
+(500, 0) — so composing it with an equally large view matrix to get an O(1) screen position destroys
+every digit. So neither is ever formed. The view is stored relative to the **camera's own tile**:
+
+```
+V_c    = V · F_c          the view, in the camera tile's frame
+R_c→k  = F_c⁻¹ · F_k      a tile's frame relative to the camera, one constant generator per walk step
+net    = V_c · R_c→k      both factors O(1) for every tile that can be on screen
+```
+
+When the camera would drift away from its tile it changes tile instead, multiplying `V_c` by one small
+generator. `viewport.stats.maxViewEntry` is the number that shows this working: it stays near 1 no
+matter how far you scroll. Measured consequences — the rendered picture is **byte-identical** at 1, 5,
+50, 500 and 5000 tiles from the origin across nine tilings, and screen-position error against a
+60-digit reference is flat at ~5e-16 at every distance. `docs/tiling-diagnostics.html` runs those
+checks in the browser; `tools/audit_atlas_math.py` and `tools/audit_atlas_numeric.py` are the audits.
 
 ```js
 const viewport = new HyperbolicViewport({
@@ -274,7 +307,8 @@ const viewport = new HyperbolicViewport({
   atlas: {
     tiling: new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 }),
     tileData: async (tile) => {
-      // tile.key is a tuple of integers; tile.centreDisk and tile.orientation are informational.
+      // tile.address (also aliased as tile.key) identifies the tile; tile.id is its string form and
+      // tile.relativeFrame is its position relative to the camera, if you want it.
       // Return DATA in TILE-LOCAL coordinates. Never rotate anything yourself.
       const res = await fetch(`tiles/${tile.id}.json`);
       return res.json();
@@ -283,6 +317,7 @@ const viewport = new HyperbolicViewport({
     maxTiles: 200,
     cacheSize: 512,
   },
+  anchor: { lat: -1n, lon: 0n },   // optional: open on a given tile, at any distance
 });
 ```
 
@@ -292,7 +327,10 @@ several overlays. Placing and rotating each tile is always the library's job.
 ### `RegularTiling({p, q, frameSymmetry})`
 
 The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever
-`1/p + 1/q < 1/2`. Keys are tuples of integers, one per generator step from the origin tile.
+`1/p + 1/q < 1/2`. Addresses are arrays of generator indices — a word describing a walk from the
+origin tile. Two different words can name the same tile (the group has braid relations), so the walk
+also deduplicates geometrically; see `notes/open-questions.md` for the measured extent of that and the
+Coxeter automaton that would remove it.
 
 `frameSymmetry` (a divisor of `p`, default `p`) declares the rotational symmetry **your art has**,
 and it matters more than it looks. Repeating one tile everywhere produces a consistent pattern only
@@ -303,22 +341,40 @@ and the natural general-purpose generator (a half-turn about an edge midpoint) i
 
 ### `BinaryTiling()`
 
-The binary (Böröczky) tiling, keyed by `[latitude, longitude]`. Point-to-cell is two `floor`s, which
-no `{p,q}` scheme can match, and the integer keys make natural filenames. Cells are congruent but not
+The binary (Böröczky) tiling, addressed by `{lat, lon}` as **BigInt**. Point-to-cell is two `floor`s,
+which no `{p,q}` scheme can match, and the integer addresses make natural filenames and are canonical:
+one cell, one address, no ambiguity. BigInt because descending one latitude doubles the longitude, so
+about fifty levels down a plain number stops being exact — and addresses are identity only, never
+geometry, so it costs nothing per frame. Cells are congruent but not
 regular polygons — two sides are geodesics and two are horocycles — and the tiling is *not*
 tile-transitive, so it cannot make a seamless repeating pattern. It is the right choice for a map,
 and it is what the 2011 server used.
 
 ### Writing your own
 
+Everything is local: a tiling is never asked where a tile is in the world, only how to step between
+neighbours.
+
 ```js
 {
-  keyToString(key),                    // canonical string, for caching and filenames
-  visible(viewMatrix, radius, max),    // the keys that could be on screen
-  frame(key),                          // Isom: tile-local coordinates -> world
-  boundary(key),                       // for clipping
+  metrics: { circumradius, centreSpacing },   // sizes the walk
+  originAddress(),                            // the tile containing the origin
+  addressToString(address),                   // canonical string, for caching and filenames
+  addressEquals(a, b),
+  neighbours(address),                        // [{ address, gen }] -- gen indexes the generator table
+  generator(i),                               // Isom, CONSTANT: neighbour-local -> this tile's local
+  inverseGenerator(i),                        // the index that undoes generator i
+  generatorCount(),
+  containsLocal(x, y, tol?),                  // is this tile-local point inside this tile?
+  boundaryLocal(),                            // for clipping, in tile-local coordinates
+  addressesAreCanonical,                      // true if one tile has exactly one address
 }
 ```
+
+The generators must be **constant matrices** — independent of which tile you are in. That is what
+makes a walk a product of small factors, and it is the whole trick. In SU(1,1) an edge half-turn
+squares to `−I` rather than `+I` (the spin double cover), so `inverseGenerator` may return the index of
+a matrix equal to the negation of the inverse; any comparison of frames must work **up to sign**.
 
 ---
 

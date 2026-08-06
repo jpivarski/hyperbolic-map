@@ -73,76 +73,44 @@ export class Anchor {
   // re-anchoring safe in the middle of a gesture: `updatePan` builds the live matrix by
   // LEFT-multiplying the committed one, so a right factor applied to both is exactly consistent and
   // the grabbed screen point stays pinned.
-  reanchor(matrix, maxSteps = 64) {
+  // `maxSteps` is generous on purpose. Each step is a couple of dozen flops, and the camera may have
+  // to catch up a long way at once -- a gesture that ran while rendering was throttled, or a
+  // setCamera to a distant tile. Being unable to catch up is what lets V grow, so the bound exists
+  // only to guarantee termination, not to ration work.
+  reanchor(matrix, maxSteps = 4096) {
     const c = [0, 0, 0];
     let shift = Isom.identity();
     let current = matrix;
     let steps = 0;
+    // Monotonicity guard. Each step must bring the view centre strictly closer to the camera tile's
+    // centre; that is what makes the descent terminate. Enforcing it here rather than trusting each
+    // tiling's rule means a future tiling with a subtly non-monotone `stepToward` degrades to "stop
+    // early" instead of spinning to the iteration cap -- which is how a 2-cycle presented itself before:
+    // 4,096 steps on a single camera move.
+    let previous = Infinity;
     for (; steps < maxSteps; steps++) {
       this.viewCentreLocal(current, c);
-      // cosh(d/2) from the view centre to the camera tile's own centre (the local origin) is just w.
-      let bestCosh = c[2];
-      let bestGen = -1;
-      let bestAddress = null;
+      if (!(c[2] < previous)) break;
+      previous = c[2];
+      // Ask the tiling which way to go. Each tiling answers with an EXACT, monotone rule -- the most
+      // violated half-plane for a regular tiling, the box test for a binary cell -- so the descent
+      // cannot cycle. An earlier version used a generic nearest-centre comparison with a tolerance,
+      // which is fine for Voronoi cells but wrong for binary ones: mixing it with a containment check
+      // made the two rules fight, and 500 small camera moves cost 143,407 re-anchor steps instead of
+      // about 30.
+      //
+      // The answer is an INDEX INTO the neighbour list, which is why the list's order is part of the
+      // Tiling contract. Naming a generator instead cannot work for the binary tiling, whose parent
+      // step has two parities: an odd-longitude cell offers only PARENT_ODD, so a request for
+      // PARENT_EVEN silently found nothing and the camera could never move up at all.
       const nbrs = this.tiling.neighbours(this.address);
-      for (let i = 0; i < nbrs.length; i++) {
-        const g = this.tiling.generator(nbrs[i].gen);
-        g.applyToDisk(0, 0, this._buf);
-        const k = 1 / Math.sqrt(Math.max(1e-300, 1 - this._buf[0] * this._buf[0] - this._buf[1] * this._buf[1]));
-        const nx = this._buf[0] * k;
-        const ny = this._buf[1] * k;
-        const nw = Math.sqrt(1 + nx * nx + ny * ny);
-        const A = c[2] * nw - c[0] * nx - c[1] * ny;
-        const B = c[0] * ny - c[1] * nx;
-        const ch = Math.hypot(A, B);
-        // Strict improvement only, with a margin, so a view sitting exactly on a boundary cannot
-        // oscillate between two tiles forever.
-        if (ch < bestCosh - 1e-12) {
-          bestCosh = ch;
-          bestGen = nbrs[i].gen;
-          bestAddress = nbrs[i].address;
-        }
-      }
-      if (bestGen < 0) {
-        // The nearest-centre descent has converged. Finish on the EXACT containment predicate, which
-        // has no tolerance in it, so the camera tile becomes a pure function of the view centre.
-        //
-        // This matters more than it looks. The descent above needs a strict-improvement margin or a
-        // view sitting on a boundary would oscillate forever -- but that margin is hysteresis, and
-        // hysteresis makes the camera tile depend on the ROUTE taken. Measured before this step: a long
-        // out-and-back walk of ~200 tile crossings returned to a tile six steps from where it started,
-        // because a handful of crossings resolved differently in each direction. The geometry was fine
-        // either way (the view is the address and the matrix together), but tile ADDRESSES drifted --
-        // and an address is what the data callback is keyed on, so for position-dependent data the same
-        // tile could be handed a different key after a round trip.
-        //
-        // `containsLocal` is exact and canonical, so using it to finish removes the route dependence.
-        if (this.tiling.containsLocal(c[0], c[1])) break;
-        let moved = false;
-        for (let i = 0; i < nbrs.length; i++) {
-          const g2 = this.tiling.generator(nbrs[i].gen);
-          const inv = g2.inverse();
-          inv.applyToLocal(c[0], c[1], c[2], this._buf);
-          const k2 = 1 / Math.sqrt(Math.max(1e-300, 1 - this._buf[0] * this._buf[0] - this._buf[1] * this._buf[1]));
-          if (this.tiling.containsLocal(this._buf[0] * k2, this._buf[1] * k2)) {
-            shift = shift.mul(g2).normalize();
-            current = current.mul(g2).normalize();
-            this.address = nbrs[i].address;
-            this.reanchorCount++;
-            moved = true;
-            break;
-          }
-        }
-        // No neighbour contains it either -- the view centre is on a boundary, or the tiling's cells are
-        // not the Voronoi cells of their centres (the binary one). Nearest-centre is then the right
-        // answer and we are already there.
-        if (!moved) break;
-        continue;
-      }
-      const g = this.tiling.generator(bestGen);
+      const dir = this.tiling.stepToward(c[0], c[1]);
+      if (dir < 0 || dir >= nbrs.length) break;
+      const chosen = nbrs[dir];
+      const g = this.tiling.generator(chosen.gen);
       shift = shift.mul(g).normalize();
       current = current.mul(g).normalize();
-      this.address = bestAddress;
+      this.address = chosen.address;
       this.reanchorCount++;
     }
     return { steps, shift };

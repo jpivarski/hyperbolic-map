@@ -212,6 +212,15 @@ export class HyperbolicViewport {
       opts,
       {
         onChange: () => {
+          // Re-anchor on every view CHANGE, not only when a frame is drawn.
+          //
+          // "V_c stays O(1)" has to be an invariant of the view state, not something a render happens
+          // to restore. Renders are rAF-coalesced and rAF can be throttled to about 1 Hz in a
+          // backgrounded tab -- and then a drag accumulates dozens of tiles of motion with no
+          // re-anchoring at all. Measured with rendering throttled: max|V| reached 8.9e+74 and the disk
+          // went empty, which is exactly the failure this whole design removes, reintroduced through
+          // the scheduler. Re-anchoring is a handful of flops, so doing it per input event is free.
+          this.reanchorCamera();
           this.invalidate();
           if (opts.onViewChange) opts.onViewChange(this.getView());
         },
@@ -371,6 +380,7 @@ export class HyperbolicViewport {
     this.view.liveMatrix = this.view.matrix.clone();
     if (camera.zoom !== undefined) this.view.setZoom(camera.zoom);
     this.view.gesture = null;
+    this.reanchorCamera();
     this.invalidate();
   }
 
@@ -414,6 +424,7 @@ export class HyperbolicViewport {
 
   setZoom(z) {
     this.view.setZoom(z);
+    this.reanchorCamera();
     this.invalidate();
   }
 
@@ -421,6 +432,7 @@ export class HyperbolicViewport {
     const current = this.view.matrix.screenRotation();
     this.view.matrix = Isom.rotation(theta - current).mul(this.view.matrix).normalize();
     this.view.liveMatrix = this.view.matrix.clone();
+    this.reanchorCamera();
     this.invalidate();
   }
 

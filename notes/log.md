@@ -854,3 +854,65 @@ The binary cell's two GEODESIC sides (x = const) were drawn as single straight c
 sagitta 0.004889 disk units: 3.3 px at the dungeon's default zoom, 9.1 px at zoom 6, a visible band
 along every vertical cell boundary. Both kinds of side are now sampled to a pixel sagitta target, the
 geodesic ones logarithmically in y because the half-plane metric is dy/y. After: 0.0026 px at zoom 2.2.
+
+
+## 2026-08-06 — Compound scrolling found three real bugs the straight-line tests could not
+
+The user asked for compound scrolls: many directions, short and long, mixed. That turned out to be a
+much sharper instrument than walking in one direction, and it found three defects — two of them
+introduced by this very rewrite.
+
+### Bug A — the invariant was maintained by RENDER, not by the view state
+
+`reanchorCamera()` was called at the top of `render()`. Renders are rAF-coalesced, and rAF throttles to
+about 1 Hz in a backgrounded tab. So an automated run dragged for dozens of tiles with **no
+re-anchoring at all**, and `max|V|` reached **8.9e+74** with the disk empty — the exact failure this
+design removes, reintroduced through the scheduler.
+
+"V_c stays O(1)" has to be an invariant of the view state, not something a render happens to restore.
+Re-anchoring now runs on every view change (the input layer's `onChange`, `setZoom`, `setRotation`,
+`setCamera`), which is a handful of flops. After: `max|V|` = 1.05 over 354 gestures.
+
+### Bug B — the descent cycled for the binary tiling
+
+The camera stepped toward whichever neighbour CENTRE was nearest. That is right for a regular tiling,
+whose tiles are the Voronoi cells of their centres, and wrong for binary cells, which are not — so the
+nearest-centre rule and the containment check fought each other. Measured: **143,407 re-anchor steps
+for 500 small camera moves**, hitting the iteration cap every time, where {8,3} needed 28.
+
+Each tiling now supplies its own exact, monotone `stepToward`: the nearest neighbour centre for a
+regular tiling, the box test for a binary cell. Binary went to 47 steps for the same 500 moves.
+
+### Bug C — `stepToward` named a generator, so the camera could not move UP
+
+Introduced while fixing B. It returned a GENERATOR index, but the binary parent step comes in two
+parities: an odd-longitude cell offers only `PARENT_ODD`, so a request for `PARENT_EVEN` matched
+nothing and the camera could never ascend. It chased downward instead — `max|V|` 2.6e24 and a latitude
+several hundred digits long. Found by driving all eight bearings rather than one.
+
+`stepToward` now returns an INDEX INTO the neighbour list, and that list's order is part of the Tiling
+contract.
+
+### Two more, from the same session
+
+* **{7,3} cycled once in forty moves.** Picking the most VIOLATED half-plane sounds equivalent to
+  picking the nearest centre and is not — violation magnitude is not a distance, so the descent is not
+  monotone in it. 4,096 steps (the cap) on a single move. Now nearest-centre with a relative tolerance
+  on the containment test, since a point within rounding of a bisector is genuinely ambiguous and each
+  of the two tiles computes the other as a hair nearer. Plus a monotonicity guard in `reanchor` itself,
+  so a future tiling with a subtly non-monotone rule degrades to stopping early instead of spinning.
+* **The "content vanished" check could not fire on {12,3}.** It measured colour DIVERSITY, and one
+  large dodecagon can cover the whole sampled region, so a good frame scored 0 and the threshold —
+  relative to a baseline that was also 0 — never tripped. Now it counts non-background pixels.
+
+### Where it stands
+
+11 tilings × 16 bearings × 400 moves: worst 96 re-anchor steps, worst `max|V|` 1.35, zero containment
+failures out of 176 runs. In the browser, all nine tilings through 354 compound gestures each: zero
+findings, `max|V|` ≤ 1.21, ink 1.0 throughout, zero path-dependent tiles.
+
+Path independence is now compared on the composed MATRICES rather than on pixels, and that is a
+deliberate correction. The gestured canvas has been drawn hundreds of times and Chrome has promoted it
+to the GPU; a freshly built one starts on the software rasterizer. That difference measured ~12,900
+colour channels of pure rasterizer state. The matrices are the honest object: path independence means
+the geometry is a function of the camera, and `net` per tile IS that geometry.
