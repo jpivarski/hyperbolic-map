@@ -451,6 +451,59 @@ export async function checkBounded(lines) {
   });
 }
 
+// ---- 8. picking agrees with what is on screen -----------------------------------------------
+//
+// `tileAtScreen` must name the tile the RENDERER used, not merely a tile that geometrically contains the
+// point. For word-addressed tilings those differ: {p,q} words are not canonical, so an independent
+// descent can land on the same tile by a different word -- for {5,4}, "2.3" and "1.0" name one tile with
+// centres agreeing to 2.8e-17. Since the artwork's colour is a hash of the ADDRESS, that shows up here
+// as a wrong colour, which is exactly what caught it.
+export async function checkPicking(lines) {
+  let tested = 0;
+  let wrong = 0;
+  const failures = [];
+  for (const key of KEYS) {
+    const tiling0 = makeTiling(key);
+    for (const far of [0, 500, 5000]) {
+      const address = far
+        ? (key === "binary" ? { lat: BigInt(far), lon: 0n } : walkAddress(tiling0, far, 5))
+        : tiling0.originAddress();
+      const { vp, tiling, canvas } = build(key, { motif: "fill", hashColour: true, clip: true, drawRadius: 0.72 });
+      vp.panToTile(address, [0, 0]);
+      await settle(vp);
+      const px = pixels(canvas);
+      const view = vp.surface.buildView(vp.view, vp.options);
+      const at = (x, y) => { const i = (y * canvas.width + x) * 4; return [px[i], px[i + 1], px[i + 2]]; };
+      const same = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < 6;
+      for (let y = 6; y < canvas.height - 6; y += 6) {
+        for (let x = 6; x < canvas.width - 6; x += 6) {
+          const dx = (x - view.cx) / view.radius;
+          const dy = -(y - view.cy) / view.radius;
+          if (dx * dx + dy * dy > 0.55 * 0.55) continue;
+          const col = at(x, y);
+          if (col[0] > 250 && col[1] > 250 && col[2] > 250) continue;
+          // Flat regions only: on an antialiased boundary the rendered colour is legitimately a blend.
+          if (!same(col, at(x - 2, y)) || !same(col, at(x + 2, y)) ||
+              !same(col, at(x, y - 2)) || !same(col, at(x, y + 2))) continue;
+          const pick = vp.tileAtScreen(x, y);
+          if (!pick) continue;
+          tested++;
+          if (!same(col, rgbOf(colourFor(pick.id)))) {
+            wrong++;
+            if (failures.length < 3) failures.push(`${key} at ${far} tiles, pixel (${x},${y}): picked ${pick.id}`);
+          }
+        }
+      }
+      vp.destroy();
+    }
+  }
+  lines.push({
+    ok: wrong === 0,
+    text: `8. picking: ${tested - wrong}/${tested} sampled pixels name the tile that painted them, at ` +
+      `0, 500 and 5000 tiles out` + (failures.length ? `\n     ${failures.join("\n     ")}` : ""),
+  });
+}
+
 export async function runAllChecks() {
   const lines = [];
   const t0 = performance.now();
@@ -460,6 +513,7 @@ export async function runAllChecks() {
   await checkOutsideDisk(lines);
   await checkAddressRoundTrip(lines);
   await checkBounded(lines);
+  await checkPicking(lines);
   lines.sort((a, b) => parseInt(a.text, 10) - parseInt(b.text, 10));
   lines.push({
     ok: lines.every((l) => l.ok),
@@ -480,4 +534,5 @@ window.diagChecks = {
   outsideDisk: checkOutsideDisk,
   addressRoundTrip: checkAddressRoundTrip,
   bounded: checkBounded,
+  picking: checkPicking,
 };

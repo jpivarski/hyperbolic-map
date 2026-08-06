@@ -177,7 +177,14 @@ past that they **throw**, naming `getCamera()`, rather than returning a plausibl
 const cam = viewport.getCamera();   // { address, matrix, zoom } -- matrix is anchor-relative
 viewport.setCamera(cam);            // exact round trip
 viewport.panToTile(address, [0, 0]); // centre a tile, at any distance
+viewport.tileAtScreen(px, py);       // { address, id, local } -- which tile is under this pixel?
 ```
+
+`toScreen` and `fromScreen` work in whatever frame the view is expressed in: the global frame in
+single-patch mode, the current anchor tile's frame in atlas mode (pair them with
+`getCamera().address`). `tileAtScreen` is the atlas-mode picking question, and it deliberately answers
+with the address the *renderer* used, so it agrees with what is on screen even for tilings whose word
+addresses are not canonical.
 
 `setSourceTransform` is worth knowing about: it applies an extra isometry to one named source without
 recompiling its drawables. The clock example rotates its hands with it once a second, which is an

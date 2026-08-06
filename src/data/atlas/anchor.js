@@ -116,6 +116,38 @@ export class Anchor {
     return { steps, shift };
   }
 
+  // Which tile contains a given point of the CAMERA TILE's local frame, and where that point sits in
+  // that tile's own coordinates?
+  //
+  // The same descent `reanchor` performs, but without moving the camera -- so it answers "what is under
+  // the cursor?" without side effects. Everything stays camera-relative, so it is as accurate at 200,000
+  // tiles from the origin as at the origin.
+  locateFromCameraLocal(x, y, maxSteps = 4096) {
+    let address = this.address;
+    let rel = Isom.identity();
+    let px = x;
+    let py = y;
+    let previous = Infinity;
+    for (let step = 0; step < maxSteps; step++) {
+      const w = Math.sqrt(1 + px * px + py * py);
+      if (!(w < previous)) break;
+      previous = w;
+      const nbrs = this.tiling.neighbours(address);
+      const dir = this.tiling.stepToward(px, py);
+      if (dir < 0 || dir >= nbrs.length) break;
+      const g = this.tiling.generator(nbrs[dir].gen);
+      rel = rel.mul(g).normalize();
+      address = nbrs[dir].address;
+      // Re-express the point in the new tile's frame.
+      const inv = g.inverse();
+      const out = inv.applyToLocal(px, py, w, this._buf);
+      const k = 1 / Math.sqrt(Math.max(1e-300, 1 - out[0] * out[0] - out[1] * out[1]));
+      px = out[0] * k;
+      py = out[1] * k;
+    }
+    return { address, local: [px, py], rel };
+  }
+
   // Tiles that can be on screen, each with its frame RELATIVE to the camera.
   //
   // Breadth-first from the camera tile, starting at the identity and multiplying by one constant

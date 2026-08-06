@@ -2307,6 +2307,38 @@ class Anchor {
     return { steps, shift };
   }
 
+  // Which tile contains a given point of the CAMERA TILE's local frame, and where that point sits in
+  // that tile's own coordinates?
+  //
+  // The same descent `reanchor` performs, but without moving the camera -- so it answers "what is under
+  // the cursor?" without side effects. Everything stays camera-relative, so it is as accurate at 200,000
+  // tiles from the origin as at the origin.
+  locateFromCameraLocal(x, y, maxSteps = 4096) {
+    let address = this.address;
+    let rel = Isom.identity();
+    let px = x;
+    let py = y;
+    let previous = Infinity;
+    for (let step = 0; step < maxSteps; step++) {
+      const w = Math.sqrt(1 + px * px + py * py);
+      if (!(w < previous)) break;
+      previous = w;
+      const nbrs = this.tiling.neighbours(address);
+      const dir = this.tiling.stepToward(px, py);
+      if (dir < 0 || dir >= nbrs.length) break;
+      const g = this.tiling.generator(nbrs[dir].gen);
+      rel = rel.mul(g).normalize();
+      address = nbrs[dir].address;
+      // Re-express the point in the new tile's frame.
+      const inv = g.inverse();
+      const out = inv.applyToLocal(px, py, w, this._buf);
+      const k = 1 / Math.sqrt(Math.max(1e-300, 1 - out[0] * out[0] - out[1] * out[1]));
+      px = out[0] * k;
+      py = out[1] * k;
+    }
+    return { address, local: [px, py], rel };
+  }
+
   // Tiles that can be on screen, each with its frame RELATIVE to the camera.
   //
   // Breadth-first from the camera tile, starting at the identity and multiplying by one constant
@@ -3241,18 +3273,68 @@ class HyperbolicViewport {
 
   // Apply an extra isometry to one source without recompiling its drawables. O(1) per change.
   setSourceTransform(name, isom) {
+    if (this.atlas) {
+      throw new Error(
+        "hyperbolic-map: setSourceTransform() is not available in atlas mode -- there are no global " +
+          "sources there. See the note on addSource().",
+      );
+    }
     const entry = this.sources.get(name);
     if (!entry) throw new Error(`hyperbolic-map: no source named "${name}"`);
     entry.transform = isom;
     this.invalidate();
   }
 
+  // Local coordinates <-> screen pixels, both in whatever frame the VIEW is expressed in. In
+  // single-patch mode that is the global frame; in atlas mode it is the current anchor tile's frame, so
+  // pair them with `getCamera().address`. For "which tile is under this pixel", use tileAtScreen.
   toScreen(x, y) {
     return this.surface.buildView(this.view, this.options).toScreen(x, y);
   }
 
   fromScreen(sx, sy) {
     return this.surface.buildView(this.view, this.options).fromScreen(sx, sy);
+  }
+
+  // Which tile is under this screen pixel, and where in that tile's own coordinates? Atlas mode only.
+  //
+  // The natural picking question, and the one an application actually asks. Answered entirely in
+  // camera-relative terms, so it is as accurate 200,000 tiles from the origin as at the origin --
+  // whereas converting a pixel to a global coordinate and locating from there could not work at all.
+  // Returns null if the pixel is outside the disk.
+  tileAtScreen(sx, sy) {
+    if (!this.atlas) throw new Error("hyperbolic-map: tileAtScreen() requires an atlas; use fromScreen()");
+    const view = this.surface.buildView(this.view, this.options);
+    const local = view.fromScreen(sx, sy);
+    if (!local) return null;
+    const tiling = this.atlas.tiling;
+
+    // Answer with the tile the RENDERER just used, whenever the point is on one of them.
+    //
+    // Not a shortcut -- a correctness requirement for word-addressed tilings. Descending independently
+    // finds the right tile geometrically but can name it with a DIFFERENT WORD than the renderer used,
+    // because {p,q} words are not canonical: for {5,4}, "2.3" and "1.0" are the same tile, their centres
+    // agreeing to 2.8e-17. A caller picking a tile wants the address that matches what is on screen --
+    // to look up their own per-tile data, or to correlate with `atlas.lastTiles` -- so resolving against
+    // the drawn set makes picking and rendering agree by construction.
+    for (const t of this.atlas.lastTiles) {
+      const q = t.net.inverse().applyToDisk(
+        (sx - view.cx) / view.radius,
+        -(sy - view.cy) / view.radius,
+        [0, 0],
+      );
+      const k = 1 / Math.sqrt(Math.max(1e-300, 1 - q[0] * q[0] - q[1] * q[1]));
+      const lx = q[0] * k;
+      const ly = q[1] * k;
+      if (tiling.containsLocal(lx, ly)) {
+        return { address: t.address, id: t.id, local: [lx, ly] };
+      }
+    }
+
+    // Outside the drawn set -- beyond the tile budget, or before the first render. Fall back to the
+    // descent, which is still geometrically correct.
+    const found = this.atlas.anchor.locateFromCameraLocal(local[0], local[1]);
+    return { address: found.address, id: tiling.addressToString(found.address), local: found.local };
   }
 
   resize(w, h) {
