@@ -1,0 +1,47 @@
+{
+  "name": "hyperbolic-map-widget",
+  "version": "0.1.0",
+  "description": "Interactive viewer for vector maps of the hyperbolic plane, drawn in the Poincaré disk. Zero dependencies.",
+  "keywords": [
+    "hyperbolic",
+    "poincare-disk",
+    "non-euclidean",
+    "geometry",
+    "canvas",
+    "map",
+    "tiling",
+    "escher"
+  ],
+  "license": "BSD-3-Clause",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "script": "./dist/hyperbolic-map.iife.js",
+      "import": "./src/index.js",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "types",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node tools/check-bundle.mjs",
+    "build": "node tools/check-bundle.mjs && node tools/build.mjs",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "bench": "node bench/bench.mjs",
+    "serve": "python3 -m http.server --directory docs 8000"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jpivarski/hyperbolic-map-widget.git"
+  }
+}

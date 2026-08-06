@@ -1,0 +1,7 @@
+# Source material for the revival: two archived disk images and the original
+# 2011-2012 git repo. Large, not ours to redistribute, and not part of the build.
+OLD/
+
+node_modules/
+*.log
+.DS_Store
