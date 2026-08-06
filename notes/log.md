@@ -556,3 +556,50 @@ Several apparently-blank captures were a race in the test harness, not the libra
 called after awaiting rAF can land between the viewport's own scheduled render and its completion.
 Capture directly after a synchronous `render()`, in the same task, with no `await` in between.
 Confirmed by re-capturing the identical view and getting a correct image.
+
+
+## 2026-08-05 (night) — Interaction sweep across all six examples
+
+Built `bench/sweep.js`, injected into any example page. Per gesture it asks two questions:
+
+1. Is anything on the disk?
+2. Is the picture the same as it would be if this view had been reached directly?
+
+Question 2 is the sharp one. The picture is a pure function of the view, so any difference between
+"reached by gesturing" and "constructed fresh from the same matrix" is accumulated state -- a stale
+cache, a leaked transform, a counter that never reset. It catches that class without needing to know
+what the correct image looks like.
+
+**Result: all six pages clean.** Three seeds x 18-24 random drags, wheel-zooms and rim-rotations per
+page; worst signature difference 0 on every step except the first gesture after a page load. The
+infinite Circle Limit III still fills the disk correctly after 54 consecutive random gestures.
+
+Measured noise floor for two renders of a settled view: **exactly 0**. That is what makes the
+comparison worth anything, and it is why three separate harness defects had to be chased down first.
+
+### Three false positives, all mine
+
+* **Measuring before the tiles were requested.** The atlas discovers which tiles it needs *inside*
+  `passes()`, i.e. during the render. So `pending` is 0, we render, that render enqueues the new
+  view's tiles, and the signature comes from a frame missing them. Waiting on `pending` beforehand
+  is useless; the settle has to be a FIXPOINT -- render, and if that render requested anything, wait
+  and render again.
+* **Calling "you panned off the data" a blank screen.** `escher.html` reported twelve blank frames.
+  The view centre was at hyperbolic distance 4.96 with art out to 7.95, so it looked like content
+  vanishing -- but the traced art gives up a few layers from the centre ("I made some mistakes and
+  gave up adding fishes a few layers from the center") and the disk really was empty there. It is
+  the whole reason `escher-atlas.html` exists. A blank frame is now only reported when re-setting
+  the same view fills it back in.
+* **Reading a `drawn` count as a drop in content.** Escher-atlas fell from 18,000 to 450 after one
+  gesture, which looked alarming; the sweep had wheel-zoomed to 2.26, where 11 tiles x 90 shapes is
+  exactly right.
+
+### The one residual signal, characterised rather than waved away
+
+The first measured gesture after a page load differs by mean 0.3-1.5 on a 0-255 scale; every
+subsequent step on the same page is exactly 0, and a second sweep over the same warmed page is clean
+throughout. Chased to pixel level twice -- replaying the identical gesture and comparing frame
+buffers directly gives **0 differing pixels out of 250,000**. This is Chrome promoting the canvas
+from the software rasterizer to the GPU, which is already recorded in `notes/legacy-decoded.md`, and
+the two rasterizers antialias differently. Three warm gestures before measuring reduce but do not
+eliminate it. Not a library defect; left visible in the output rather than suppressed.

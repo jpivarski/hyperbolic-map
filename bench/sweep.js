@@ -1,27 +1,97 @@
-// Drawing-correctness sweep driver. Injected into an example page by the test runner.
+// Interaction sweep for drawing correctness. Injected into any docs/ example page.
 //
-// Simulates real scrolling through real pointer events (not by poking the view state), captures the
-// canvas's own pixels after each step, and reports structural statistics that catch the failure modes
-// that matter here: content vanishing, content not being cleared between frames, and content whose
-// coverage collapses after repeated interaction.
+// The user's report was: "the initial drawing is correct, but after some scrolling, zooming,
+// rotating, etc., the polygons disappear". So the sweep drives real pointer, wheel and rim-rotate
+// gestures and after every single step asks two questions:
 //
-// Deliberately does NOT compare exact pixels between steps: Chrome switches a canvas from software to
-// GPU rasterization after the first few draws, so a few percent of edge pixels always differ. See
-// notes/legacy-decoded.md.
+//   1. Is anything actually on the disk?  (a blank frame is the reported symptom)
+//   2. Is the picture the same as it would be if this view had been reached directly?
+//
+// Question 2 is PATH INDEPENDENCE, and it is the sharp one. The picture is a pure function of the
+// view, so any difference between "reached by gesturing" and "constructed fresh" is accumulated
+// state -- a stale cache, a leaked transform, a survivor cap that never reset. Comparing against a
+// freshly-set matrix catches those without needing to know what correct looks like.
+//
+// Images are compared on a downsampled signature, not exact pixels, because Chrome moves a canvas
+// between software and GPU rasterization and the two antialias differently (notes/legacy-decoded.md).
+// Downsampling averages that away while still catching a missing polygon.
 
-/* global document, window, fetch, PointerEvent, requestAnimationFrame */
+(function () {
+  const N = 42;
 
-window.__sweep = (function () {
-  function canvas() {
-    return document.querySelector("#map canvas");
+  function canvasEl() {
+    return document.querySelector("#map canvas") || document.querySelector("canvas");
   }
 
-  function frame() {
-    return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  function signature() {
+    const c = canvasEl();
+    const w = c.width;
+    const h = c.height;
+    const d = c.getContext("2d").getImageData(0, 0, w, h).data;
+    const acc = new Float64Array(N * N * 3);
+    const cnt = new Float64Array(N * N);
+    for (let y = 0; y < h; y++) {
+      const gy = Math.min(N - 1, Math.floor((y / h) * N));
+      for (let x = 0; x < w; x++) {
+        const gx = Math.min(N - 1, Math.floor((x / w) * N));
+        const i = (y * w + x) * 4;
+        const g = gy * N + gx;
+        const a = d[i + 3] / 255; // composite on mid-grey so transparent != opaque
+        acc[g * 3] += d[i] * a + 128 * (1 - a);
+        acc[g * 3 + 1] += d[i + 1] * a + 128 * (1 - a);
+        acc[g * 3 + 2] += d[i + 2] * a + 128 * (1 - a);
+        cnt[g]++;
+      }
+    }
+    const out = new Array(N * N * 3);
+    for (let g = 0; g < N * N; g++) {
+      for (let k = 0; k < 3; k++) out[g * 3 + k] = acc[g * 3 + k] / cnt[g];
+    }
+    return out;
   }
+
+  function compare(a, b) {
+    let worst = 0;
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) {
+      const d = Math.abs(a[i] - b[i]);
+      if (d > worst) worst = d;
+      sum += d;
+    }
+    return { worst: +worst.toFixed(2), mean: +(sum / a.length).toFixed(3) };
+  }
+
+  // How much of the disk is not the flat background? A blank disk is the reported failure, and it is
+  // worth measuring directly rather than trusting a `drawn` counter -- those counted 1556 drawables
+  // while the disk was empty, back when the tiles were landing outside the cull radius.
+  function inkFraction(vp) {
+    const c = canvasEl();
+    const w = c.width;
+    const h = c.height;
+    const d = c.getContext("2d").getImageData(0, 0, w, h).data;
+    const cx = w / 2;
+    const cy = h / 2;
+    const r = Math.min(w, h) * 0.35; // well inside the disk at every zoom these demos allow
+    const hist = new Map();
+    const pts = [];
+    for (let y = 0; y < h; y += 2) {
+      for (let x = 0; x < w; x += 2) {
+        if ((x - cx) ** 2 + (y - cy) ** 2 > r * r) continue;
+        const i = (y * w + x) * 4;
+        const k = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+        hist.set(k, (hist.get(k) || 0) + 1);
+        pts.push(k);
+      }
+    }
+    let modeCount = 0;
+    for (const v of hist.values()) if (v > modeCount) modeCount = v;
+    return pts.length ? +(1 - modeCount / pts.length).toFixed(4) : 0;
+  }
+
+  const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
   function pointer(type, x, y, extra) {
-    const c = canvas();
+    const c = canvasEl();
     const rect = c.getBoundingClientRect();
     c.dispatchEvent(
       new PointerEvent(
@@ -43,7 +113,6 @@ window.__sweep = (function () {
     );
   }
 
-  // A drag in `steps` increments, so intermediate frames are exercised too.
   async function drag(x0, y0, x1, y1, steps) {
     steps = steps || 6;
     pointer("pointerdown", x0, y0);
@@ -56,81 +125,152 @@ window.__sweep = (function () {
     await frame();
   }
 
-  // Structural summary of what is on the canvas.
-  function inspect() {
-    const c = canvas();
-    const ctx = c.getContext("2d");
-    const w = c.width;
-    const h = c.height;
-    const d = ctx.getImageData(0, 0, w, h).data;
+  async function wheel(x, y, deltaY, times) {
+    const c = canvasEl();
+    const rect = c.getBoundingClientRect();
+    for (let i = 0; i < (times || 1); i++) {
+      c.dispatchEvent(
+        new WheelEvent("wheel", {
+          clientX: rect.left + x,
+          clientY: rect.top + y,
+          deltaY,
+          deltaMode: 0,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await frame();
+    }
+  }
 
-    const cx = w / 2;
-    const cy = h / 2;
-    // Sample on a grid; count coverage inside and outside the disk, and collect a colour histogram.
-    let insideOpaque = 0;
-    let insideTotal = 0;
-    let outsideOpaque = 0;
-    let outsideTotal = 0;
-    const colours = new Map();
-    const step = 3;
-    // The disk's on-screen radius is not known here, so use the largest inscribed circle as a proxy
-    // and additionally record the true extent of non-transparent pixels.
-    const proxyR = Math.min(w, h) / 2;
-    let minX = w, maxX = -1, minY = h, maxY = -1;
-    for (let y = 0; y < h; y += step) {
-      for (let x = 0; x < w; x += step) {
-        const i = (y * w + x) * 4;
-        const a = d[i + 3];
-        const inside = (x - cx) ** 2 + (y - cy) ** 2 <= proxyR * proxyR * 0.9;
-        if (inside) {
-          insideTotal++;
-          if (a > 8) insideOpaque++;
-        } else {
-          outsideTotal++;
-          if (a > 8) outsideOpaque++;
-        }
-        if (a > 8) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-          const key = `${d[i] >> 4},${d[i + 1] >> 4},${d[i + 2] >> 4}`;
-          colours.set(key, (colours.get(key) || 0) + 1);
+  // Render repeatedly until a render requests nothing new -- a FIXPOINT, not a one-shot wait.
+  //
+  // Checking `pending` before rendering is not enough, and getting that wrong cost a false bug
+  // report. The atlas discovers which tiles it needs inside `passes()`, i.e. during the render
+  // itself: so pending is 0, we render, that render enqueues the tiles the new view needs, and the
+  // signature is taken from a frame that is missing them. Comparing against a later, settled frame
+  // then shows a difference that is nothing but load latency.
+  //
+  // Worth the care: the measured noise floor for two renders of a settled view is exactly 0, so any
+  // nonzero difference is real and must not be spent on harness artefacts.
+  async function settle(vp, maxRounds) {
+    for (let i = 0; i < (maxRounds || 12); i++) {
+      if (vp.sources && vp.sources.values) {
+        for (const e of vp.sources.values()) {
+          // `inFlight` is the last request's promise and is never cleared, so await it rather than
+          // testing it for truthiness -- a truthiness loop would never exit after the first fetch.
+          if (e.source && e.source.inFlight) await e.source.inFlight;
         }
       }
+      vp.render();
+      if (!vp.atlas || vp.atlas.pending.size === 0) return;
+      await Promise.all([...vp.atlas.pending.values()]);
+      await frame();
     }
-    const top = [...colours.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-    return {
-      size: [w, h],
-      insideCoverage: +(insideOpaque / Math.max(1, insideTotal)).toFixed(4),
-      outsideCoverage: +(outsideOpaque / Math.max(1, outsideTotal)).toFixed(4),
-      paintedBox: maxX < 0 ? null : [minX, minY, maxX, maxY],
-      distinctColours: colours.size,
-      topColours: top.map(([k, v]) => `${k}:${v}`),
+  }
+
+  // A deterministic pseudo-random sequence, so a failure can be replayed exactly.
+  function rng(seed) {
+    let s = seed >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 4294967296;
     };
   }
 
-  async function shoot(name) {
-    const url = canvas().toDataURL("image/png");
-    await fetch(`/__shot/${name}.png`, { method: "POST", body: url });
-    return name;
-  }
+  window.__sweep = async function (opts) {
+    opts = opts || {};
+    const vp = window.viewport || window.vp;
+    const steps = opts.steps || 24;
+    const rand = rng(opts.seed || 12345);
+    const c = canvasEl();
+    const W = c.clientWidth || c.width;
+    const H = c.clientHeight || c.height;
+    const mid = [W / 2, H / 2];
+    const findings = [];
+    const trace = [];
 
-  function stats() {
-    const vp = window.viewport;
-    if (!vp) return null;
-    const v = vp.getView();
-    return {
-      centre: v.center.map((n) => +n.toFixed(4)),
-      zoom: +v.zoom.toFixed(3),
-      rotation: +v.rotation.toFixed(3),
-      drawables: vp.stats.drawables,
-      drawn: vp.stats.drawn,
-      survivors: vp.stats.survivors,
-      textDrawn: vp.stats.textDrawn,
-      canvasCalls: vp.stats.canvasCalls,
-    };
-  }
+    // Warm the canvas before measuring anything. Chrome starts a canvas on the software rasterizer
+    // and promotes it to the GPU once it looks worth it; the two antialias differently, so the very
+    // first gesture after a page load shifts every edge slightly. Measured: a fresh load reports a
+    // difference of 11.35 on step 0 and exactly 0 on every step after, and a second sweep over the
+    // same warmed page reports 0 throughout. That is a Chrome artefact, not a library bug, and
+    // burning a finding on it every run would bury the real ones.
+    await settle(vp);
+    // Three round trips, not one: promotion needs a few paints, and a single warm gesture still
+    // left a step-0 difference of 11.36.
+    const warmFrom = vp.getMatrix();
+    for (let i = 0; i < 3; i++) {
+      await drag(mid[0], mid[1], mid[0] + 25, mid[1] - 15, 4);
+      await settle(vp);
+      vp.setMatrix(warmFrom);
+      await settle(vp);
+    }
 
-  return { canvas, frame, pointer, drag, inspect, shoot, stats };
+    const baselineInk = inkFraction(vp);
+
+    for (let step = 0; step < steps; step++) {
+      const kind = ["drag", "drag", "wheel", "rim", "drag"][Math.floor(rand() * 5)];
+      let what = kind;
+      if (kind === "drag") {
+        const a = rand() * Math.PI * 2;
+        const b = rand() * Math.PI * 2;
+        const R = Math.min(W, H) * 0.3;
+        await drag(
+          mid[0] + R * Math.cos(a) * rand(),
+          mid[1] + R * Math.sin(a) * rand(),
+          mid[0] + R * Math.cos(b),
+          mid[1] + R * Math.sin(b),
+        );
+      } else if (kind === "wheel") {
+        await wheel(mid[0], mid[1], rand() < 0.5 ? -120 : 120, 1 + Math.floor(rand() * 3));
+      } else {
+        // Grab the rim annulus, outside interactRadius, and rotate.
+        const a = rand() * Math.PI * 2;
+        const R = Math.min(W, H) * 0.48;
+        await drag(mid[0] + R * Math.cos(a), mid[1] + R * Math.sin(a), mid[0] + R * Math.cos(a + 0.9), mid[1] + R * Math.sin(a + 0.9));
+        what = "rim-rotate";
+      }
+
+      // Let any provider or tile request land, then render and measure in one task.
+      await settle(vp);
+      const sig = signature();
+      const ink = inkFraction(vp);
+      const stats = {
+        drawables: vp.stats.drawables,
+        survivors: vp.stats.survivors,
+        drawn: vp.stats.drawn,
+      };
+      const m = vp.getMatrix();
+
+
+      // Path independence: re-set the very same matrix and re-render. Same view must give the same
+      // picture, whatever route led here.
+      vp.setMatrix(m);
+      await settle(vp);
+      const sig2 = signature();
+      const diff = compare(sig, sig2);
+      const inkAfterReset = inkFraction(vp);
+      if (diff.worst > (opts.tolerance || 4)) {
+        findings.push({ step, what, kind: "path-dependent", diff, stats, ink, inkAfterReset });
+      }
+      // A blank disk is only a BUG if re-setting the same view fills it back in. On its own it just
+      // means the view has been panned past the edge of a finite dataset -- which is exactly what
+      // happens on escher.html, whose traced art gives up a few layers from the centre, and is the
+      // whole reason escher-atlas.html exists. The first version of this sweep reported twelve
+      // "blank" findings there, all of them the data honestly running out.
+      if (ink < baselineInk * 0.15 && inkAfterReset > ink * 2 + 0.05) {
+        findings.push({ step, what, kind: "blank-recovered-by-reset", ink, inkAfterReset, stats });
+      }
+      trace.push({ step, what, ink, drawn: stats.drawn, diff: diff.worst });
+    }
+
+    return { page: location.pathname, baselineInk, steps, findings, trace };
+  };
+
+  window.__shoot = async function (name) {
+    const vp = window.viewport || window.vp;
+    if (vp) vp.render();
+    await fetch(`/__shot/${name}.png`, { method: "POST", body: canvasEl().toDataURL("image/png") });
+  };
 })();
