@@ -5,3 +5,6 @@ OLD/
 node_modules/
 *.log
 .DS_Store
+
+# Local regeneration artefacts (fixtures, baseline data). Rebuild with tools/*.py.
+build/

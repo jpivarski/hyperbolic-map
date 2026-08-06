@@ -14,8 +14,21 @@ benchmark, because it looks authoritative.
 
 | item | state |
 |---|---|
-| legacy baseline (escher, clock, dungeon, relativity) | **not yet measured** |
+| legacy baseline (escher, clock, dungeon, relativity) | **deferred — machine busy** |
 | post-rewrite measurements | not yet measured |
+
+### Deferral record, 2026-08-05 19:55
+
+The baseline was **not** measured because the machine was saturated. Readings at the time:
+
+- load average `17.15 / 17.50 / 16.66` on **16** cores;
+- eight `scripts/nova2026/run_round.py --round 3` processes, four of them at 200–300 % CPU;
+- GPU (RTX 3060) at **100 %** utilisation, 4671 / 12288 MiB used;
+- that job's own deadline was `2026-08-06 00:19` — about 4 h 23 m out at the time.
+
+A canvas-rendering benchmark under those conditions would measure the contention, not the code.
+The harness is built and ready; re-run it when the machine is idle, take load readings before *and*
+after, and record them next to the numbers.
 
 ## Hotspots in the original, and the intended fix
 

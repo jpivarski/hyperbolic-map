@@ -131,3 +131,42 @@ so the test would notice if someone reverted the core.
 
 **Left to do.** Fixture extraction and the legacy performance baseline (task #2) — the baseline must
 exist before any optimisation.
+
+---
+
+## 2026-08-05 — Step 0: data extraction and the baseline harness
+
+**What.** `tools/babudb_dump.py`, `tools/make_docs_data.py`, `bench/make_legacy_fixtures.py`,
+`bench/baseline.html`, and the four committed `docs/*.json`.
+
+**Extraction.** `137,080 / 137,080` records recovered, matching the audited count exactly — the
+script warns if that total ever changes, which would mean the parse drifted or the source moved.
+Per-dataset counts also match: escher 38,640 paths; clock 43,932 paths + 43,932 text; dungeon 5,270
+paths; relativity 5,281 paths + 25 text.
+
+**One schema decision worth recording.** I had planned to "modernise" polygon points into
+move/line commands. I did **not**, because it loses information. In the 2011 format the third
+element of a point is a flag for the edge *leaving* that point: `"L"` means stroke that edge, absent
+means the edge still participates in the fill but is not stroked (and `"P"` draws a vertex marker).
+So the fill path is always closed while the stroke can be disconnected. A move/line model cannot
+express that without duplicating geometry, so v2 keeps per-point flags. Fidelity beat elegance here.
+
+**Committed data sizes** (8 significant digits, one drawable per line): escher 8.65 MB (1.91 gzip),
+clock 8.49 (1.70), dungeon 2.11 (0.52), relativity 1.14 (0.26). 20.4 MB in the tree, ~4.4 MB over
+the wire. One drawable per line is what makes these diffable at all.
+
+**Baseline harness built, baseline NOT measured.** `bench/baseline.html` loads the original
+`HyperbolicViewport.js` straight out of `OLD/` and drives `updateOffset` around a fixed circular pan
+path (120 steps × 3 reps), so it measures the draw path without event plumbing in between and covers
+identical ground on every run.
+
+Verified functionally in Chrome via the DevTools MCP server: the page loads with no console errors
+(only a favicon 404), all four legacy fixtures fetch, and **escher renders correctly** — the fish,
+the rim annulus, and the 3-fold point at the centre are all visibly right, which independently
+corroborates the order-3 symmetry measured during the audit.
+
+**The measurement is deferred.** The machine was saturated: load average 17.15 on 16 cores, GPU at
+100 %, eight `nova2026 run_round.py --round 3` processes. The harness did print numbers
+(median 246.8 ms/frame, ~5 fps, escher) and they are **being discarded** — under that contention
+they measure the machine, not the code. See the deferral record in `performance.md`. Task #11 tracks
+re-running it; it must happen before the optimisation pass so "faster" means something.
