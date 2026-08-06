@@ -84,3 +84,27 @@ For the compatibility shim and the alias table (`HyperbolicViewport.js:537`):
 Constants: `MAX_STRAIGHT_LINE_LENGTH = 0.1`, `FONT_SCALE = 0.05`, `MIN_TEXT_SIZE = 0.5`.
 
 Per-example options are recorded in `data-extraction.md` alongside each dataset.
+
+
+## Gotcha: canvas pixels are not deterministic across repeated draws
+
+Found while building the A/B harness, and worth knowing before writing any golden-image test.
+
+Rendering the same scene into the **same** canvas element repeatedly gives three different images:
+
+```
+fresh canvas each time :  b761d1c7  b761d1c7  b761d1c7  b761d1c7
+reusing one canvas     :  b761d1c7  76574d42  a0cc7439  a0cc7439
+```
+
+The renderer is not at fault: recording every 2-D context call shows **617,460 calls, byte-identical**
+between runs. What changes is Chrome's rasterizer — a canvas starts out software-rasterized and gets
+promoted to GPU acceleration after a few draws, and the two paths antialias differently. The first
+draw into a fresh canvas matches the software path, hence matches the freshly-created legacy canvas.
+
+Consequences for testing:
+
+* For pixel-exact comparison, draw into a **brand-new canvas** each time.
+* Otherwise compare with a tolerance, or structurally, and do not read anything into a few percent of
+  differing pixels along shape edges — that is antialiasing, not geometry.
+* `bench/ab.html` reports a differing-pixel percentage; treat single-digit values as noise.
