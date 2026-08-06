@@ -691,3 +691,49 @@ instrument before believing what it says about the thing under test.
 
 The regression test deliberately uses a large zoom change and asserts sub-micron pinning; against the
 old code it reports 35.3 px. A gentle pinch passes either way, which is exactly how this hid.
+
+
+## 2026-08-06 (early) — Sweep closed out: what was verified, and what was not broken
+
+Remaining checks from the plan, all now done in a real browser.
+
+**The stuck drag, live.** All five ways a release can go missing: release far outside the canvas,
+`pointercancel`, a lost release detected only by `buttons === 0` on the next move, window blur
+mid-drag, and dragging far past the rim. None leaves the map tracking the cursor; the past-the-rim
+case clamps and keeps tracking on the way back rather than freezing and resuming stale.
+
+One more harness false positive on the way: my first version flagged "release outside the canvas" as
+stuck because the matrix changed once afterwards. That change is the gesture COMMITTING, which is
+correct. Rewritten to sample the matrix after every hover move -- frozen means one distinct value
+across four hovers, stuck means it keeps tracking -- and it reports frozen, mode idle, zero active
+pointers.
+
+**Rebuild and resize.** The demo checkboxes destroy and rebuild the whole viewport. Sixteen toggles:
+no leaked canvases, matrix preserved exactly, signature identical. A resize to 400 and back to 620
+also returns an identical signature.
+
+**Long walk.** Ninety random gestures on the tiled dungeon: no findings, worst signature difference
+0.5 out of 255.
+
+**The clock.** One `setInterval`, cleared on destroy -- not the 2011 pattern that accumulated 60n
+timers after n minutes. The hands advance at 1.4544e-4 rad/s, which is exactly 2*pi/43200, one turn
+per twelve hours, matching the single-hand spiral design. 14 numerals drawn and 43,921 text items
+skipped at zoom 1.2, which is the LOD gate working.
+
+**Relativity.** Compass mode holds bearing at exactly pi/2.
+
+**Far from the origin.** The tiled dungeon renders correctly at latitude -20 and +20 (hyperbolic
+distance 13.5 and 14.3), with room numbers matching `row = -latitude-1` and `locate` round-tripping
+every cell. Worth stating precisely, because it is easy to overclaim: the single-patch page is NOT
+visibly broken there. The 2011 polynomial's collapse at d ~ 20 was already fixed by the SU(1,1) core,
+so what the atlas adds is unbounded range and genuinely infinite content, not a rescue from a
+precision failure at this distance. The single-patch dungeon shows only critters that far out because
+the rooms, doors and numbers were server-generated in 2012 and are not in the extracted data.
+
+### Score for the night
+
+Ten real bugs found and fixed; six of my own harness defects diagnosed and thrown away rather than
+reported as bugs. The ratio is the point: with a measured noise floor of exactly 0, anything nonzero
+demands an explanation, and most of the time early on the explanation was the instrument. The control
+experiment that found the pinch bug -- measure something known-good with the same instrument first --
+is the technique that made the difference.
