@@ -10,8 +10,12 @@
 import { Isom, localCompanion, movePointToPoint } from "./core/isom.js";
 import { localToDisk, diskToLocal, localRadiusToDistance, distanceToLocalRadius, localDistance, halfPlaneToLocal, localToHalfPlane } from "./core/coords.js";
 import { Cap, coshHalfDistance, coshHalfDistanceSquared, screenRadiusToThresholdSquared, capMayBeVisible, capThreshold } from "./core/minkowski.js";
+import { ViewState, ROTATION_PARALLEL_TRANSPORT, ROTATION_COMPASS } from "./core/view.js";
 
 export {
+  ViewState,
+  ROTATION_PARALLEL_TRANSPORT,
+  ROTATION_COMPASS,
   Isom,
   localCompanion,
   movePointToPoint,

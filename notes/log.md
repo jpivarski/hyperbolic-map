@@ -170,3 +170,49 @@ corroborates the order-3 symmetry measured during the audit.
 (median 246.8 ms/frame, ~5 fps, escher) and they are **being discarded** — under that contention
 they measure the machine, not the code. See the deferral record in `performance.md`. Task #11 tracks
 re-running it; it must happen before the optimisation pass so "faster" means something.
+
+---
+
+## 2026-08-05 — Step 3: view state and gesture solvers
+
+**What.** `src/core/view.js` (`ViewState`) and `test/view.test.mjs`. 30 tests pass.
+
+**The 2011 drag collapses to one line.** Before writing anything I checked, numerically against the
+verbatim port, what `updateCoordinates` actually is. It is exactly
+
+```
+newMatrix = movePointToPoint(mousedownDiskPoint, currentDiskPoint) . committedMatrix
+```
+
+Identical action to 4.2e-14 and identical parallel-transport rotation to 2.2e-14 over 12,000
+randomised drags. Three ~40-term unrolled polynomials replaced by one composition of two SU(1,1)
+elements. The "parallel transport" rotation is not computed at all — it is just the holonomy that
+falls out of the product, which is what parallel transport *means*.
+
+**Committed vs live.** A gesture never touches the committed state; each frame it recomputes the
+live state from the committed state plus the gesture's own anchor. So nothing accumulates. The 2011
+code instead accumulated *and* stored the result off the SU(1,1) manifold (its `denom = sqrt(denom²
+− real² − imag²)` cancels ~8 digits at distance 20), which is a second, independent precision
+failure beyond the one in `internalToScreen`.
+
+**Compass mode is reproduced, including its inherent trade-off.** Holding the compass target at a
+fixed screen bearing means rotating about the screen centre, which *moves* the grabbed point. You
+cannot both pin the point and fix north; the 2011 code made the same choice, and the comment in
+`updatePan` says so rather than leaving it to be rediscovered.
+
+**Checkpoint A discipline.** `updatePinch` is a faithful port of `updateTransformation`, arithmetic
+means and all, marked in the file. Checkpoint B swaps in the exact solve.
+
+**A test found the hard ceiling of a single global patch.** My first version of the
+"repeated gestures do not drift off the manifold" test ran an unconstrained random walk. A
+hyperbolic random walk escapes *linearly*, so 2000 pans reach hyperbolic distance ~1340 and `|a| =
+cosh(d/2)` overflows a double. Two things came out of that:
+
+1. The off-manifold error stays at machine precision (~3e-14 relative) even out at distance 670,
+   with `|a| ~ 1e145`. `normalize()` via polar re-factoring is doing exactly its job.
+2. The representation's hard ceiling is hyperbolic distance ≈ 1419 (`2·acosh(1.8e308)`). That is
+   now pinned by its own test rather than lurking. It is also another argument for the atlas:
+   tile-local coordinates never form a number remotely near this.
+
+I kept the stress test (bounded to 1000 gestures) and set its threshold with headroom at 1e-12
+rather than tuning it to just pass the measured 2.8e-14.
