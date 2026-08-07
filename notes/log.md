@@ -1371,3 +1371,59 @@ extant copy of the extracted 2011 databases. Their only consumers were the three
 destroying unrecoverable data was not asked for. `README.md`'s reference to a future `tools/` directory is
 Jim's placeholder. The historical prose in `docs/*.html` and `docs/MATH.md` about the 2011 origins is the
 site's narrative and is still accurate.
+
+---
+
+## 2026-08-07 — dungeon-atlas.html was upside down, and panning silently levelled the map
+
+Jim: "the initial view is upside down. I think I remember drawing everything upside down for some
+reason, but then dungeon.html flips it. Don't just rotate the viewport unless you also flip the
+numbers." Then, after the first fix: "The 'jump to row' functionality makes it upside down again."
+
+**Measured before changing anything.** dungeon.html presents the hero cell (-1, 0) with its cell-local
++y axis at screen bearing **179.87 degrees** and +x at **-90.04** -- a pi rotation to within 0.13. So
+the 2012 art really is drawn upside down in the cell frame, and dungeon.html's hand-tuned
+`rotation: 2.86` (163.87 degrees) is what stands it back up. dungeon-atlas.html had rotation 0 and so
+showed it inverted: in the cell-local critter data the hero's yellow shield sits ABOVE the sprite
+midline, and it renders below in dungeon.html.
+
+**Camera rotation, not a per-cell art flip.** Rotating each cell's art by pi about its own centre would
+sever every door junction -- the doors are drawn straddling cell boundaries on purpose, which is the
+same reason clipping is off on that page. A camera rotation is rigid and keeps them joined. So
+`rotation: Math.PI`, which puts the anchor cell at exactly 180/-90.
+
+**The labels had to be turned back, exactly as Jim warned.** With the rotation alone, 29 of 34 visible
+labels read upside down (median up-vector bearing 138.5 degrees off screen-up). Fixed by rotating the
+two label anchors by pi about the CELL'S OWN centre, which on the cell's vertical axis is just
+h -> 1/h: the 2012 `1.2/sqrt(2)` and `1.4/sqrt(2)` become `sqrt(2)/1.2` and `sqrt(2)/1.4`. Verified
+identical to negating the local coordinates, to 1e-16. After: median 51.8 degrees, 4 outliers at
+70-73% of the disk radius sitting at ~91 degrees -- reading sideways, not inverted, because the cell
+frames genuinely fan out that far at the rim, and the room art there is rotated identically.
+
+**Then the second report exposed a LIBRARY bug, not a demo bug.** `panToTile` and `panTo` both did
+
+    this.view.matrix = Isom.translationToLocal(x, y).inverse();
+
+a bare translation, whose screen rotation is exactly zero -- so every pan silently levelled the map.
+Invisible on any page that never rotates, which is why it survived: all five other in-repo callers
+(tiling-diagnostics, four in diagnostic-checks, bench/stress) sit at rotation 0. On dungeon-atlas.html
+it turned the whole dungeon over on "go".
+
+Both now go through a new `panMatrix(x, y)`, which carries the current `screenRotation()` across. In
+atlas mode the rotation is expressed in the anchor tile's frame, so reusing the same angle in the new
+anchor's frame is exactly right: the camera keeps its orientation relative to the tiling and the art
+stays the way up it was. Verified in the browser -- the anchor cell holds at 180 degrees through jumps
+to rows 3, 0, 40/col 12345 and -7, and back.
+
+Test added in `source.test.mjs`: the rotation is preserved AND the requested point still lands at the
+centre (a pan that stopped panning would otherwise pass), across five angles and three targets, plus
+the assumption the fix rests on -- `translationToLocal(...).inverse().screenRotation()` is 0 to 1e-15 --
+plus a negative control asserting the old bare-translation form does NOT preserve a pi rotation.
+
+Verified: `npm test` 131/131, `npm run check`, `npm run build`, all nine browser diagnostics
+(invariance still 45/45 byte-identical; picking 14463/14463; smoothness 38/38).
+
+**Not done, on instruction.** dungeon.html has the mirror-image bug -- art upright, labels inverted --
+and the same reciprocal-anchor fix took it from 40/56 inverted labels to 6. Jim: "Don't worry about
+dungeon.html. I'm working on dungeon-atlas.html to *replace* dungeon.html." Reverted; it is in this
+session's history if the replacement stalls.

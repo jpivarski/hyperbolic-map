@@ -3452,10 +3452,26 @@ class HyperbolicViewport {
   panToTile(address, local = [0, 0]) {
     this.requireAtlas("panToTile", "panTo()");
     this.atlas.anchor.address = address;
-    this.view.matrix = Isom.translationToLocal(local[0], local[1]).inverse();
+    this.view.matrix = this.panMatrix(local[0], local[1]);
     this.view.liveMatrix = this.view.matrix.clone();
     this.view.gesture = null;
     this.invalidate();
+  }
+
+  // The view isometry that puts (x, y) at the centre WITHOUT turning the map.
+  //
+  // Panning must not rotate. Building the pure translation alone would silently reset the screen
+  // rotation to zero, which is invisible on a page that never rotates and jarring on one that does:
+  // dungeon-atlas.html opens at rotation pi (its art is drawn upside down in the cell frame), and
+  // "jump to row" used to flip the whole dungeon over. In atlas mode the rotation is expressed in the
+  // anchor tile's frame, so carrying the same angle across to the new anchor is exactly right -- the
+  // camera keeps its orientation relative to the tiling, and tile art stays the way up it was.
+  panMatrix(x, y) {
+    // translationToLocal(...).inverse() has a real positive `a`, hence screenRotation exactly 0, so
+    // left-multiplying by Rot(theta) sets the total screen rotation to theta.
+    const theta = this.view.matrix.screenRotation();
+    const moved = Isom.translationToLocal(x, y).inverse();
+    return theta === 0 ? moved : Isom.rotation(theta).mul(moved).normalize();
   }
 
   getMatrix() {
@@ -3488,7 +3504,7 @@ class HyperbolicViewport {
   // assertGlobalCoordinatesUsable; panToTile() is the atlas-mode form.
   panTo(x, y) {
     this.assertGlobalCoordinatesUsable("panTo");
-    this.view.matrix = Isom.translationToLocal(x, y).inverse();
+    this.view.matrix = this.panMatrix(x, y);
     this.view.liveMatrix = this.view.matrix.clone();
     this.invalidate();
   }

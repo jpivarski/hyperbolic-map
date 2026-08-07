@@ -72,11 +72,24 @@ try {
   const tiling = new HyperbolicMap.BinaryTiling();
   const HALF = HyperbolicMap.BINARY_LOCAL_HALF_WIDTH;
 
-  // Room-number anchors, in the cell's own frame. Straight from the 2012 generator: the label sits
-  // at v = 1.2 with the up-vector at v = 1.4, in the cell's normalised box.
+  // Room-number anchors, in the cell's own frame.
+  //
+  // The 2012 art is drawn UPSIDE DOWN in the cell frame -- measured: dungeon.html presents the hero
+  // cell with its local +y axis pointing straight down (bearing 179.87 degrees), which is how that
+  // page comes out the right way up. So this page turns the camera by pi as well, below.
+  //
+  // The labels have to be turned with it, or a correctly-oriented dungeon would carry upside-down
+  // room numbers -- which is exactly what dungeon.html used to do. Turning them means rotating the
+  // two anchors by pi about the CELL'S OWN centre, and on the cell's vertical axis that rotation is
+  // just h -> 1/h in half-plane height. So the 2012 v = 1.2 and v = 1.4 become their reciprocals.
+  // (Equivalently: negate both local coordinates. Verified identical to 1e-16.)
+  //
+  // Only the labels move. The room art must NOT be flipped per cell: the doors deliberately straddle
+  // cell boundaries, so rotating each cell's art about its own centre would misalign every junction.
+  // A camera rotation is rigid and keeps them all joined.
   const SQRT2 = Math.SQRT2;
-  const numAt = HyperbolicMap.halfPlaneToLocal(0, 1.2 / SQRT2, [0, 0]);
-  const numUp = HyperbolicMap.halfPlaneToLocal(0, 1.4 / SQRT2, [0, 0]);
+  const numAt = HyperbolicMap.halfPlaneToLocal(0, SQRT2 / 1.2, [0, 0]);
+  const numUp = HyperbolicMap.halfPlaneToLocal(0, SQRT2 / 1.4, [0, 0]);
 
   // Start on the hero's room, cell (latitude -1, longitude 0), which prints as row 0 column 0. The
   // camera is ANCHORED to that cell, so the starting view is the identity in the cell's own frame --
@@ -95,7 +108,9 @@ try {
       width: 620,
       height: 620,
       anchor: HERO,
-      zoom: 2.2,
+      // The 2012 art is upside down in the cell frame; see the note on the label anchors above.
+      rotation: Math.PI,
+      zoom: 3,
       minZoom: 0.5,
       maxZoom: 12,
       interactRadius: 0.9,
