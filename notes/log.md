@@ -1817,3 +1817,46 @@ worldline on altitude/time axes, which is presumably where "jumping man" comes f
 prose to write, so I did not presume; the mechanical rename is complete either way. This page is also
 still fixed at 620x620 and so still overflows on a phone, along with escher, escher-atlas, dungeon and
 clock.
+
+---
+
+## 2026-08-07 — the shrink-wrap trap caught Jim immediately, so the library now warns about it
+
+Jim: "I tried to make the widget in jumping-man.html fill its container like the one in
+dungeon-man.html, but it didn't work." His change was right in every respect except one: the `<div
+id="map">` was missing `class="fill"`, so it was still `display: inline-block`.
+
+**Measured:** the container reported `clientWidth` **300** and the widget came out 300x300 inside a
+704 px column. 300 is a fresh `<canvas>`'s default width -- the inline-block had shrink-wrapped the
+canvas that had just been inserted into it, so it was reporting the widget's own output back at it.
+Nothing threw, nothing appeared in the console, and the picture looked plausible.
+
+I had documented this trap in the README when adding `aspectRatio`, one task earlier, and it caught him
+anyway on the very next page. A hazard that only a comment protects you from is not protected.
+
+**The library now detects it.** The container's width is read WHILE IT IS STILL EMPTY, before the
+canvas is appended. That single change does two things:
+
+* it is the more correct measurement anyway -- a block container reports the same width before and
+  after, so nothing is lost;
+* an empty shrink-wrapping container is **0 px** wide, which is an unambiguous signal. Once the canvas
+  is in, it reports 300 and is indistinguishable from a healthy container.
+
+On that signal, with `aspectRatio` set and no explicit `width`, it `console.warn`s: what is wrong, the
+three CSS shapes that cause it, and the fix. A warning and not a throw, because a container inside a
+hidden tab is legitimately 0 wide at construction and `autoResize` will pick up the real size later.
+
+Verified in the browser across six configurations: warns for `inline-block`, `float:left` and
+`width: fit-content`; silent for `display:block; width:100%`, for an explicit `width` (which answers
+the question, so there is nothing to warn about), and when `aspectRatio` is not used at all. **No false
+positives** -- the negative cases matter as much as the positive one, since a warning that cries wolf
+gets filtered out.
+
+Three tests added (140 total). The fix to the page itself is one attribute.
+
+Verified afterwards: canvas fills the column, square, matching `surface.cssWidth`, at body widths
+320/480/700/900; compass mode still holds a bearing to 5.1e-14 degrees around a full circle after all
+that resizing; and the four fixed-size pages plus dungeon-man render at their original sizes with no
+spurious warning.
+
+README updated -- the shrink-wrap paragraph now names the 300 px symptom and says the widget warns.

@@ -86,7 +86,9 @@ new HyperbolicMap.HyperbolicViewport({
 
 The height is *derived* from the width, so `aspectRatio` and `height` together raise an error — pick one. Deriving in that direction is deliberate: the canvas is usually the only thing giving the container its height, so a widget that measured that height back would oscillate. Only the width is read.
 
-The container must not shrink-wrap its contents. An `inline-block` or a floated element sizes itself *to the canvas*, so the widget would measure its own output and never change. Give it `display: block` and a width.
+The container must not shrink-wrap its contents. An `inline-block`, a float, or anything `width: fit-content` sizes itself *to the canvas*, so the widget measures its own output and never changes — it comes out 300 px square, the default size of a fresh `<canvas>`. Give the container `display: block` and a width.
+
+The widget checks for this: it measures the container while still empty, and warns on the console if it is zero pixels wide. (That check is skipped when you pass an explicit `width`, and it is harmless to see the warning if the container simply happens to be hidden at construction — `autoResize` will pick up the real size when it appears.)
 
 Resize the canvas rather than scaling it in CSS. A `max-width: 100%` on the canvas leaves its backing store at the old size, so its on-screen rectangle stops matching the pixel size the library thinks it has, and every pointer position is off by that ratio.
 

@@ -40,18 +40,41 @@ export class Surface {
     this.dprOption = devicePixelRatio;
     this.aspectRatio = aspectRatio;
 
+    // The container's width WHILE IT IS STILL EMPTY. This has to be read before the canvas goes in,
+    // because a container that sizes itself to its contents -- an inline-block, a float, anything
+    // `width: fit-content` -- reports the canvas's width back once there is a canvas in it, and so
+    // looks perfectly healthy while being useless. Empty, such a container is 0 wide, which is the
+    // signal. A block-level container gives the same answer before and after, so nothing is lost.
+    let emptyHostWidth = null;
     if (canvas) {
       this.canvas = canvas;
     } else {
       const host = typeof container === "string" ? document.querySelector(container) : container;
       if (!host) throw new Error("hyperbolic-map: no container element found");
       this.host = host;
+      emptyHostWidth = host.clientWidth;
       this.canvas = document.createElement("canvas");
       this.canvas.style.display = "block";
       host.appendChild(this.canvas);
     }
 
-    this.cssWidth = width || (this.host ? this.host.clientWidth : this.canvas.clientWidth) || 400;
+    // With `aspectRatio` the width comes from the container, so a container with no width of its own
+    // is a silent failure: the widget takes the fresh canvas's default 300 px, and if it also
+    // shrink-wraps, the ResizeObserver then reads that same 300 back forever and nothing ever moves.
+    // Worth a warning rather than a throw -- a container inside a hidden tab is legitimately 0 wide
+    // at construction and fixes itself on the first resize.
+    if (aspectRatio && !width && emptyHostWidth === 0 && typeof console !== "undefined") {
+      console.warn(
+        "hyperbolic-map: `aspectRatio` takes the width from the container, but the container is 0 px " +
+          "wide when empty, so the widget cannot tell how big to be. A container that sizes itself to " +
+          "its contents (display: inline-block, a float, width: fit-content) will size itself to the " +
+          "canvas instead, and the widget will never resize. Give it `display: block` and a width, or " +
+          "pass an explicit `width`. (Harmless if the container is merely hidden right now.)",
+      );
+    }
+
+    this.cssWidth =
+      width || emptyHostWidth || (this.host ? this.host.clientWidth : this.canvas.clientWidth) || 400;
     this.cssHeight = aspectRatio
       ? this.cssWidth / aspectRatio
       : height || (this.host ? this.host.clientHeight : this.canvas.clientHeight) || this.cssWidth;
