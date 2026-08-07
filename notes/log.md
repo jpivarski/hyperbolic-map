@@ -1695,3 +1695,33 @@ the diagnostics' own tilings unsorted. Anchor cell presents at exactly 180 degre
 load and after a jump; a reading of -177.21 during testing was my own dirty camera state, confirmed by
 re-running the sequence clean (the bearing deviates from 180 only when the camera is genuinely off the
 cell's origin, which is correct parallel transport).
+
+---
+
+## 2026-08-07 — dungeon-atlas.html renamed to dungeon-man.html
+
+Jim rewrote the page (new title "Dungeon Man", a long section on intrinsic curvature illustrated with
+seven images, controls reduced to the room-number toggle and jump-to) and asked for the rename plus
+every link updated.
+
+`git mv` (recorded as a rename, not add+delete), then six references:
+
+| file | what |
+|---|---|
+| `docs/index.html` | the demo-list link; text also changed from "Infinite dungeon" to "Dungeon Man", since that is the page's own title now |
+| `docs/dungeon.html` | the "tiled version" link |
+| `src/viewport.js` | the `panMatrix` comment citing the page as the motivating case |
+| `docs/demo/layers.js` | the `diskRotation` comment citing its measured 34.2-degree jump |
+| `test/source.test.mjs` | the pan-preserves-rotation test's rationale comment |
+| `notes/data-extraction.md` | the note on the reworked `critters` |
+
+**Left alone deliberately.** `notes/log.md` still says `dungeon-atlas.html` in ten places: it is
+append-only, and those entries are accurate about what the file was called when they were written.
+`docs/dungeon-atlas.json` keeps its name -- the instruction was to rename the page, and the data file is
+a separate artefact; say the word if it should follow.
+
+Verified: the old URL now 404s and the new one serves 200; every internal link on `index.html` and
+`dungeon.html` resolves (checked by fetching each one, 7 and 3 links respectively); the renamed page
+builds its viewport, draws 19 tiles at `drawOrder: "V>>"`, and all seven `img/` assets load with no
+console errors. All seven images were already tracked in git, so GitHub Pages will have them.
+`npm run check`, `npm test` 131/131, `dist/` rebuilt so the stale comment is gone from the bundle too.
