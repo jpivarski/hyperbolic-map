@@ -139,34 +139,58 @@ Also available: `onDrawBackground`, `onDrawRim`, `onViewChange`, `onGestureStart
 
 ### Methods
 
-_(Documentation TBD.)_
+**Reading and moving the view.**
 
-* `getView()`
-* `getMatrix()`
-* `setMatrix(isom)`
-* `setZoom(z)`
-* `setRotation(θ)`
-* `panTo(x, y)`
-* `getCamera()`
-* `setCamera(camera)`
-* `panToTile(address, local?)`
-* `setData(data, name?)`
-* `addSource(name, dataOrCallback, {transform})`
-* `removeSource(name)`
-* `setSourceTransform(name, isom)`
-* `toScreen(x, y)`
-* `fromScreen(px, py)`
-* `invalidate()`
-* `render()`
-* `resize(w, h)`
-* `destroy()`
+| method | what it does |
+|---|---|
+| `getView()` | the live view as `{center, zoom, rotation, bearing, interacting}`; `center` is the local point at the middle of the disk, and round-trips with `panTo` |
+| `getMatrix()` | a *copy* of the live view isometry, so mutating it is safe |
+| `setMatrix(isom)` | replace the view isometry; it is normalised on the way in, and the jump is not animated |
+| `setZoom(z)` | set the zoom, clamped to `minZoom`/`maxZoom` |
+| `setRotation(θ)` | set the *absolute* screen rotation in radians, not a relative turn |
+| `panTo(x, y)` | put that local point at the middle of the disk |
+
+**The camera (atlas mode).**
+
+| method | what it does |
+|---|---|
+| `getCamera()` | the whole camera as `{address, matrix, zoom, rotation, bearing, interacting}` — the only form that stays valid at any distance; `address` is `null` without an atlas, and `matrix` is relative to the anchor tile |
+| `setCamera(camera)` | restore a camera from `getCamera()`, as an exact round trip |
+| `panToTile(address, local?)` | put that tile's `local` point (default `[0, 0]`, its centre) at the middle of the disk; atlas only |
+
+**Data sources.** The first three refuse in atlas mode, because a source's coordinates are global.
+
+| method | what it does |
+|---|---|
+| `setData(data, name?)` | replace one named source's drawables, defaulting to `"default"` — the source that `data` or `dataProvider` created |
+| `addSource(name, dataOrCallback, {transform})` | add or replace a named source, either drawables or an `async view => data` callback; returns the source object |
+| `setSourceTransform(name, isom)` | give one source an extra isometry without recompiling its drawables; throws if there is no such source |
+| `removeSource(name)` | drop a named source and dispose it, aborting any fetch still in flight |
+| `refreshSources()` | make every async source re-request for the current view, bypassing its throttle and significance gate |
+
+**Screen coordinates.**
+
+| method | what it does |
+|---|---|
+| `toScreen(x, y)` | local point → `[px, py]` in CSS pixels |
+| `fromScreen(px, py)` | CSS pixels → local `[x, y]`, or `null` if the pixel is outside the disk |
+| `tileAtScreen(px, py)` | which tile is under that pixel: `{address, id, local}`, or `null` outside the disk; atlas only |
+
+**Lifecycle.**
+
+| method | what it does |
+|---|---|
+| `invalidate()` | ask for a redraw on the next animation frame; repeated calls coalesce into one, and this is the normal way to request a frame |
+| `render()` | draw right now, synchronously—usually you want `invalidate()` instead |
+| `resize(w, h)` | resize the canvas, in CSS pixels |
+| `destroy()` | cancel any pending frame, remove event listeners, dispose sources, detach layers, and remove the canvas if the widget created it |
 
 In atlas mode (see [atlas of tiles](#atlas-of-tiles)), use `getCamera`/`setCamera`/`panToTile` instead of `getView`/`getMatrix`/`setMatrix`/`panTo`. Those four take and return global coordinates, and far from the origin no global coordinate can be represented—that is the whole reason the atlas is anchored. Their meaning is unchanged and they remain correct in single-patch mode and while the camera is still anchored to the origin tile; past that they raise errors, naming `getCamera()`, rather than returning a wrong number.
 
 (`setZoom` and `setRotation` are unaffected: zoom and screen rotation are not global-coordinate quantities, so they work the same in either mode.)
 
 ```js
-const cam = viewport.getCamera();    // { address, matrix, zoom }; matrix is anchor-relative
+const cam = viewport.getCamera();    // the whole camera; cam.matrix is anchor-relative
 viewport.setCamera(cam);             // exact round trip
 viewport.panToTile(address, [0, 0]); // centre a tile, at any distance
 viewport.tileAtScreen(px, py);       // { address, id, local }; which tile is at px, py?
