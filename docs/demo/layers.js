@@ -33,6 +33,38 @@ export function imageLayer(spec) {
   img.addEventListener("load", () => {
     if (viewport) viewport.invalidate();
   });
+
+  // How far to turn the shell, in atlas mode as well as single-patch.
+  //
+  // `view.rotation` is the screen rotation of the view matrix, and in ATLAS mode that matrix is
+  // expressed in the anchor tile's own frame. The anchor changes as you walk, and each change is a
+  // multiplication by one generator, which carries a rotation of its own -- so `view.rotation` JUMPS.
+  // Measured on dungeon-atlas.html: up to 34.2 degrees, from a pan step of 0.009 hyperbolic units,
+  // while the dungeon itself stays perfectly smooth across the same boundary. Feeding that straight
+  // to ctx.rotate makes the shell snap while the world it is supposedly carrying does not.
+  //
+  // So the jump is cancelled: when the anchor changes, absorb the difference into an offset and keep
+  // drawing at the angle we were already at. Between re-anchors this is exactly `view.rotation`, so a
+  // rim drag turns the shell by precisely the angle swept.
+  //
+  // What this deliberately does NOT attempt is a shell rigidly pinned to the plane. That needs the
+  // global frame -- the one thing an atlas has no representation for -- and there is no bounded
+  // substitute: accumulating the camera's incremental rotation instead drifts 9.9 degrees over a
+  // straight 2.5-unit walk and 71 degrees around a closed loop, because what it drops IS the
+  // holonomy. Continuity is attainable and is what the eye actually checks; absolute registration
+  // against a point at infinity is not, and nothing on screen reveals its absence.
+  let lastRaw = null;
+  let lastAnchor = null;
+  let offset = 0;
+  function diskRotation(view) {
+    const atlas = viewport && viewport.atlas;
+    if (!atlas) return view.rotation;      // single patch: the view frame is global, nothing to fix
+    const id = atlas.tiling.addressToString(atlas.anchor.address);
+    if (lastAnchor !== null && id !== lastAnchor) offset += lastRaw - view.rotation;
+    lastAnchor = id;
+    lastRaw = view.rotation;
+    return view.rotation + offset;
+  }
   img.src = src;
 
   return {
@@ -45,6 +77,11 @@ export function imageLayer(spec) {
       viewport = null;
     },
     draw(ctx, view) {
+      // Tracked every frame, BEFORE the visibility test: the jump correction compares against the
+      // previous frame, so letting it go stale while the shell is hidden would make it reappear with
+      // one large bogus correction after a zoom-out.
+      const turn = rotateWithDisk ? diskRotation(view) : 0;
+
       if (!img.complete || !img.naturalWidth) return;
       const diagonal = Math.hypot(view.width, view.height);
       if (hideWhenDiskFills && 2 * view.radius >= diagonal) return;
@@ -67,7 +104,7 @@ export function imageLayer(spec) {
       ctx.translate(view.cx, view.cy);
       // The shell turns with the disk; the star field behind it does not. That contrast is the
       // whole visual joke, and it costs one line.
-      if (rotateWithDisk) ctx.rotate(-view.rotation);
+      if (rotateWithDisk) ctx.rotate(-turn);
       ctx.drawImage(img, -w / 2, -h / 2, w, h);
       ctx.restore();
     },

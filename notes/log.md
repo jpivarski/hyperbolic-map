@@ -1427,3 +1427,60 @@ Verified: `npm test` 131/131, `npm run check`, `npm run build`, all nine browser
 and the same reciprocal-anchor fix took it from 40/56 inverted labels to 6. Jim: "Don't worry about
 dungeon.html. I'm working on dungeon-atlas.html to *replace* dungeon.html." Reverted; it is in this
 session's history if the replacement stalls.
+
+---
+
+## 2026-08-07 — the world-turtle on dungeon-atlas.html, and what "rotates with the disk" means in an atlas
+
+Jim: "Now I'd like to have the turtle and stars on dungeon-atlas.html. Make sure that the turtle
+rotates with the content of the disk."
+
+Copying the two `imageLayer`s across from dungeon.html is the easy part. The requirement in the second
+sentence is not, and passing `rotateWithDisk: true` would have satisfied it only in appearance.
+
+**Measured first.** `imageLayer` rotates by `view.rotation`, which is `liveMatrix.screenRotation()`.
+In ATLAS mode that matrix is expressed in the ANCHOR TILE's frame, and the anchor changes as you walk.
+Each change multiplies by one generator, and the binary tiling's generators are not pure translations
+in the disk -- the Cayley conjugation gives `a = (S + 1 + iT)/(2 sqrt(S))`, so `Im(a) != 0` whenever
+`T != 0`, i.e. for every lateral, child and parent step. So `view.rotation` JUMPS: measured up to
+**34.16 degrees** across one re-anchor, from a pan step of 0.0092 hyperbolic units, while the dungeon
+content crosses the same boundary perfectly smoothly (that is what diagnostic check 9 guarantees). The
+shell would have snapped while the world it is carrying did not.
+
+**What is not attainable, established by measurement rather than by assertion.** A shell rigidly pinned
+to the plane needs the global frame, which is the one thing an atlas has no bounded representation for.
+The obvious substitute -- accumulate the camera's incremental rotation, every factor O(1) -- was tried
+and rejected on evidence: against the true global rotation (computable near the origin via
+`globalFrameForTesting`) it drifts **9.9 degrees** over a straight 2.5-unit walk and **71.1 degrees**
+around a closed 0.8-unit square. What scalar accumulation drops IS the holonomy, which is precisely the
+part that makes a pinned object appear to turn as you pan. `rot(AB) != rot(A) + rot(B)`.
+
+(The first version of that harness was wrong -- it seeded the accumulator from a field it set after
+pushing the row -- and reported a 163-degree error everywhere, including at t = 0 where the error must
+be zero. An error that is nonzero at the start is a harness bug, not a finding.)
+
+**What is attainable, and is what the eye actually checks: continuity.** The layer now cancels the
+re-anchor jump. It keeps the previous frame's raw `view.rotation` and the anchor id; when the anchor
+changes it absorbs the difference into an offset and keeps drawing at the angle it was already at.
+Between re-anchors the angle is exactly `view.rotation`, so a rim drag turns the shell by precisely the
+angle swept -- verified, 57.296 degrees applied gives 57.296 degrees of shell. Worst frame-to-frame
+jump over a 2.5-unit walk with 10 re-anchors: **0.082 degrees**, and the worst case is ordinary smooth
+motion, not a re-anchor. Same walk diagonally: 0.046 degrees over 4 re-anchors.
+
+Absolute registration against a point at infinity is given up knowingly. Nothing on screen reveals its
+absence: the shell has no visible reference to be wrong against, whereas a 34-degree snap is obvious.
+Both the page and `layers.js` say so rather than leaving it to be rediscovered.
+
+Two details worth keeping:
+
+* the tracker runs BEFORE the `hideWhenDiskFills` early return. It compares against the previous frame,
+  so letting it go stale while the shell is hidden (it hides at the opening zoom of 3, by design)
+  would make it reappear after a zoom-out with one large bogus correction.
+* single-patch pages are untouched: `viewport.atlas` is null, `diskRotation` returns `view.rotation`
+  verbatim, and dungeon.html's shell still equals `view.rotation` to 1e-12 and turns by exactly the
+  angle applied. Verified, not assumed.
+
+Verified: `npm test` 131/131, `npm run check`; shell hidden at the opening zoom 3 and drawn at 1.2 and
+0.5 (2 images each: stars + turtle); "jump to row 12 col -5" still lands with the anchor cell at 180
+degrees, so the layers did not disturb the pan fix; stars confirmed not rotating while the turtle
+turns a quarter turn.

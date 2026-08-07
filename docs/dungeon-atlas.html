@@ -13,7 +13,8 @@
 
 <p>The same dungeon, split into an atlas. Every cell of the tiling is its own little coordinate
 system, so the numbers describing a room are always small no matter how far from the origin that room
-is. Wander as far as you like.</p>
+is. Wander as far as you like &mdash; or zoom out until the whole infinite world fits in the disk,
+where a world-turtle is carrying it.</p>
 
 <div id="map"></div>
 <p class="status"><span id="status">…</span></p>
@@ -38,6 +39,15 @@ is. Wander as far as you like.</p>
       from the cell&rsquo;s own coordinates.</li>
 </ol>
 
+<p class="note">The turtle and the star field are <strong>not library features</strong>. They are two
+image layers defined in <a href="demo/layers.js"><code>demo/layers.js</code></a>: one turns with the
+disk, one does not. Turning with the disk means something slightly different here than in a
+single-patch view: the view matrix is expressed in the <em>anchor tile&rsquo;s</em> frame, and the
+anchor changes as you walk, so the raw rotation jumps by as much as 34&deg; at a cell boundary that
+the dungeon itself crosses perfectly smoothly. The layer cancels those jumps. What it cannot do is
+pin the shell rigidly to the plane &mdash; that needs the global frame this whole page exists to
+avoid.</p>
+
 <p class="note"><strong>Clipping is off here, deliberately.</strong> The 2012 room art is drawn
 <em>straddling</em> cell boundaries &mdash; the floor plate spans the corner where four cells meet,
 and the doors are what <em>connect</em> adjacent rooms, so they have to cross the boundary. Each
@@ -60,6 +70,7 @@ disk coordinate has only about seven significant digits left.</p>
 <script src="lib/hyperbolic-map.iife.js"></script>
 <script type="module">
 import { attachReadout, errorBox } from "./demo/common.js";
+import { imageLayer } from "./demo/layers.js";
 
 try {
   const status = document.getElementById("status");
@@ -116,6 +127,14 @@ try {
       interactRadius: 0.9,
       background: "#606060",
       rimFill: "#5d5d4e",
+      // Both sit at z < 0, so they are drawn before the disk's opaque fill and show only OUTSIDE it.
+      // Zoom out to see them: like the 2012 viewer, they hide once the disk covers the canvas.
+      // The shell turns with the disk, the stars behind it do not -- see demo/layers.js for what
+      // "turns with the disk" has to mean once the view is anchored to a tile rather than global.
+      layers: [
+        imageLayer({ src: "assets/stars.jpg", z: -20, fit: "cover", rotateWithDisk: false }),
+        imageLayer({ src: "assets/turtle.png", z: -10, scale: 1.6, rotateWithDisk: true }),
+      ],
       atlas: {
         tiling: tiling,
         maxTiles: 220,
