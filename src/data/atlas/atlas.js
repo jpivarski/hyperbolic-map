@@ -254,7 +254,14 @@ export class Atlas {
     // `view.matrix` is the CAMERA-RELATIVE view when an atlas is present; the viewport re-anchors
     // before every render so this stays O(1).
     const Vc = view.matrix;
-    const tiles = this.anchor.neighbourhood(Vc, view.effectiveRadius, this.maxTiles);
+    let tiles = this.anchor.neighbourhood(Vc, view.effectiveRadius, this.maxTiles);
+    // PAINTER'S ORDER, if the tiling defines one. Applied to a COPY and only after the neighbourhood
+    // has been chosen: the walk admits tiles nearest-first and `maxTiles` truncates the tail, so
+    // reordering before that would change WHICH tiles are drawn, not just the order they are drawn in.
+    // Matters only when art overlaps, i.e. when not clipping; see binaryDrawOrder.
+    if (this.tiling.compareForDrawing) {
+      tiles = tiles.slice().sort(this.tiling.compareForDrawing);
+    }
     const out = [];
     this.lastTiles = [];
     for (const t of tiles) {

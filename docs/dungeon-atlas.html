@@ -21,7 +21,6 @@ where a world-turtle is carrying it.</p>
 <p class="readout" id="readout"></p>
 
 <div class="controls">
-  <label><input type="checkbox" id="clip"> clip each cell (see below)</label>
   <label><input type="checkbox" id="numbers" checked> room numbers</label>
   <label>jump to row <input id="row" type="number" value="0" style="width:5em"> col <input id="col" type="number" value="0" style="width:6em"> <button id="go">go</button></label>
 </div>
@@ -67,12 +66,19 @@ avoid.</p>
 
 <p class="note"><strong>Clipping is off here, deliberately.</strong> The 2012 room art is drawn
 <em>straddling</em> cell boundaries &mdash; the floor plate spans the corner where four cells meet,
-and the doors are what <em>connect</em> adjacent rooms, so they have to cross the boundary. Each
-piece is still drawn exactly once, by the cell that owns it, so nothing overlaps; but confining each
-cell&rsquo;s drawing to its own cell severs the junctions and leaves fragments. Tick the box above to
-see it happen. The <a href="escher-atlas.html">Escher tile</a>, whose art <em>is</em> designed to fill
-its tile, clips correctly &mdash; which is why the library makes this a per-atlas choice rather than
-a rule.</p>
+and the doors are what <em>connect</em> adjacent rooms, so they have to cross the boundary. Confining
+each cell&rsquo;s drawing to its own cell would sever every junction and leave fragments. The
+<a href="escher-atlas.html">Escher tile</a>, whose art <em>is</em> designed to fill its tile, clips
+correctly &mdash; which is why the library makes this a per-atlas choice rather than a rule.</p>
+
+<p class="note">Unclipped art makes the <strong>order the cells are drawn in</strong> matter, because
+neighbours overlap and whichever paints last wins the seam. The atlas walks outward from the camera,
+which would make that order depend on where you are standing &mdash; pan a little and a hidden seam
+surfaces as a stray stroke across a floor plate. So this page pins the order to the cell
+<em>addresses</em> instead, with <code>drawOrder:&nbsp;"V&gt;&gt;"</code>: latitude first ascending,
+then longitude ascending. All eight codes are legal geometry; only this one draws the picture the 2012
+art intends. Addresses are exact integers at any depth, so the order never wavers however far you
+walk.</p>
 
 <p class="note">Why the numbers are always small: cell <em>(latitude, longitude)</em> is
 <code>x&nbsp;&isin;&nbsp;[lon&middot;2<sup>lat</sup>, (lon+1)&middot;2<sup>lat</sup>]</code>,
@@ -97,7 +103,6 @@ try {
   status.textContent =
     `${doc.room.length}-shape prototype room + ${kinds} kinds of character, scattered forever`;
 
-  const tiling = new HyperbolicMap.BinaryTiling();
 
   // Room-number anchors, on the cell's own vertical axis, in the cell's own local coordinates.
   //
@@ -139,7 +144,7 @@ try {
   // depth, without anything being remembered between visits. Reload for a different dungeon.
   //
   // The salt is 64 random bits from the CSPRNG. It is drawn out here, not inside build(), so that
-  // ticking "room numbers" or "clip each cell" rebuilds the viewport without redecorating the world.
+  // toggling "room numbers" rebuilds the viewport without redecorating the world.
   const SALT = (() => {
     if (globalThis.crypto && globalThis.crypto.getRandomValues) {
       const b = new BigUint64Array(1);
@@ -193,9 +198,21 @@ try {
     return COMMON[Number((r - RARE_WEIGHT) / COMMON_WEIGHT)];
   }
 
+  // PAINTER'S ORDER, and it is not cosmetic. This art is drawn unclipped and neighbouring cells
+  // overlap on purpose, so which cell paints last decides what you see at every seam. The atlas's own
+  // walk order is nearest-first from the CAMERA, which makes that camera-dependent: pan a little and
+  // two overlapping cells swap, so a seam that was hidden appears as a stray stroke across a floor
+  // plate. Sorting by the ADDRESS instead is stable, because the relative order of any two cells never
+  // changes.
+  //
+  // "V>>" is latitude first ascending, then longitude ascending. It is the one that makes THIS art
+  // join up: the abutting floor plate paints over the doorway's mouth stroke instead of under it. Any
+  // of the eight would render legal geometry; only this one renders the intended picture. See
+  // binaryDrawOrder in the library for the code's grammar.
+  const tiling = new HyperbolicMap.BinaryTiling({ drawOrder: "V>>" });
+
   let viewport = null;
   function build() {
-    const clip = document.getElementById("clip").checked;
     const wantNumbers = document.getElementById("numbers").checked;
     const keep = viewport ? viewport.getCamera() : null;
     if (viewport) viewport.destroy();
@@ -224,7 +241,8 @@ try {
       atlas: {
         tiling: tiling,
         maxTiles: 220,
-        clip: clip ? "always" : "never",
+        // The art straddles cell boundaries deliberately; clipping it would sever every junction.
+        clip: "never",
         // Three overlays merged here. The callback returns DATA, never URLs or geometry
         // transformations -- the library rotates each tile's contents into place.
         tileData: (tile) => {
@@ -255,7 +273,6 @@ try {
     window.tiling = tiling;
   }
   build();
-  document.getElementById("clip").addEventListener("change", build);
   document.getElementById("numbers").addEventListener("change", build);
 
   // Jump to a room by its printed number. row = -latitude-1, col = -longitude.

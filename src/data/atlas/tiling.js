@@ -533,8 +533,57 @@ BINARY_INVERSE[BIN_CHILD1] = BIN_PARENT_ODD;
 BINARY_INVERSE[BIN_PARENT_EVEN] = BIN_CHILD0;
 BINARY_INVERSE[BIN_PARENT_ODD] = BIN_CHILD1;
 
+// Painter's order for unclipped art, as a three-character code.
+//
+// Without `clip`, neighbouring cells' art overlaps on purpose -- the dungeon's floor plates span the
+// corner where four cells meet and its doors cross cell boundaries -- so WHICH cell paints last decides
+// what you see at every seam. The atlas's own walk order is nearest-first from the camera, which is
+// fine for culling but is camera-dependent: pan a little and two overlapping cells can swap, so seams
+// flip as you move. Sorting by the ADDRESS instead is stable, because addresses are exact BigInts and
+// the relative order of any two cells never changes.
+//
+//   character 1  'H' sorts by longitude first, 'V' by latitude first
+//   character 2  the direction of that first key:  '>' increasing, '<' decreasing
+//   character 3  the direction of the second key:  '>' increasing, '<' decreasing
+//
+// So all eight are "H>>", "H><", "H<>", "H<<", "V>>", "V><", "V<>", "V<<". Later in the order paints
+// later, i.e. on top.
+export function binaryDrawOrder(code) {
+  const m = /^([HV])([<>])([<>])$/.exec(String(code));
+  if (!m) {
+    throw new Error(
+      `hyperbolic-map: drawOrder must be one of H>> H>< H<> H<< V>> V>< V<> V<<, got ${JSON.stringify(code)}`,
+    );
+  }
+  const latFirst = m[1] === "V";
+  const firstSign = m[2] === ">" ? 1 : -1;
+  const secondSign = m[3] === ">" ? 1 : -1;
+  const latSign = latFirst ? firstSign : secondSign;
+  const lonSign = latFirst ? secondSign : firstSign;
+  // BigInt comparison, so this stays exact at any depth -- a float64 longitude would start tying
+  // distinct cells together about fifty levels down, and ties here mean an arbitrary paint order.
+  return (a, b) => {
+    const p = latFirst
+      ? [a.address.lat, b.address.lat, latSign]
+      : [a.address.lon, b.address.lon, lonSign];
+    if (p[0] !== p[1]) return p[0] < p[1] ? -p[2] : p[2];
+    const s = latFirst
+      ? [a.address.lon, b.address.lon, lonSign]
+      : [a.address.lat, b.address.lat, latSign];
+    if (s[0] !== s[1]) return s[0] < s[1] ? -s[2] : s[2];
+    return 0;
+  };
+}
+
 export class BinaryTiling {
-  constructor() {
+  constructor(options) {
+    // `drawOrder` only matters when the atlas is NOT clipping; with clipping there is no overlap to
+    // resolve. Default null = the atlas's own nearest-first walk order, which is what this tiling did
+    // before the option existed, so no existing page changes appearance by accident.
+    const { drawOrder = null } = options || {};
+    this.drawOrder = drawOrder;
+    this.compareForDrawing = drawOrder === null ? null : binaryDrawOrder(drawOrder);
+
     // Centre spacing: the distance between a cell's centre and its lateral neighbour's, used to size
     // the walk radius. Measured from the generator rather than asserted.
     const g = BINARY_GENERATORS[BIN_RIGHT];

@@ -1595,3 +1595,103 @@ Also removed `const HALF = BINARY_LOCAL_HALF_WIDTH`, declared and never used.
 Verified visually at zoom 2.2 and 1.5 with 52 of 220 visible cells occupied, and at row 40 / col 12345
 where the labels are six characters long -- they still sit at the room tops and still fit the room
 width. `npm test` 131/131, `npm run check` ok.
+
+---
+
+## 2026-08-07 — the stroke across the grey cross-shapes: the doorway's inner mouth
+
+Jim spotted "a stroke that crosses the middle of a grey cross-shape (sometimes)" in the room drawables
+and guessed it was "an `L` that needs to become unstroked". It was, and here is which one.
+
+`docs/dungeon-atlas.json`'s `room[2]` is the doorway OUTLINE (no fill, black stroke), a four-point
+quadrilateral. Measuring its edges settles it immediately:
+
+| edge | length | flag |
+|---|---|---|
+| 0->1 | 0.0913 | `L` |
+| **1->2** | **0.0336** | **`L`** |
+| 2->3 | 0.0910 | `L` |
+| 3->0 | 0.0397 | none |
+
+The doorway is a long thin SLOT. The two long edges are its jambs and must be stroked; the two short
+edges are its two mouths, where the passage opens into a room at either end, and must not be. One mouth
+(3->0) was already open. The other (1->2) was being capped.
+
+**Why it looks like a line across a cross rather than a cap on a slot, and why only sometimes.** The
+grey cross-shapes on screen are not single drawables. Each is one cell's floor plate joined to a
+*neighbouring* cell's doorway slot -- the art straddles cell boundaries on purpose. The capped mouth is
+exactly the seam between those two pieces, so the stroke lands in the middle of what reads as one grey
+shape, and only when both pieces happen to be drawn.
+
+Ruled out first, so the diagnosis was not a guess: no shape in `room` self-intersects (all-pairs proper
+segment-intersection test over all seven, zero hits), and `room[2]` was the only shape with a
+partially-stroked outline, so nothing else could be drawing an interior line.
+
+Fixed by stripping the `L` from `room[2].points[1]`; the outline now strokes 2 of 4 edges, the two
+jambs. Confirmed by rendering the same junction side by side, before and after, at two magnifications:
+the internal line disappears and **no gap appears in the silhouette** -- which is the check that matters,
+since removing a stroke could just as easily have opened the outline. Also verified across 220 visible
+tiles at zoom 1.4, and that clip mode still renders.
+
+Note this does NOT touch dungeon.html, whose `DOORWAY` in `demo/dungeon-rooms.js` has the same defect:
+`pathFrom(..., closed = false)` strips the flag from the LAST point only, so it too caps one mouth. Left
+alone deliberately -- dungeon-atlas.html is replacing that page.
+
+---
+
+## 2026-08-07 — CORRECTION: it was painter's order, not a stroke flag. `drawOrder` added.
+
+**The previous entry is wrong and this one supersedes it.** I removed the `L` from
+`room[2].points[1]` and reported it as the fix. Jim: "No, you removed the wrong stroke. The path
+already had the correct `L` removed (the last one). What's different now is that I expected a different
+order of tile-drawing." Reverted; `room[2]` is back to `["L","L","L","-"]`.
+
+What I got right was the location -- the stroke really is the doorway's mouth at the seam between one
+cell's slot and a neighbour's floor plate. What I got wrong was the cause. That stroke is *supposed* to
+be drawn; it is supposed to be **painted over** by the abutting plate. Whether it is depends entirely on
+which of the two cells paints last, and I never questioned the draw order because the geometry
+explanation was self-consistent. A side-by-side before/after that "looks cleaner" cannot distinguish
+"removed a stroke that should not exist" from "removed a stroke that should be covered" -- both look
+identical. The test I ran could not have told me I was wrong.
+
+**New library option, on BinaryTiling: `drawOrder`.** A three-character code, parsed by the exported
+`binaryDrawOrder(code)`:
+
+* character 1: `H` sorts by longitude first, `V` by latitude first;
+* character 2: direction of that first key, `>` increasing or `<` decreasing;
+* character 3: direction of the second key.
+
+So `H>>`, `H><`, `H<>`, `H<<`, `V>>`, `V><`, `V<>`, `V<<`; later paints on top. A malformed code throws
+and names the eight. Sorting is BigInt, so it stays exact at any depth -- a float64 longitude would tie
+distinct cells together about fifty levels down, and a tie is an arbitrary paint order, the very thing
+being fixed.
+
+Why it is needed at all: the atlas walks nearest-first FROM THE CAMERA. That is right for culling but
+makes the paint order camera-dependent, so two overlapping cells swap as you pan and a covered seam
+surfaces as a stray stroke. Address order is stable because the relative order of any two cells never
+changes.
+
+Two care points in `Atlas.passes()`:
+
+* the sort runs on a **copy**, and only **after** `anchor.neighbourhood()` has chosen the set. The walk
+  admits nearest-first and `maxTiles` truncates the tail, so sorting earlier would change WHICH tiles
+  are drawn, not just their order;
+* the default is `null` = today's walk order, so no existing page changes appearance by accident.
+  `escher-atlas.html` clips, so order is invisible there regardless.
+
+I showed Jim `H>>` and `H><` magnified on the differing seam (215 of 384,400 pixels differ -- the
+magnitude of exactly one stroke, which is why this was so easy to misread as a flag). He identified
+**`V>>`** as correct for the 2012 art. Hard-coded on the page.
+
+Per his instruction the page now has only two controls, "room numbers" and "jump to...": the "clip each
+cell" checkbox and the "draw order" dropdown are gone, with `clip: "never"` and `drawOrder: "V>>"` fixed
+in code. The clipping note no longer says "tick the box above", and a new note explains the draw order,
+since it is now an invisible constant that decides what the art looks like.
+
+Verified: `npm test` 131/131, `npm run check`, rebuilt `dist/` (the bundle test caught the stale bundle
+before I did, exactly as designed). All nine browser diagnostics still pass -- notably **check 8,
+picking, 14463/14463**, which is the one that depends on draw order; the binary default of `null` leaves
+the diagnostics' own tilings unsorted. Anchor cell presents at exactly 180 degrees on an untouched page
+load and after a jump; a reading of -177.21 during testing was my own dirty camera state, confirmed by
+re-running the sequence clean (the bearing deviates from 180 only when the camera is genuinely off the
+cell's origin, which is correct parallel transport).
