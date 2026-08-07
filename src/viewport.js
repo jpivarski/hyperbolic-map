@@ -11,7 +11,7 @@ import { ViewState, ROTATION_PARALLEL_TRANSPORT } from "./core/view.js";
 import { Surface } from "./render/surface.js";
 import { Renderer, CULL_CAP } from "./render/renderer.js";
 import { PointerInput } from "./input/pointer.js";
-import { StaticSource, CallbackSource } from "./data/source.js";
+import { SourceSet } from "./data/source.js";
 import { DEFAULT_STYLE } from "./data/drawable.js";
 import { Atlas } from "./data/atlas/atlas.js";
 import { Anchor } from "./data/atlas/anchor.js";
@@ -191,25 +191,17 @@ export class HyperbolicViewport {
       compassTargetY: opts.compassTarget[1],
     });
 
-    // Named sources, drawn in insertion order. Each may carry its own extra isometry, which is how
-    // the clock demo rotates its hands in O(1) per tick instead of rebuilding every drawable.
-    this.sources = new Map();
-    if (opts.dataProvider) {
-      this.sources.set("default", {
-        source: new CallbackSource(opts.dataProvider, {
-          styleSheet: this.styleSheet,
-          onLoad: () => this.invalidate(),
-        }),
-        transform: null,
-      });
-    } else {
-      this.sources.set("default", {
-        source: new StaticSource(opts.data || [], this.styleSheet),
-        transform: null,
-      });
-    }
+    // Named sources, drawn in insertion order. See SourceSet: this is the VIEW-indexed half of the
+    // data model, and it produces render passes through the same `passes(view)` interface the atlas
+    // does.
+    this.sources = new SourceSet({
+      styleSheet: this.styleSheet,
+      onInvalidate: () => this.invalidate(),
+    });
+    this.sources.add("default", opts.dataProvider ? opts.dataProvider : (opts.data || []));
 
-    // The atlas, if configured, contributes one render pass per visible tile.
+    // The atlas, if configured, contributes one render pass per visible tile. It is the TILE-indexed
+    // half of the data model; see src/data/source.js for why both exist.
     this.atlas = null;
     if (opts.atlas) {
       this.atlas = new Atlas(
@@ -223,6 +215,12 @@ export class HyperbolicViewport {
         this.atlas.anchor.address = opts.anchor;
       }
     }
+
+    // Everything that can contribute drawables to a frame, in draw order. Both implement
+    // `passes(view, onReady)`, so render() does not branch on which mode this viewport is in.
+    this.passProducers = this.atlas ? [this.sources, this.atlas] : [this.sources];
+    // Bound once: passed to every producer each frame, so no closure is allocated per frame.
+    this._onPassReady = () => this.invalidate();
 
     this.layers = (opts.layers || []).slice().sort((a, b) => (a.z || 0) - (b.z || 0));
     for (const layer of this.layers) if (layer.attach) layer.attach(this);
@@ -302,19 +300,14 @@ export class HyperbolicViewport {
     const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
     this.reanchorCamera();
     const view = this.surface.buildView(this.view, this.options);
-    // One entry per source: its drawables plus the matrix to draw them with. A source transform is
-    // composed on the right, so its drawables' coordinates stay in their own frame.
+    // One loop over pass producers. A pass is {drawables, matrix, clip?}: the sources contribute one
+    // per named source, the atlas one per visible tile, and the renderer below cannot tell which is
+    // which. That join is what keeps single-patch and atlas mode from being two implementations.
     const passes = [];
-    for (const entry of this.sources.values()) {
-      const drawables = entry.source.get(view);
-      if (!drawables || drawables.length === 0) continue;
-      passes.push({
-        drawables: drawables,
-        matrix: entry.transform ? view.matrix.mul(entry.transform) : view.matrix,
-      });
-    }
-    if (this.atlas) {
-      for (const p of this.atlas.passes(view, () => this.invalidate())) passes.push(p);
+    const onReady = this._onPassReady;
+    for (const producer of this.passProducers) {
+      const got = producer.passes(view, onReady);
+      for (let i = 0; i < got.length; i++) passes.push(got[i]);
     }
     this.renderer.draw(this.surface.context, view, passes, {
       background: this.options.background,
@@ -363,16 +356,56 @@ export class HyperbolicViewport {
     if (this.options.onFrame) this.options.onFrame(this.stats);
   }
 
+  // ---- mode guards ----
+  //
+  // Three rules, in one place, because they are one idea: some methods are meaningful in single-patch
+  // mode, some only in atlas mode, and the global-coordinate ones stop being meaningful part-way
+  // through an atlas session. A fourth guard -- `atlas` cannot be combined with `data` -- is in
+  // normaliseOptions(), because it can be decided before anything is built.
+  //
+  // Each one refuses rather than returning a number that is quietly wrong, and each names the method
+  // to use instead.
+
+  // Atlas-only methods.
+  requireAtlas(method, alternative) {
+    if (!this.atlas) {
+      throw new Error(`hyperbolic-map: ${method}() requires an atlas; use ${alternative} instead`);
+    }
+  }
+
+  // Single-patch-only methods. A source's coordinates are global, and in atlas mode the view matrix is
+  // camera-relative, so there is no correct way to place them.
+  refuseInAtlasMode(method, why) {
+    if (this.atlas) {
+      throw new Error(
+        `hyperbolic-map: ${method} is not available in atlas mode -- ${why}. Use the atlas ` +
+          "`tileData` callback for tile content, or `layers` for screen-space overlays.",
+      );
+    }
+  }
+
+  // Global-coordinate accessors are only meaningful while the camera is anchored to the origin tile.
+  // Past that there is no numerically representable global frame, which is the whole reason the atlas
+  // is anchored -- so refuse rather than mislead.
+  assertGlobalCoordinatesUsable(fn) {
+    if (this.atlas && !this.atlas.anchor.atOrigin()) {
+      const at = this.atlas.tiling.addressToString(this.atlas.anchor.address);
+      throw new Error(
+        `hyperbolic-map: ${fn}() is defined in GLOBAL coordinates, but the camera is anchored to tile ` +
+          `${at}, where a global frame has entries far too large to represent. Its meaning is ` +
+          `unchanged and it still works while anchored to the origin tile. Use getCamera(), ` +
+          `setCamera() or panToTile() instead.`,
+      );
+    }
+  }
+
   // ---- public API ----
 
   // Force every async source to re-request for the current view, bypassing the throttle and the
   // significance gate.
   refreshSources() {
     if (this.destroyed) return;
-    const view = this.surface.buildView(this.view, this.options);
-    for (const entry of this.sources.values()) {
-      if (entry.source.refresh) entry.source.refresh(view);
-    }
+    this.sources.refresh(this.surface.buildView(this.view, this.options));
     this.invalidate();
   }
 
@@ -425,27 +458,12 @@ export class HyperbolicViewport {
   // Put a given TILE-LOCAL point of a given tile at the centre of the view. The atlas-mode equivalent
   // of panTo, and the only form that stays meaningful arbitrarily far out.
   panToTile(address, local = [0, 0]) {
-    if (!this.atlas) throw new Error("hyperbolic-map: panToTile() requires an atlas; use panTo() instead");
+    this.requireAtlas("panToTile", "panTo()");
     this.atlas.anchor.address = address;
     this.view.matrix = Isom.translationToLocal(local[0], local[1]).inverse();
     this.view.liveMatrix = this.view.matrix.clone();
     this.view.gesture = null;
     this.invalidate();
-  }
-
-  // Global-coordinate accessors are only meaningful while the camera is anchored to the origin tile.
-  // Past that there is no numerically representable global frame, which is the whole reason the atlas
-  // is anchored -- so refuse rather than mislead.
-  assertGlobalCoordinatesUsable(fn) {
-    if (this.atlas && !this.atlas.anchor.atOrigin()) {
-      const at = this.atlas.tiling.addressToString(this.atlas.anchor.address);
-      throw new Error(
-        `hyperbolic-map: ${fn}() is defined in GLOBAL coordinates, but the camera is anchored to tile ` +
-          `${at}, where a global frame has entries far too large to represent. Its meaning is ` +
-          `unchanged and it still works while anchored to the origin tile. Use getCamera(), ` +
-          `setCamera() or panToTile() instead.`,
-      );
-    }
   }
 
   getMatrix() {
@@ -484,57 +502,30 @@ export class HyperbolicViewport {
   }
 
   setData(data, name = "default") {
-    if (this.atlas) {
-      throw new Error(
-        "hyperbolic-map: setData() is not available in atlas mode -- tile content comes from the atlas " +
-          "`tileData` callback. See the note on addSource().",
-      );
-    }
-    const entry = this.sources.get(name);
-    if (entry && entry.source instanceof StaticSource) {
-      entry.source.setData(data, this.styleSheet);
-    } else {
-      this.sources.set(name, { source: new StaticSource(data, this.styleSheet), transform: entry ? entry.transform : null });
-    }
+    this.refuseInAtlasMode("setData", "a source's coordinates are global, and an atlas view is anchored to a tile");
+    this.sources.setData(name, data);
     this.invalidate();
   }
 
   addSource(name, data, opts = {}) {
-    // Same reasoning as the constructor guard: a source's coordinates are global, and in atlas mode the
-    // view matrix is camera-relative, so there is no correct way to place them.
-    if (this.atlas) {
-      throw new Error(
-        `hyperbolic-map: addSource(${JSON.stringify(name)}) is not available in atlas mode -- a source's ` +
-          "coordinates are global, and an atlas view is anchored to a tile. Use the atlas `tileData` " +
-          "callback for tile content, or `layers` for screen-space overlays.",
-      );
-    }
-    const source = typeof data === "function"
-      ? new CallbackSource(data, { styleSheet: this.styleSheet, onLoad: () => this.invalidate() })
-      : new StaticSource(data, this.styleSheet);
-    this.sources.set(name, { source: source, transform: opts.transform || null });
+    this.refuseInAtlasMode(
+      `addSource(${JSON.stringify(name)})`,
+      "a source's coordinates are global, and an atlas view is anchored to a tile",
+    );
+    const source = this.sources.add(name, data, opts);
     this.invalidate();
     return source;
   }
 
   removeSource(name) {
-    const entry = this.sources.get(name);
-    if (entry && entry.source.destroy) entry.source.destroy();
-    this.sources.delete(name);
+    this.sources.remove(name);
     this.invalidate();
   }
 
   // Apply an extra isometry to one source without recompiling its drawables. O(1) per change.
   setSourceTransform(name, isom) {
-    if (this.atlas) {
-      throw new Error(
-        "hyperbolic-map: setSourceTransform() is not available in atlas mode -- there are no global " +
-          "sources there. See the note on addSource().",
-      );
-    }
-    const entry = this.sources.get(name);
-    if (!entry) throw new Error(`hyperbolic-map: no source named "${name}"`);
-    entry.transform = isom;
+    this.refuseInAtlasMode("setSourceTransform", "there are no global sources in an atlas to transform");
+    this.sources.setTransform(name, isom);
     this.invalidate();
   }
 
@@ -556,7 +547,7 @@ export class HyperbolicViewport {
   // whereas converting a pixel to a global coordinate and locating from there could not work at all.
   // Returns null if the pixel is outside the disk.
   tileAtScreen(sx, sy) {
-    if (!this.atlas) throw new Error("hyperbolic-map: tileAtScreen() requires an atlas; use fromScreen()");
+    this.requireAtlas("tileAtScreen", "fromScreen()");
     const view = this.surface.buildView(this.view, this.options);
     const local = view.fromScreen(sx, sy);
     if (!local) return null;
@@ -603,7 +594,7 @@ export class HyperbolicViewport {
       this.frameHandle = null;
     }
     this.input.destroy();
-    for (const entry of this.sources.values()) if (entry.source.destroy) entry.source.destroy();
+    this.sources.destroy();
     for (const layer of this.layers) if (layer.detach) layer.detach();
     this.surface.destroy();
   }

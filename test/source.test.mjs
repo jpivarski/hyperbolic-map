@@ -4,7 +4,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { Isom } from "../src/core/isom.js";
-import { StaticSource, CallbackSource } from "../src/data/source.js";
+import { StaticSource, CallbackSource, SourceSet } from "../src/data/source.js";
+import { HyperbolicViewport } from "../src/viewport.js";
 
 // CallbackSource invokes the provider from a microtask (Promise.resolve().then(...)), so a counter
 // read immediately after get() is always one behind. Yield first.
@@ -117,4 +118,91 @@ test("a provider that throws does not break the source", async () => {
   await source.inFlight;
   assert.equal(errors.length, 1);
   assert.deepEqual(source.drawables, [], "should stay empty rather than crash");
+});
+
+// ---- SourceSet: the pass-producer interface shared with Atlas -------------------------------------
+
+test("SourceSet produces render passes, one per non-empty source, in insertion order", () => {
+  // The interface that lets HyperbolicViewport.render() be a single loop instead of a branch on mode:
+  // a SourceSet and an Atlas both answer passes(view) with [{drawables, matrix}].
+  const ss = new SourceSet({ styleSheet: { default: {} } });
+  const view = viewFor(Isom.identity());
+  assert.deepEqual(ss.passes(view), [], "an empty set contributes nothing");
+
+  ss.add("a", [{ type: "path", points: [[0, 0], [0.1, 0]] }]);
+  ss.add("b", [{ type: "path", points: [[0, 0], [0.2, 0]] }]);
+  const passes = ss.passes(view);
+  assert.equal(passes.length, 2);
+  assert.ok(passes.every((p) => p.drawables && p.matrix), "a pass is {drawables, matrix}");
+  // No transform means the view matrix itself, not a copy: the renderer must not be handed extra work.
+  assert.equal(passes[0].matrix, view.matrix);
+
+  // A source with nothing in it is skipped entirely rather than contributing an empty pass. That is
+  // what makes the always-present "default" source free in atlas mode.
+  ss.setData("a", []);
+  assert.equal(ss.passes(view).length, 1);
+});
+
+test("a source's transform is composed on the RIGHT and survives setData", () => {
+  // The clock demo's hands: an O(1) matrix change per tick, with the hand geometry never rebuilt.
+  const ss = new SourceSet({ styleSheet: { default: {} } });
+  const view = viewFor(Isom.rotation(0.3));
+  ss.add("hands", [{ type: "path", points: [[0, 0], [0.2, 0]] }], { transform: Isom.rotation(0.7) });
+  const withT = ss.passes(view)[0].matrix;
+  assert.notEqual(withT, view.matrix, "a transformed source needs its own matrix");
+  // Composed on the right: view . transform, so the drawables stay in their own frame.
+  const want = view.matrix.mul(Isom.rotation(0.7));
+  for (const k of ["ar", "ai", "br", "bi"]) {
+    assert.ok(Math.abs(withT[k] - want[k]) < 1e-12, `transform composed on the wrong side (${k})`);
+  }
+  ss.setTransform("hands", Isom.rotation(1.1));
+  assert.ok(Math.abs(ss.passes(view)[0].matrix.ar - view.matrix.mul(Isom.rotation(1.1)).ar) < 1e-12);
+  // Replacing the data must not silently drop the transform.
+  ss.setData("hands", [{ type: "path", points: [[0, 0], [0.3, 0]] }]);
+  assert.notEqual(ss.passes(view)[0].matrix, view.matrix, "setData dropped the transform");
+  assert.throws(() => ss.setTransform("nope", Isom.identity()), /no source named/);
+});
+
+test("SourceSet removes and destroys its sources", () => {
+  let aborted = 0;
+  const ss = new SourceSet({ styleSheet: { default: {} } });
+  ss.add("cb", async () => ({ drawables: [] }));
+  ss.entries.get("cb").source.destroy = () => { aborted++; };
+  ss.remove("cb");
+  assert.equal(aborted, 1, "remove() must destroy the source it drops");
+  assert.equal(ss.has("cb"), false);
+  ss.add("x", []);
+  ss.entries.get("x").source.destroy = () => { aborted++; };
+  ss.destroy();
+  assert.equal(aborted, 2, "destroy() must destroy every source");
+});
+
+// ---- the mode guards ------------------------------------------------------------------------------
+
+test("the mode guards refuse in the right mode and name the alternative", () => {
+  // Three rules in one place. Exercised on the prototype with a stand-in `this`, because constructing a
+  // viewport needs a DOM and these guards deliberately do not.
+  const P = HyperbolicViewport.prototype;
+  const atlasMode = { atlas: { anchor: { atOrigin: () => true } } };
+  const singlePatch = { atlas: null };
+
+  // requireAtlas: atlas-only methods.
+  assert.throws(() => P.requireAtlas.call(singlePatch, "panToTile", "panTo()"), /panToTile\(\) requires an atlas; use panTo\(\)/);
+  assert.doesNotThrow(() => P.requireAtlas.call(atlasMode, "panToTile", "panTo()"));
+
+  // refuseInAtlasMode: single-patch-only methods.
+  assert.throws(
+    () => P.refuseInAtlasMode.call(atlasMode, "setData", "a source's coordinates are global"),
+    /setData is not available in atlas mode -- a source's coordinates are global\. Use the atlas/,
+  );
+  assert.doesNotThrow(() => P.refuseInAtlasMode.call(singlePatch, "setData", "why"));
+
+  // assertGlobalCoordinatesUsable: fine at the origin tile, refuses past it.
+  assert.doesNotThrow(() => P.assertGlobalCoordinatesUsable.call(atlasMode, "panTo"));
+  assert.doesNotThrow(() => P.assertGlobalCoordinatesUsable.call(singlePatch, "panTo"));
+  const wandered = {
+    atlas: { anchor: { atOrigin: () => false, address: "A" }, tiling: { addressToString: () => "3.1.4" } },
+  };
+  assert.throws(() => P.assertGlobalCoordinatesUsable.call(wandered, "panTo"), /anchored to tile 3\.1\.4/);
+  assert.throws(() => P.assertGlobalCoordinatesUsable.call(wandered, "panTo"), /Use getCamera\(\)/);
 });

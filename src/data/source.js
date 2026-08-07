@@ -1,6 +1,18 @@
-// Data sources.
+// Data sources: the single-patch half of the library's data model.
 //
-// A source supplies compiled drawables for the current view. Three flavours:
+// There are two data models, and they are not two ways of doing one thing:
+//
+//   SourceSet (here)  data indexed by the VIEW -- "give me what is visible from here". Global
+//                     coordinates, fetched with a significance gate and an AbortSignal.
+//   Atlas             data indexed by the TILE -- "give me tile k". Tile-local coordinates, cached
+//                     per tile.
+//
+// Both answer questions the other cannot, so both exist. What they share is the far side: each
+// produces a list of {drawables, matrix} PASSES for one frame, and one renderer draws them. That
+// shared `passes(view)` shape is why HyperbolicViewport.render() is a single loop over pass
+// producers rather than a branch on which mode it is in.
+//
+// A source supplies compiled drawables for the current view. Two flavours:
 //
 //   StaticSource    a fixed array, compiled once.
 //   CallbackSource  an async function of the view, with caching, in-flight de-duplication and
@@ -135,5 +147,85 @@ export class CallbackSource {
       }
     }
     this.controller = null;
+  }
+}
+
+// The named sources of a single-patch viewport, drawn in insertion order.
+//
+// Each source may carry its own extra isometry, composed on the RIGHT so its drawables stay in their
+// own frame -- which is how the clock demo rotates its hands in O(1) per tick instead of rebuilding
+// every drawable.
+export class SourceSet {
+  constructor(options = {}) {
+    this.styleSheet = options.styleSheet;
+    // Called when an async source resolves, so the viewport can schedule a frame.
+    this.onInvalidate = options.onInvalidate || null;
+    this.entries = new Map();
+  }
+
+  // The pass-producer interface, shared with Atlas. `onReady` is accepted and ignored: a source
+  // signals arrival through its own onLoad rather than per frame.
+  passes(view /* , onReady */) {
+    const out = [];
+    for (const entry of this.entries.values()) {
+      const drawables = entry.source.get(view);
+      if (!drawables || drawables.length === 0) continue;
+      out.push({
+        drawables: drawables,
+        matrix: entry.transform ? view.matrix.mul(entry.transform) : view.matrix,
+      });
+    }
+    return out;
+  }
+
+  add(name, data, opts = {}) {
+    const source = typeof data === "function"
+      ? new CallbackSource(data, {
+        styleSheet: this.styleSheet,
+        onLoad: () => this.onInvalidate && this.onInvalidate(),
+      })
+      : new StaticSource(data, this.styleSheet);
+    this.entries.set(name, { source: source, transform: opts.transform || null });
+    return source;
+  }
+
+  remove(name) {
+    const entry = this.entries.get(name);
+    if (entry && entry.source.destroy) entry.source.destroy();
+    this.entries.delete(name);
+  }
+
+  has(name) {
+    return this.entries.has(name);
+  }
+
+  // Replace a static source's data in place where possible, so its transform survives.
+  setData(name, data) {
+    const entry = this.entries.get(name);
+    if (entry && entry.source instanceof StaticSource) {
+      entry.source.setData(data, this.styleSheet);
+      return;
+    }
+    this.entries.set(name, {
+      source: new StaticSource(data, this.styleSheet),
+      transform: entry ? entry.transform : null,
+    });
+  }
+
+  setTransform(name, isom) {
+    const entry = this.entries.get(name);
+    if (!entry) throw new Error(`hyperbolic-map: no source named "${name}"`);
+    entry.transform = isom;
+  }
+
+  // Force every async source to re-request, bypassing the throttle and the significance gate.
+  refresh(view) {
+    for (const entry of this.entries.values()) {
+      if (entry.source.refresh) entry.source.refresh(view);
+    }
+  }
+
+  destroy() {
+    for (const entry of this.entries.values()) if (entry.source.destroy) entry.source.destroy();
   }
 }

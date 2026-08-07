@@ -1179,3 +1179,36 @@ Escher, end to end: static 36-47 ms -> 12.6 ms, drag median 31 -> 12.6 ms, worst
 All 130 node tests pass (four new ones pin the synchronous path, the async path, the memoisation and the
 LOD switch), all nine browser checks pass including smoothness at 38/38, and compound scroll is clean on
 all nine tilings.
+
+## 2026-08-06 (late) — two small refactorings, after a question about redundant code paths
+
+Jim asked whether atlas mode and single-patch mode are separate implementations, and whether the
+no-atlas case could be a one-tile (or binary) atlas so there is only one path. The answer was no: they
+share everything downstream of a common join (both produce `{drawables, matrix, clip?}` passes for one
+renderer), and the part that differs is not redundancy but two **data-indexing models** — view-indexed
+(`give me what is visible`) versus tile-indexed (`give me tile k`). The whole single-patch-only path is
+`source.js`, 139 lines. A one-tile atlas would be geometrically identical but would lose view-driven
+fetching (`dataProvider`) and named sources with per-source transforms (the clock's O(1) hands); a
+binary-atlas-for-everything would additionally need automatic spatial partitioning of arbitrary data,
+which is what `tools/make_dungeon_atlas.py` does offline because it is not a small job.
+
+He then asked for the two smaller cleanups I did recommend.
+
+**1. Sources became a pass producer.** `SourceSet` (in `source.js`) now owns the named-source map, the
+per-source transforms and `passes(view)` — the same interface `Atlas` already had. `render()` is a
+single loop over `this.passProducers` instead of an inlined source loop followed by an atlas branch.
+The viewport's public source methods delegate. An empty source contributes no pass at all, which is
+what keeps the always-present `"default"` source free in atlas mode.
+
+**2. The mode guards moved into one section.** `requireAtlas`, `refuseInAtlasMode` and
+`assertGlobalCoordinatesUsable` now sit together above the public API, with a comment saying they are
+one idea and pointing at the fourth guard (`atlas` + `data`) in `normaliseOptions`. The bespoke `throw`
+sites became one-line calls, and the messages are now generated consistently — writing them through a
+shared helper immediately exposed that `setData`'s advice was duplicated in its own explanation.
+
+`this.atlas` branch points in `viewport.js`: 24 -> 20, and `viewport.js` 610 -> 601 lines while gaining
+comments. Both units were previously untested and now have tests (four new ones, 134 total).
+
+No behaviour change intended and none measured: 134/134 node tests, all nine browser checks (smoothness
+38/38), compound scroll clean on all nine tilings, and all six demo pages render with unchanged drawable
+counts — clock 87,864, dungeon 5,270, escher 38,640, relativity 5,306.

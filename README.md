@@ -373,6 +373,20 @@ same. The counts follow the abelianisation of the walk group and are verified at
 the rule and art that breaks it, and its check 9 measures the difference: 0–1 changed pixels crossing a
 tile boundary versus 746–18,071 for art that violates one half or the other.
 
+#### Two data models, one renderer
+
+`data`/`dataProvider` and `atlas` are not two ways of doing one thing. They index data differently:
+
+| | indexed by | asks |
+|---|---|---|
+| `data` / `dataProvider` | the **view** | "give me what is visible from here" — global coordinates, with a significance gate and an `AbortSignal` |
+| `atlas` | the **tile** | "give me tile k" — tile-local coordinates, cached per tile |
+
+Neither question is expressible as the other, which is why both exist. What they share is everything
+after that: each produces a list of `{drawables, matrix, clip?}` **passes** for one frame, and a single
+renderer draws them, so projection, culling, decimation, arcs and gestures have one implementation.
+`render()` is a loop over pass producers rather than a branch on which mode the viewport is in.
+
 An atlas **cannot** be combined with `data` or `dataProvider`, and the constructor says so rather than
 drawing it wrong. In atlas mode the view matrix is expressed in the camera tile's frame, so a source
 whose coordinates are global has no fixed placement — measured, a point at the global origin lands
