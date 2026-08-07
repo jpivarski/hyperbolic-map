@@ -723,3 +723,150 @@ test("advanceAddress refuses to return a walk that did not travel", () => {
     }
   }
 });
+
+test("THE RULE: a tile's frame is defined only up to the stabiliser C_m", () => {
+  // This is the constraint every piece of tile art must satisfy, so it is measured here the same way
+  // the renderer produces it, not asserted from theory.
+  //
+  // Walk the tile graph keeping one frame per tile. When a second route reaches a tile already seen,
+  // `frame_seen^-1 . frame_new` is the discrepancy between two equally valid frames for ONE tile. Every
+  // such discrepancy must be a rotation about that tile's centre by a multiple of 2*pi/m -- never a
+  // translation, never any other angle.
+  //
+  // The renderer cannot avoid this: it reaches each tile by the shortest route from the CAMERA, so the
+  // route changes when the camera re-anchors, and with it the frame. Art that is not C_m-invariant
+  // therefore jumps as you scroll. Measured on {8,3} m=4: 16 of 30 on-screen tiles rotated by a multiple
+  // of 90 degrees at one re-anchor.
+  for (const spec of [
+    { p: 8, q: 3, frameSymmetry: 4 }, { p: 8, q: 3 }, { p: 7, q: 3 }, { p: 5, q: 4 },
+    { p: 4, q: 5 }, { p: 6, q: 4 }, { p: 3, q: 7 }, { p: 12, q: 3 },
+  ]) {
+    const t = new RegularTiling(spec);
+    const step = (2 * Math.PI) / t.m;
+    const seen = [];
+    const queue = [Isom.identity()];
+    let collisions = 0;
+    while (queue.length && seen.length < 200) {
+      const m = queue.shift();
+      const z = m.applyToDisk(0, 0, [0, 0]);
+      const hit = seen.find((s) => Math.hypot(s.x - z[0], s.y - z[1]) < 1e-7);
+      if (hit) {
+        collisions++;
+        const rel = hit.frame.inverse().mul(m);
+        // It must FIX the tile centre -- a translation component would mean the walk had mixed up two
+        // different tiles, which would be a much worse bug than a rotated motif.
+        assert.ok(
+          Math.hypot(rel.br, rel.bi) < 1e-7,
+          `{${spec.p},${spec.q}}: two routes to one tile differ by something that moves the centre`,
+        );
+        // And the rotation must be a multiple of 2*pi/m.
+        const ang = 2 * Math.atan2(rel.ai, rel.ar);
+        const k = Math.round(ang / step);
+        assert.ok(
+          Math.abs(ang - k * step) < 1e-7,
+          `{${spec.p},${spec.q}} m=${t.m}: frames differ by ${(ang * 180) / Math.PI} deg, ` +
+            `not a multiple of ${(step * 180) / Math.PI}`,
+        );
+        continue;
+      }
+      seen.push({ x: z[0], y: z[1], frame: m });
+      for (let i = 0; i < t.generatorCount(); i++) queue.push(m.mul(t.generator(i)));
+    }
+    assert.ok(collisions > 10, `{${spec.p},${spec.q}}: only ${collisions} collisions -- not exercising the rule`);
+    assert.equal(t.stabiliserOrder, t.m);
+  }
+});
+
+test("the binary tiling's stabiliser is trivial, so its art is unconstrained", () => {
+  // The reason the dungeon demo can put a DIFFERENT room in every cell while a {p,q} atlas cannot.
+  const b = new BinaryTiling();
+  assert.equal(b.stabiliserOrder, 1);
+  assert.ok(b.addressesAreCanonical);
+  // No two routes ever disagree: addresses are canonical integers, so a cell has exactly one frame.
+  const seen = new Map();
+  const queue = [{ a: b.originAddress(), m: Isom.identity() }];
+  let checked = 0;
+  while (queue.length && seen.size < 150) {
+    const { a, m } = queue.shift();
+    const key = b.addressToString(a);
+    if (seen.has(key)) {
+      checked++;
+      assert.ok(
+        sameIsometry(seen.get(key), m, 1e-9),
+        `binary cell ${key} reached by two routes with DIFFERENT frames -- the stabiliser is not trivial`,
+      );
+      continue;
+    }
+    seen.set(key, m);
+    for (const n of b.neighbours(a)) queue.push({ a: n.address, m: m.mul(b.generator(n.gen)) });
+  }
+  assert.ok(checked > 20, `only ${checked} revisits -- not exercising anything`);
+});
+
+test("tile classes are path-independent, which addresses are not", () => {
+  // The escape hatch that lets a {p,q} atlas vary its art per tile at all. A tile's WORD is not
+  // canonical, so art keyed on it jumps as you scroll; a class coming from a group homomorphism is
+  // canonical, because a homomorphism is defined on group elements rather than on spellings.
+  //
+  // Checked the way it can fail: walk the graph, and every time a second route reaches a tile already
+  // seen, the two routes must agree on the class.
+  const EXPECT = {
+    "8,3,4": 3, "8,3,8": 1, "7,3,7": 1, "5,4,5": 2, "4,5,4": 1,
+    "6,4,6": 2, "3,7,3": 1, "12,3,12": 1, "9,4,9": 2,
+  };
+  for (const spec of [
+    { p: 8, q: 3, frameSymmetry: 4 }, { p: 8, q: 3 }, { p: 7, q: 3 }, { p: 5, q: 4 },
+    { p: 4, q: 5 }, { p: 6, q: 4 }, { p: 3, q: 7 }, { p: 12, q: 3 }, { p: 9, q: 4 },
+  ]) {
+    const t = new RegularTiling(spec);
+    const tag = `${spec.p},${spec.q},${t.m}`;
+    assert.equal(t.classModulus, EXPECT[tag], `${tag}: expected ${EXPECT[tag]} classes, got ${t.classModulus}`);
+
+    const seen = [];
+    const queue = [{ a: t.originAddress(), m: Isom.identity() }];
+    let collisions = 0;
+    const used = new Set();
+    while (queue.length && seen.length < 250) {
+      const { a, m } = queue.shift();
+      const z = m.applyToDisk(0, 0, [0, 0]);
+      const hit = seen.find((s) => Math.hypot(s.x - z[0], s.y - z[1]) < 1e-7);
+      if (hit) {
+        collisions++;
+        assert.equal(
+          t.tileClass(a), hit.c,
+          `${tag}: two routes to one tile disagree on class (${t.tileClass(a)} vs ${hit.c})`,
+        );
+        continue;
+      }
+      const c = t.tileClass(a);
+      used.add(c);
+      seen.push({ x: z[0], y: z[1], c });
+      for (const n of t.neighbours(a)) queue.push({ a: n.address, m: m.mul(t.generator(n.gen)) });
+    }
+    assert.ok(collisions > 10, `${tag}: only ${collisions} collisions -- not exercising anything`);
+    assert.equal(used.size, t.classModulus, `${tag}: ${used.size} classes actually used, modulus says ${t.classModulus}`);
+    // Every class must be in range, and a long free-reducing round trip must restore class 0.
+    let a = t.originAddress();
+    for (let i = 0; i < 400; i++) a = t.extendAddress(a, i % t.generatorCount());
+    assert.ok(t.tileClass(a) >= 0 && t.tileClass(a) < Math.max(1, t.classModulus));
+  }
+});
+
+test("adjacent tiles never share a class, when classes exist", () => {
+  // What makes the classes useful as colours: neighbours differ, so the tiling reads as a proper
+  // colouring rather than as noise.
+  for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 5, q: 4 }, { p: 6, q: 4 }]) {
+    const t = new RegularTiling(spec);
+    assert.ok(t.classModulus > 1);
+    let a = t.originAddress();
+    for (let leg = 0; leg < 40; leg++) {
+      for (const n of t.neighbours(a)) {
+        assert.notEqual(
+          t.tileClass(n.address), t.tileClass(a),
+          `{${spec.p},${spec.q}}: a tile and its neighbour share class ${t.tileClass(a)}`,
+        );
+      }
+      a = t.neighbours(a)[leg % t.generatorCount()].address;
+    }
+  }
+});

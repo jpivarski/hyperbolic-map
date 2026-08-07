@@ -75,8 +75,69 @@ function sameIsometry(a, b, tol = 1e-12) {
   return Math.min(plus, minus) < tol;
 }
 
+// Work out how many tile classes a {p,q,m} walk group admits, and VERIFY it.
+//
+// The candidate modulus comes from the abelianisation (see RegularTiling.tileClass), but a candidate is
+// not a proof: the assignment is only a homomorphism if it respects every relator, and getting that
+// wrong would reintroduce exactly the bug the class exists to avoid -- a tile changing appearance when
+// the camera re-anchors. So the candidate is checked by walking the tile graph and requiring every pair
+// of routes to one tile to agree, and it degrades to a single class if it does not.
+//
+// Cached per {p,q,m}: the walk is a few hundred tiles, which is microseconds, but tilings get built
+// repeatedly by tests and demo pages.
+const TILE_CLASS_CACHE = new Map();
+
+function regularTileClass(p, q, m, generators, inverseIndex) {
+  const cacheKey = `${p},${q},${m}`;
+  const hit = TILE_CLASS_CACHE.get(cacheKey);
+  if (hit) return hit;
+
+  // phi(g) = +1 on one generator of each inverse pair and -1 on the other. For m == p every generator
+  // is its own inverse, so +1 and -1 must agree, which is what forces 2*phi = 0 there.
+  const step = generators.map((_, i) => (inverseIndex[i] === i || i % 2 === 0 ? 1 : -1));
+  const candidate = m < p ? q : (q % 2 === 0 ? 2 : 1);
+
+  let modulus = 1;
+  if (candidate > 1) {
+    const norm = step.map((s) => ((s % candidate) + candidate) % candidate);
+    const seen = [];
+    const queue = [{ mat: Isom.identity(), c: 0 }];
+    let consistent = true;
+    let collisions = 0;
+    while (queue.length && seen.length < 300 && consistent) {
+      const node = queue.shift();
+      const z = node.mat.applyToDisk(0, 0, [0, 0]);
+      let hitTile = null;
+      for (const s of seen) {
+        if (Math.hypot(s.x - z[0], s.y - z[1]) < 1e-7) {
+          hitTile = s;
+          break;
+        }
+      }
+      if (hitTile) {
+        collisions++;
+        if (hitTile.c !== node.c) consistent = false;
+        continue;
+      }
+      seen.push({ x: z[0], y: z[1], c: node.c });
+      for (let i = 0; i < generators.length; i++) {
+        queue.push({ mat: node.mat.mul(generators[i]), c: (node.c + norm[i]) % candidate });
+      }
+    }
+    // Require real evidence: a walk that never revisited a tile has proved nothing.
+    if (consistent && collisions > 10) modulus = candidate;
+  }
+
+  const out = {
+    modulus,
+    step: step.map((s) => (modulus > 1 ? ((s % modulus) + modulus) % modulus : 0)),
+  };
+  TILE_CLASS_CACHE.set(cacheKey, out);
+  return out;
+}
+
 // The shared root of every word address. `str` is pre-filled so the memoisation has a base case.
-const REGULAR_ROOT = { gen: -1, prev: null, len: 0, str: "root", h1: 2166136261, h2: 987654321 };
+const REGULAR_ROOT = { gen: -1, prev: null, len: 0, str: "root", h1: 2166136261, h2: 987654321, cls: 0 };
 
 export class RegularTiling {
   // `frameSymmetry` (m, a divisor of p) is the rotational symmetry the tile art is promised to have.
@@ -134,9 +195,21 @@ export class RegularTiling {
           );
         }
       }
-      // The tile's own rotation, which the art must respect.
-      this.selfRotation = Isom.rotation((2 * Math.PI) / this.m);
     }
+
+    // THE TILE STABILISER, C_m: the rotations about this tile's own centre that lie in the walk group.
+    //
+    // This is the single most important thing to know before writing tile art, so it is a first-class
+    // part of the contract rather than an internal detail. A tile's frame is only defined UP TO this
+    // rotation -- the walk reaches a tile by whatever route is shortest from the camera, and different
+    // routes differ by an element of C_m -- so art that is not invariant under it will visibly jump when
+    // the camera crosses a tile boundary. Measured on {8,3} m=4: 16 of 30 on-screen tiles rotate by a
+    // multiple of 90 degrees at the instant of re-anchoring.
+    //
+    // Verified by walking the tile graph and collecting frame_seen^-1 . frame_new at every collision:
+    // every discrepancy observed is a rotation by a multiple of 2*pi/m. See test/tiling.test.mjs.
+    this.stabiliserOrder = this.m;
+    this.selfRotation = Isom.rotation((2 * Math.PI) / this.m);
 
     // Which generator undoes each generator. The set is closed under inverse UP TO SIGN in both
     // cases: for m = p every generator is its own inverse; for m < p the +/- senses about each vertex
@@ -168,6 +241,11 @@ export class RegularTiling {
     // Addresses are words, so two different words can name the same tile: the walk must deduplicate
     // geometrically. (Contrast BinaryTiling, whose integer addresses are canonical.)
     this.addressesAreCanonical = false;
+
+    // The tile-class homomorphism. See tileClass() for what it is for and why it is sound.
+    const cls = regularTileClass(p, q, this.m, this.generators, this.inverseIndex);
+    this.classModulus = cls.modulus;
+    this.classStep = cls.step;
   }
 
   // ---- addressing ----
@@ -243,7 +321,10 @@ export class RegularTiling {
     // Fold the hash forward as the cell is built, so addressKey is O(1) forever after.
     const h1 = (Math.imul(address.h1 ^ (gen + 1), 16777619) >>> 0);
     const h2 = (Math.imul(address.h2 + gen * 2654435761, 2246822519) >>> 0) ^ (h1 >>> 13);
-    return { gen, prev: address, len: address.len + 1, str: null, h1, h2: h2 >>> 0 };
+    // And the tile class, likewise O(1). See tileClass(): unlike the word itself, this IS canonical.
+    const n = this.classModulus;
+    const cls = n > 1 ? (address.cls + this.classStep[gen]) % n : 0;
+    return { gen, prev: address, len: address.len + 1, str: null, h1, h2: h2 >>> 0, cls };
   }
 
   neighbours(address) {
@@ -264,6 +345,29 @@ export class RegularTiling {
 
   generatorCount() {
     return this.generators.length;
+  }
+
+  // ---- tile classes: the only per-tile variation a {p,q} atlas may legally use ----
+  //
+  // A tile's word address is NOT canonical, so `tileData` must not colour a tile by its address -- the
+  // colour would change as you scroll. But a tile can still be given a class, provided the class comes
+  // from a group HOMOMORPHISM phi: Gamma -> Z/n. A homomorphism is defined on group ELEMENTS, so every
+  // word for a tile gives the same value automatically, and if it kills the stabiliser C_m it descends
+  // to tiles. No canonical address and no automaton needed, and it costs one addition per walk step.
+  //
+  // What n can be is fixed by the abelianisation of the walk group, and it is small:
+  //
+  //   m < p  (vertex-rotation generators, e.g. Circle Limit III's {8,3} m=4): phi(g) has order q,
+  //          giving Z/q -- THREE classes for {8,3} m=4. Geometrically it is a proper 3-colouring of the
+  //          octagons: the three meeting at any vertex all differ.
+  //   m == p (edge half-turn generators): phi(g) has order dividing 2, and going around a vertex forces
+  //          q*phi(g) = 0 too, so there are two classes when q is EVEN ({5,4}, {6,4}) and only one when
+  //          q is odd ({8,3}, {7,3}, {3,7}, {12,3}).
+  //
+  // Verified, not assumed: the modulus is confirmed by walking the tile graph and checking that every
+  // pair of routes to one tile agrees, and it falls back to 1 if it does not. Cached per {p,q,m}.
+  tileClass(address) {
+    return this.classModulus > 1 ? address.cls : 0;
   }
 
   // ---- geometry, all in tile-local coordinates ----
@@ -450,6 +554,22 @@ export class BinaryTiling {
     };
     // Integer addresses are canonical: one cell, one (lat, lon). No geometric dedup needed.
     this.addressesAreCanonical = true;
+
+    // The stabiliser is TRIVIAL: a binary cell's frame is z -> S z + T in the half-plane, and no
+    // non-identity element of the walk group fixes a cell. So a cell's frame is unique, its address is
+    // unique, and tile art here is under NO symmetry constraint -- any asymmetric art is fine, and art
+    // may differ from cell to cell. This is why the binary tiling scrolls smoothly with artwork that
+    // would tear a {p,q} tiling apart, and it is the reason the dungeon demo can put a different room in
+    // every cell.
+    this.stabiliserOrder = 1;
+    this.selfRotation = Isom.identity();
+    // No homomorphism needed: (lat, lon) is canonical, so a caller may key art on the ADDRESS itself and
+    // give every cell something different. `classModulus` exists only to keep the tile object uniform.
+    this.classModulus = 1;
+  }
+
+  tileClass() {
+    return 0;
   }
 
   // ---- addressing ----

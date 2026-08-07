@@ -23,6 +23,7 @@ import { compileDrawables } from "../drawable.js";
 import { geodesicArc, Arc } from "../../render/geodesic.js";
 import { halfPlaneToLocal } from "../../core/coords.js";
 import { Anchor } from "./anchor.js";
+import { tileSymmetryResidual, tileSymmetryMessage } from "./symmetry.js";
 
 export const CLIP_AUTO = "auto";
 export const CLIP_ALWAYS = "always";
@@ -41,6 +42,11 @@ export class Atlas {
       styleSheet = null,
       onTileLoad = null,
       onTileError = null,
+      // "warn" | "throw" | "off". See symmetry.js: on a {p,q} tiling a tile's frame is only defined up
+      // to the stabiliser C_m, so art that is not C_m-invariant jumps when the camera re-anchors. That
+      // is invisible until you scroll, so it is checked on the first tile rather than only documented.
+      checkTileSymmetry = "warn",
+      tileSymmetryTolerance = 1e-6,
     } = options;
     if (!tiling) throw new Error("hyperbolic-map: atlas needs a tiling");
     if (typeof tileData !== "function") throw new Error("hyperbolic-map: atlas needs a tileData callback");
@@ -53,6 +59,12 @@ export class Atlas {
     this.styleSheet = styleSheet;
     this.onTileLoad = onTileLoad;
     this.onTileError = onTileError;
+    this.checkTileSymmetry = checkTileSymmetry;
+    this.tileSymmetryTolerance = tileSymmetryTolerance;
+    // Populated by the first symmetry check: { residual, checked, ok }. Exposed so a demo page can show
+    // it and so tests can assert on it.
+    this.tileSymmetry = null;
+    this._symmetryChecked = false;
 
     // key string -> {drawables, withinTile} once resolved
     this.cache = new Map();
@@ -61,6 +73,39 @@ export class Atlas {
     // The camera. Owned here so that the tiling, the walk and the cache all share one notion of where
     // "here" is.
     this.anchor = new Anchor(tiling);
+  }
+
+  // THE RULE, enforced. See symmetry.js for why this matters and what goes wrong without it.
+  //
+  // Only meaningful for tilings with a non-trivial stabiliser: the binary tiling has none, so its art is
+  // unconstrained and this is skipped entirely.
+  verifyTileSymmetry(data) {
+    if (this._symmetryChecked || this.checkTileSymmetry === "off") return;
+    const m = this.tiling.stabiliserOrder;
+    if (!(m > 1)) {
+      this._symmetryChecked = true;
+      return;
+    }
+    const drawables = data && data.drawables;
+    if (!drawables || !drawables.length) return; // an empty tile says nothing; wait for a real one
+    if (data.coordinates && data.coordinates !== "local") {
+      // The check is only exact in tile-local coordinates, where the stabiliser is a plain Euclidean
+      // rotation. Say so rather than reporting a number that means nothing.
+      this._symmetryChecked = true;
+      this.tileSymmetry = { skipped: `coordinates "${data.coordinates}" are not tile-local`, ok: true };
+      return;
+    }
+    this._symmetryChecked = true;
+    const { residual, checked, offender } = tileSymmetryResidual(drawables, m);
+    const ok = residual <= this.tileSymmetryTolerance;
+    this.tileSymmetry = { residual, checked, offender, m, ok };
+    if (ok) return;
+    const name = this.tiling.p
+      ? `{${this.tiling.p},${this.tiling.q}}${this.tiling.m !== this.tiling.p ? ` with frameSymmetry ${this.tiling.m}` : ""}`
+      : "this tiling";
+    const msg = tileSymmetryMessage(residual, m, name);
+    if (this.checkTileSymmetry === "throw") throw new Error(msg);
+    if (typeof console !== "undefined") console.warn(msg);
   }
 
   // Ask for a tile's data. Returns the compiled drawables if they are ready, or null while a request
@@ -87,6 +132,12 @@ export class Atlas {
       // The readable identifier, for filenames and logging. Built here, on a cache miss, rather than
       // per frame.
       id: this.tiling.addressToString(address),
+      // The tile's CLASS, in [0, classCount). The only per-tile variation a {p,q} atlas may safely use:
+      // unlike `address`, it is the same whichever route the walk took, so art keyed on it does not jump
+      // when the camera re-anchors. `classCount` is 1 when the tiling admits no such invariant, in which
+      // case every tile must look the same. See RegularTiling.tileClass.
+      classIndex: this.tiling.tileClass ? this.tiling.tileClass(address) : 0,
+      classCount: this.tiling.classModulus || 1,
       relativeFrame: rel.clone(),
       centreRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
     };
@@ -99,6 +150,11 @@ export class Atlas {
           this.cache.set(keyString, { drawables: [], withinTile: true });
           return;
         }
+        // Check THE RULE once, on the first tile that carries artwork: is this art invariant under the
+        // tile stabiliser? If not, it will jump as the camera scrolls, and nothing else in the library
+        // will complain. Once, not per tile: the answer is a property of the art, and the check is
+        // O(shapes^2) in the worst case.
+        this.verifyTileSymmetry(data);
         const entry = {
           drawables: compileDrawables(data, this.styleSheet),
           withinTile: !!(data && data.withinTile),
