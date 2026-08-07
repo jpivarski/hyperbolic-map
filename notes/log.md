@@ -1543,3 +1543,55 @@ often as the others", but 7/29 is about a **quarter**. `dungeon-atlas.json`'s ow
 `notes/data-extraction.md` both said `critters` held "the finitely many cells that carry characters",
 which is no longer true; both now describe the library-plus-hash arrangement and record that the 2012
 442-placement list is no longer used.
+
+---
+
+## 2026-08-07 — room numbers moved to the top of each room and shrunk
+
+Jim: "I want the numbers to go on the top of each room and be slightly smaller so that most of the
+critters are not overlapped by numbers."
+
+**Measured the actual geometry first**, on a clean camera (hero cell centred, the page's pi rotation,
+zoom 2.2, disk radius 682 px, so one local unit is about 682 px). Screen y with negative up:
+
+| | screen y |
+|---|---|
+| cell's own extent | -117 … +115 (local y +-0.1742) |
+| room art | -89 … +140 (it overflows the cell at the bottom, by design) |
+| critter tops | mr-T -53.5, link -48.9, then fire/old-man/old-woman/stalfos at -42.3, fairy -38.4, octorock/tektite -14 |
+| label anchor, before | **+55.9**, glyph 52.4 px |
+
+So the label was sitting at +56, in the middle of critters that span roughly -50 to +115. That is why
+everything collided.
+
+**Reparametrised rather than tuned two magic numbers.** The anchors were a pair of half-plane heights
+(`sqrt(2)/1.2`, `sqrt(2)/1.4`) whose relationship encoded position AND size at once. They are now two
+independent local-coordinate constants on the cell's vertical axis:
+
+    const NUM_Y = -0.115;      // where the two-line block is centred
+    const NUM_GLYPH = 0.040;   // length of the up-vector, i.e. the glyph height
+
+Local -y is screen-up under the page's pi rotation, so both are negative. This also drops the
+`halfPlaneToLocal` reciprocal trick and the paragraph explaining it. `up` is load-bearing twice over --
+the renderer takes the glyph height from the projected `|up - at|` (renderer.js:442) -- and separating
+the two is exactly what allows a small label to be tucked into the strip above the critters.
+
+**Result:** block spans -104.5 … -51.4 with a 26.5 px glyph (was 52.4). Clearances: link +2.5,
+fire +9.0, old-man/old-woman/stalfos +9.1, fairy +13.0, octorock +37.2, tektite +37.4. **Eight of nine
+clear**; only mr-T is touched, by 2.1 px, and he occupies one room in 120 (a quarter occupied times
+1/30). link is the hero and never labelled anyway, so in practice nothing that gets a number is
+obscured.
+
+Worth recording because it makes the check cheap: **the overlap question is identical for every cell.**
+Labels and critters are both given in cell-local coordinates and share one transform per tile, so one
+cell's measurement settles all of them. Horizontally they always overlap (both centred near local
+x = 0, critters spanning about -0.10 to +0.11), so the vertical band test is the whole test.
+
+Both anchor and up-point are inside the cell (`containsLocal` true for each; the up-point clears the
+cell's bottom edge by 0.0192 local units), so a label can never wander into a neighbour's room.
+
+Also removed `const HALF = BINARY_LOCAL_HALF_WIDTH`, declared and never used.
+
+Verified visually at zoom 2.2 and 1.5 with 52 of 220 visible cells occupied, and at row 40 / col 12345
+where the labels are six characters long -- they still sit at the room tops and still fit the room
+width. `npm test` 131/131, `npm run check` ok.
