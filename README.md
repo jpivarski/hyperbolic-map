@@ -209,7 +209,7 @@ So the fill path always closes while the stroke may be disconnected. This is del
 
 ### Shared fields
 
-`class` selects a named style from `styles`; `fill`, `stroke`, `lineWidth`, `lineCap`, `lineJoin`, `miterLimit`, `align`, `baseline`, `font` override it. `visibleFrom` / `visibleTo` gate a drawable by level of detail. Use `"none"` for no fill or no stroke.
+`class` selects a named style from `styles`; `fill`, `stroke`, `lineWidth`, `lineCap`, `lineJoin`, `miterLimit`, `align`, `baseline`, `font` override it. Use `"none"` for no fill or no stroke.
 
 ## Atlas of tiles
 
@@ -241,10 +241,12 @@ const viewport = new HyperbolicViewport({
 });
 ```
 
-The `tile` index is a route from the origin to the tile, which is not unique for a given tile. For unique tile coordinates, use `tile.classIndex`, which comes from a group homomorphism. Think of it this way: with square tiles on an uncurved (Euclidean) plane, "2 steps right, 1 step up" is a different `tile` index from "1 step up, 2 steps right," but they have the same class index.
+The `tile` index is a route from the origin to the tile, which is not unique for a given tile. It is a description of a path, such as "2 steps right, 1 step up," as opposed to "1 step up, 2 steps right." If the art returned by `tileData` does not take these congruences into account, its appearance may abruptly change as the user scrolls.
+
+The `tile.classIndex` is a safe key for coloring art, but not for determining its orientation.
 
 To draw a regular tiling of the hyperbolic plane, such as M.C. Escher's _Circle Limit_ series, make sure that
-* the tile art is invariant under a rotation of `2π/m` around the `m`-sided polygon's center;
+* the tile art is invariant under a rotation of `2π/m` around the polygon's center, where `m` is the `frameSymmetry`;
 * the return value of `tileData` does not depend on the `tile` index.
 
 The library can check this automatically:
