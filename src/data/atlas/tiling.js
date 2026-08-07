@@ -696,9 +696,3 @@ export class BinaryTiling {
     return isomFromScaleShift(Math.pow(2, lat + 0.5), (lon + 0.5) * Math.pow(2, lat));
   }
 }
-
-// The centre of a binary cell in its own local coordinates is the local origin by construction; this
-// helper survives for the demos, which use it to place the hero.
-export function binaryCellCentreLocal() {
-  return [0, 0];
-}

@@ -1,15 +1,14 @@
 // Parse and compile drawables.
 //
-// Input is either the v2 schema (documented in README.md) or the 2011 shape, which is detected and
-// converted. Compiling does the work that would otherwise be repeated every frame: the companion
+// Compiling does the work that would otherwise be repeated every frame: the companion
 // w = sqrt(1 + x^2 + y^2) for each point, the resolved style, and a Minkowski bounding cap for
 // cheap culling.
 //
-// Point flags, preserved from the 2011 format rather than "modernised" into move/line commands: a
-// point's flag string describes the edge LEAVING that point. "L" strokes it; absent means the edge
-// still participates in the fill but is not stroked. "P" draws a marker at the point. The fill path
-// always closes. A move/line model cannot express a closed fill with a disconnected stroke without
-// duplicating geometry, which is why this is kept as-is.
+// Point flags rather than move/line commands: a point's flag string describes the edge LEAVING that
+// point. "L" strokes it; absent means the edge still participates in the fill but is not stroked.
+// "P" draws a marker at the point. The fill path always closes. A move/line model cannot express a
+// closed fill with a disconnected stroke without duplicating geometry, which is why this is the
+// format.
 
 import { localCompanion } from "../core/isom.js";
 import { Cap } from "../core/minkowski.js";
@@ -92,57 +91,14 @@ export class Drawable {
     this.text = null;
     this.style = DEFAULT_STYLE;
     this.cap = null;
-    this.visibleFrom = 0;
-    this.visibleTo = 1;
   }
 }
 
-// Convert a 2011-shaped drawable into the v2 shape. Exported so callers with legacy data can
-// convert explicitly; `compileDrawables` also detects and applies it automatically.
-export function readLegacyDrawable(d) {
-  if (d.type === "polygon") {
-    const points = [];
-    for (const p of d.d) {
-      if (p.length > 2 && p[2]) points.push([p[0], p[1], p[2]]);
-      else points.push([p[0], p[1]]);
-    }
-    const out = { type: "path", points: points, closed: true };
-    if (d.fillStyle !== undefined) out.fill = d.fillStyle;
-    if (d.strokeStyle !== undefined) out.stroke = d.strokeStyle;
-    if (d.lineWidth !== undefined) out.lineWidth = d.lineWidth;
-    if (d.lineCap !== undefined) out.lineCap = d.lineCap;
-    if (d.lineJoin !== undefined) out.lineJoin = d.lineJoin;
-    if (d.miterLimit !== undefined) out.miterLimit = d.miterLimit;
-    if (d.class !== undefined) out.class = d.class;
-    return out;
-  }
-  if (d.type === "text") {
-    const out = {
-      type: "text",
-      text: d.d,
-      at: [d.ax, d.ay],
-      up: [d.upx, d.upy],
-    };
-    if (d.fillStyle !== undefined) out.fill = d.fillStyle;
-    if (d.textAlign !== undefined) out.align = d.textAlign;
-    if (d.textBaseline !== undefined) out.baseline = d.textBaseline;
-    if (d.font !== undefined) out.font = d.font;
-    if (d.class !== undefined) out.class = d.class;
-    return out;
-  }
-  return null;
-}
-
-function isLegacy(d) {
-  return d && (d.type === "polygon" || (d.type === "text" && d.ax !== undefined));
-}
-
-function compileOne(spec, styleSheet) {
-  const src = isLegacy(spec) ? readLegacyDrawable(spec) : spec;
+function compileOne(src, styleSheet) {
   if (!src) return null;
 
-  if (src.type === "path" || src.type === "polygon") {
-    const pts = src.points || src.d;
+  if (src.type === "path") {
+    const pts = src.points;
     const n = pts.length;
     if (n === 0) return null;
     const out = new Drawable("path");
@@ -164,8 +120,6 @@ function compileOne(spec, styleSheet) {
     out.closed = src.closed !== false;
     out.style = resolveStyle(src, styleSheet);
     out.cap = Cap.enclosing(out.xs, out.ys, 0, n);
-    if (src.visibleFrom !== undefined) out.visibleFrom = src.visibleFrom;
-    if (src.visibleTo !== undefined) out.visibleTo = src.visibleTo;
     return out;
   }
 
@@ -179,8 +133,6 @@ function compileOne(spec, styleSheet) {
     out.text = String(src.text);
     out.style = resolveStyle(src, styleSheet);
     out.cap = Cap.enclosing(out.xs, out.ys, 0, 2);
-    if (src.visibleFrom !== undefined) out.visibleFrom = src.visibleFrom;
-    if (src.visibleTo !== undefined) out.visibleTo = src.visibleTo;
     return out;
   }
 
@@ -199,7 +151,7 @@ function compileOne(spec, styleSheet) {
   return null;
 }
 
-// Accepts an array of drawables, or a {version, drawables} document, in either schema.
+// Accepts an array of drawables, or a {version, coordinates, drawables} document.
 export function compileDrawables(data, styleSheet) {
   let list;
   if (Array.isArray(data)) list = data;
@@ -209,8 +161,8 @@ export function compileDrawables(data, styleSheet) {
 
   const out = [];
   for (let i = 0; i < list.length; i++) {
-    // The 2011 renderer used `while (drawable = nextDrawable())`, so a falsy entry silently
-    // truncated the whole stream. Skip and keep going instead.
+    // A falsy entry skips rather than truncating: a generator that returns a hole in its output
+    // should lose one shape, not everything after it.
     if (!list[i]) continue;
     const c = compileOne(list[i], styleSheet);
     if (c) out.push(c);

@@ -54,9 +54,10 @@ export class Isom {
     return new Isom(Math.cosh(dist / 2), 0, s * Math.cos(bearing), s * Math.sin(bearing));
   }
 
-  // The 2011 option set stored the view as an offset B in local coordinates plus a rotation R,
-  // applied as Rot(R) . T(B) -- rotation AFTER translation. Order matters.
-  static fromLegacyView(bx, by, rotation) {
+  // The view as an offset B in local coordinates plus a rotation R, applied as Rot(R) . T(B) --
+  // rotation AFTER translation. Order matters. This is what the `offsetX`/`offsetY`/`rotation`
+  // options mean.
+  static fromOffsetRotation(bx, by, rotation) {
     return Isom.rotation(rotation).mul(Isom.translationToLocal(bx, by));
   }
 

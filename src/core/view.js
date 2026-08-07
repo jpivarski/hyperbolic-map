@@ -31,7 +31,7 @@ export class ViewState {
     } = options;
 
     // The 2011 option set is (offsetX, offsetY, rotation), applied as Rot(R) . T(B).
-    this.matrix = matrix ? matrix.clone() : Isom.fromLegacyView(offsetX, offsetY, rotation);
+    this.matrix = matrix ? matrix.clone() : Isom.fromOffsetRotation(offsetX, offsetY, rotation);
     this.zoom = zoom;
     this.minZoom = minZoom;
     this.maxZoom = maxZoom;

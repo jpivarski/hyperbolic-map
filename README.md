@@ -67,7 +67,6 @@ All are optional except that either a `container` or a `canvas` must be supplied
 | `width`, `height` | container size or 400 | CSS pixels |
 | `autoResize` | `false` | follow the container's size with a `ResizeObserver` |
 | `devicePixelRatio` | `"auto"` | `"auto"`, or a number. |
-| `radiusBasis` | `"min"` | `"min"` fits the disk to the smaller side; `"width"` overflows a portrait canvas |
 
 ### What it draws
 
@@ -95,7 +94,6 @@ All are optional except that either a `container` or a `canvas` must be supplied
 | `interactive` | `true` | no interactivity if `false` |
 | `allowPan`, `allowZoom`, `allowRotate` | `true` | allow panning/scrolling, zooming, and rotation |
 | `rimRotate` | `true` | dragging the outer ring rotates |
-| `panClamp` | `true` | dragging past the rim clamps |
 | `wheelZoom`, `wheelZoomStep` | `true`, `1.1` | |
 | `rotationMode` | `"parallel-transport"` | or `"compass"` to keep one direction fixed |
 | `compassTarget` | `[0, 1]` | the direction held fixed in compass mode |
@@ -109,9 +107,7 @@ All are optional except that either a `container` or a `canvas` must be supplied
 | `background` | `"#ffffff"` | the disk's interior color |
 | `pageBackground` | `null` | the whole canvas, behind the disk |
 | `rimFill`, `rimStroke`, `rimLineWidth` | `"#f5d6ab"`, `"#000000"`, `1.5` | the rotatable annulus around the disk |
-| `cullMode` | `"cap"` | or `"endpoints"` |
-| `arcMode` | `"sagitta"` | or `"fixed"` |
-| `sagittaTolerancePx` | `0.25` | when an arc may be drawn as a straight chord |
+| `sagittaTolerancePx` | `0.25` | the largest bulge, in pixels, that may be flattened into a straight chord |
 | `decimateTolerancePx` | `0.25` | drop a vertex projecting within this distance of the last one drawn |
 | `minFeaturePx` | `0` | don't draw a shape whose projected size (including its stroke) is below this threshold |
 | `interactMinFeaturePx` | `0.5` | `minFeaturePx` used only while a gesture is in flight |

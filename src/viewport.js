@@ -2,14 +2,14 @@
 //
 // Everything outside the Poincare disk is the page's business, not the library's. The library draws
 // the disk fill and the rim annulus; anything else (a world-turtle behind the disk, a star field,
-// a compass rose on top) goes through `layers` or the `onBeforeDraw`/`onAfterDraw` hooks. That is
-// why the 2011 `backgroundImage`, `shellImage` and `shellImageScale` options are gone: they baked
-// one example's art into the library.
+// a compass rose on top) goes through `layers` or the `onBeforeDraw`/`onAfterDraw` hooks. There are
+// deliberately no background-image or shell-image options: they would bake one example's art into
+// the library, and a layer does the same job without the library knowing what the art is.
 
 import { Isom } from "./core/isom.js";
 import { ViewState, ROTATION_PARALLEL_TRANSPORT } from "./core/view.js";
 import { Surface } from "./render/surface.js";
-import { Renderer, CULL_CAP } from "./render/renderer.js";
+import { Renderer } from "./render/renderer.js";
 import { PointerInput } from "./input/pointer.js";
 import { SourceSet } from "./data/source.js";
 import { DEFAULT_STYLE } from "./data/drawable.js";
@@ -23,7 +23,6 @@ export const DEFAULT_OPTIONS = {
   height: null,
   autoResize: false,
   devicePixelRatio: "auto",
-  radiusBasis: "min",
 
   data: null,
   dataProvider: null,
@@ -46,7 +45,6 @@ export const DEFAULT_OPTIONS = {
   allowZoom: true,
   allowRotate: true,
   rimRotate: true,
-  panClamp: true,
   wheelZoom: true,
   wheelZoomStep: 1.1,
   rotationMode: ROTATION_PARALLEL_TRANSPORT,
@@ -61,8 +59,6 @@ export const DEFAULT_OPTIONS = {
   rimStroke: "#000000",
   rimLineWidth: 1.5,
 
-  cullMode: CULL_CAP,
-  arcMode: "sagitta",
   sagittaTolerancePx: 0.25,
   // Skip shapes whose projected diameter is below this many pixels. Zero at rest, so a still frame
   // is always drawn in full; `interactMinFeaturePx` applies only while a gesture is in flight, when
@@ -86,26 +82,6 @@ export const DEFAULT_OPTIONS = {
   onFrame: null,
 };
 
-// The 2011 option names, mapped to their replacements. Accepted with a one-time warning so the
-// original example pages keep working.
-const LEGACY_ALIASES = {
-  initialOffsetX: "offsetX",
-  initialOffsetY: "offsetY",
-  initialRotation: "rotation",
-  initialZoom: "zoom",
-  viewThreshold: "interactRadius",
-  downloadThreshold: null, // superseded by the source's own gating
-  zoomMouseWheel: "wheelZoomStep",
-  backgroundColor: "background",
-  rimFillStyle: "rimFill",
-  rimStrokeStyle: "rimStroke",
-  backgroundImage: null, // now a layer; see docs/demo/layers.js
-  shellImage: null,
-  shellImageScale: null,
-};
-
-let warnedLegacy = false;
-
 // Exported for tests: option validation is pure, so it can be checked without a DOM.
 export function normaliseOptionsForTesting(userOptions) {
   return normaliseOptions(userOptions);
@@ -117,15 +93,6 @@ function normaliseOptions(userOptions) {
   for (const key of Object.keys(userOptions || {})) {
     if (key in DEFAULT_OPTIONS) {
       opts[key] = userOptions[key];
-    } else if (key in LEGACY_ALIASES) {
-      const target = LEGACY_ALIASES[key];
-      if (!warnedLegacy && typeof console !== "undefined") {
-        warnedLegacy = true;
-        console.warn(
-          "hyperbolic-map: 2011 option names are deprecated. See the alias table in README.md.",
-        );
-      }
-      if (target) opts[target] = userOptions[key];
     } else {
       unknown.push(key);
     }
@@ -320,8 +287,6 @@ export class HyperbolicViewport {
       onAfterDraw: this.options.onAfterDraw,
       onDrawBackground: this.options.onDrawBackground,
       onDrawRim: this.options.onDrawRim,
-      cullMode: this.options.cullMode,
-      arcMode: this.options.arcMode,
       sagittaTolerancePx: this.options.sagittaTolerancePx,
       decimateTolerancePx: this.options.decimateTolerancePx,
       // Quality snaps back the moment the gesture ends, so what the user studies is always the full

@@ -1263,3 +1263,111 @@ in prose instead of a path that cannot resolve.
 **Still open, deliberately not touched:** `bench/ab.html`, `bench/baseline.html` and
 `bench/make_legacy_fixtures.py` all target the 2011 implementation via `../OLD/`, so they are now
 definitively dead -- but `bench/` was outside the scope of this instruction.
+
+---
+
+## 2026-08-07 — Remove the 2011 compatibility layer
+
+Instruction: remove all code intended for reproducing the 2011–2012 library and any backward-compatibility
+interfaces; remove compatibility options nobody would want, in particular any that draw incorrectly or
+misleadingly; **keep** options that are genuinely useful even if unused by the examples; then re-verify
+everything including the benchmarks.
+
+**Four options removed because they draw the wrong picture on purpose.** Each was documented as a
+faithful-port mode in its own source comment. Removing the bad *value* left one legal value in every
+case, so the option key went too:
+
+| removed | what it did |
+|---|---|
+| `cullMode: "endpoints"` | dropped long edges crossing the view with neither endpoint inside, and ran after all projection work so it saved nothing |
+| `arcMode: "fixed"` | fixed 0.1 disk-unit chord threshold instead of the sagitta test; zoom-independent, so visibly wrong when zoomed in |
+| `panClamp: false` | reinstated the freeze-drag: `if (r² >= interactRadius²) return`. There was no unclamped pan behind the flag, only the freeze |
+| `radiusBasis: "width"` | sized the disk by canvas width on both axes, clipping it on a portrait canvas |
+
+`CULL_ENDPOINTS`, `CULL_CAP` and `LEGACY_MAX_STRAIGHT_LINE_LENGTH` are gone, and `geodesicArc` lost its
+`straightIfShorterThan` parameter. Unknown option names already throw, so anyone passing a removed name
+gets a loud error rather than a silently different picture — the intended failure mode.
+
+**Also removed:** `LEGACY_ALIASES` (13 option names, five of which were accepted and *silently
+discarded*); `readLegacyDrawable`/`isLegacy` and the `type: "polygon"` / `d` fallbacks — all six
+committed `docs/*.json` were checked and are v2; `bench/ab.html`, `bench/baseline.html`,
+`bench/make_legacy_fixtures.py` (the backlog left open by the PR #2 entry above); the empty `src/compat/`
+and `src/util/`; `binaryCellCentreLocal` (a zero-argument function returning `[0,0]`, kept "for the
+demos", used by none); unused imports in `source.js` and `renderer.js`; and four parameters threaded into
+`drawPath` that its body never read.
+
+**`visibleFrom`/`visibleTo` removed** (Jim's call). Parsed and stored, never read by any renderer, while
+`docs/escher.json` carries `visibleTo: 0.75` on 32,760 of its 38,640 records — the data asked for
+zoom-gated LOD and the library ignored it. Removing the parse changes nothing visually. Recorded in
+`data-extraction.md` and `open-questions.md` as an unimplemented feature rather than a subtly different
+one.
+
+**Renames, because the names lied.** `Isom.fromLegacyView` → `fromOffsetRotation`: it is not
+compatibility code at all, it is the only path `ViewState` uses to build a matrix from the current
+`offsetX`/`offsetY`/`rotation` options. `LEGACY_BASE_FONT_PX` → `BASE_FONT_PX`: used unconditionally, so
+it is the text-sizing model rather than a mode. `tile.key` (alias for `tile.address`) dropped; its one
+real consumer was `docs/dungeon-atlas.html:113`.
+
+**The tests are where the care went.** `test/legacy-reference.mjs` was a verbatim port of the 2011
+formulas used as a differential oracle by three test files. The file already split itself at its own
+line 256 — `// ---- independent oracles, NOT ports ----` — and that split was the plan:
+
+* the ports were deleted, including `centralCircle`, `tileIndex` and `longitudeRange`, which were
+  exported and used by **zero** tests;
+* `diskDistance`, `halfPlaneToDiskDirect` and `diskToHalfPlaneDirect` moved into `test/helpers.mjs`.
+  These are second derivations written to judge the ports, not ports; a test that compares the library
+  against a rearrangement of itself proves nothing, so they are load-bearing.
+
+Four differential tests were deleted as genuine duplicates (the property each one checked indirectly is
+already checked directly elsewhere: grabbed-point-under-cursor and pan-is-an-isometry subsume "pan
+matches 2011 `updateCoordinates`"; "compass holds north across a multi-step drag" subsumes both
+`halfPlaneOrientation` comparisons; tanh(d/2) projection plus round-trips subsume `internalToScreen`).
+Four were **rewritten rather than dropped**, because deleting them would have silently weakened the suite:
+
+* the two `coords.test.mjs` regressions already asserted the correct closed form (`sinh(|log y|/2)`,
+  `exp(2 asinh y)`) at the pathological input; only the trailing "and the 2011 one fails" lines went;
+* `isom.test.mjs`'s far-dungeon test now asserts the **conditioning law** instead of a flat tolerance:
+  error ~ eps·w² where w = cosh(d/2). Measured ratios to that bound across the four cases: 0.93, 0.93,
+  0.44, 0.49, so the 4× bound is real headroom. Extending the range to (0, 1e8) while writing this
+  produced NaN — a genuine float64 boundary at w ~ 1e8 where the products reach 1e16 and the answer is
+  0/0. Not asserted as a feature; noted in the test and pointed at `open-questions.md`, since it is
+  exactly why the atlas never forms a global frame;
+* `north()` is now pinned three ways: exactly for the identity, exactly under a pure rotation, and
+  against an independent route — `applyToLocal` at (0, 1e9), which must converge to the same bearing
+  (worst disagreement 1e-6 rad over 10,000 trials);
+* `geodesic.test.mjs`'s sweep-sense test, the one with content nothing else covered, was rebuilt as a
+  direct property test: reconstruct the walk canvas performs, require it to start at p1, end at p2 and
+  sweep less than π, **with a negative control** requiring the reversed sense to be detectably wrong on
+  >99% of arcs. Mutation-checked: flipping `out.anticlockwise = delta < 0` to `> 0` in the source makes
+  it fail (along with "the swept arc stays inside the unit disk"), and reverting makes it pass.
+
+`test/input.test.mjs` lost the test that asserted the removed freeze behaviour. While there, its
+"dragging past the rim clamps" test contained `assert.ok(changed || true, …)` — **a tautology that could
+never fail**, pre-existing and unrelated to this work. Replaced with the two properties that actually
+distinguish clamping from freezing: going further along the same ray must change nothing (agreement
+1.8e-15, so the threshold is 1e-12 rather than `assertUnchanged`'s 1e-15), and changing *direction*
+beyond the rim must still pan. The second is the one a freeze fails.
+
+134 → 130 tests, 0 failures: minus four duplicates, minus the freeze test, minus the tautology's file
+count staying level, plus the rewrites in place.
+
+**Notes.** `legacy-decoded.md` is deleted; its still-live content — canvas pixels are not deterministic
+across repeated draws, plus the rAF-throttling and protocol-timeout traps — became
+`notes/canvas-testing.md`, and the four files that cited it (`bench/sweep.js`, `bench/stress.html`,
+`docs/demo/compound-scroll.js`, `docs/demo/diagnostic-checks.js`) were repointed. The 2011 sections of
+`math-audit.md` are marked historical but **kept**: they record which formulas were verified *correct*,
+and several of the correct ones look wrong. `performance.md`'s legacy baseline moved from "deferred —
+machine busy" to abandoned, since the harness that would produce it no longer exists; the deferral record
+stays because the rule it illustrates does.
+
+**`AGENTS.md` said something false.** "`OLD/` … stays `.gitignore`d, so it cannot return by accident" —
+`.gitignore` has no `OLD/` entry and has not had one since Jim removed it. Rewritten to say plainly that
+there is no such safety net and to check `git status` before staging if the tree is ever restored
+locally. `viewport.js` also told users to "See the alias table in README.md", which never existed; that
+warning is gone with the aliases.
+
+**Left alone deliberately:** `build/fixtures/` and `build/baseline/` (~68 MB, gitignored) are the last
+extant copy of the extracted 2011 databases. Their only consumers were the three deleted bench files, but
+destroying unrecoverable data was not asked for. `README.md`'s reference to a future `tools/` directory is
+Jim's placeholder. The historical prose in `docs/*.html` and `docs/MATH.md` about the 2011 origins is the
+site's narrative and is still accurate.

@@ -29,6 +29,49 @@ export function uni(r, lo, hi) {
   return lo + (hi - lo) * r();
 }
 
+// ---- independent oracles ----
+//
+// Second implementations of quantities the library also computes, written straight from the defining
+// formula rather than from the library's code. Their whole value is that they were derived
+// separately: a test that compares the library against a rearrangement of itself proves nothing.
+// Keep them naive. Do not "optimise" them to look like src/.
+
+// Hyperbolic distance in the Poincare disk. Cross-validated during the audit against the hyperboloid
+// inner product and the half-plane formula (agreement 8.2e-13).
+export function diskDistance(z1x, z1y, z2x, z2y) {
+  const dx = z1x - z2x;
+  const dy = z1y - z2y;
+  // 1 - conj(z2) z1
+  const cr = 1 - (z2x * z1x + z2y * z1y);
+  const ci = -(z2x * z1y - z2y * z1x);
+  const t = Math.hypot(dx, dy) / Math.hypot(cr, ci);
+  return 2 * Math.atanh(Math.min(t, 1 - 1e-16));
+}
+
+// The half-plane -> disk map this project uses, stated directly: z -> i (z - i) / (z + i).
+export function halfPlaneToDiskDirect(hx, hy) {
+  // (z - i) / (z + i)
+  const nr = hx;
+  const ni = hy - 1;
+  const dr = hx;
+  const di = hy + 1;
+  const dd = dr * dr + di * di;
+  const qr = (nr * dr + ni * di) / dd;
+  const qi = (ni * dr - nr * di) / dd;
+  // times i
+  return [-qi, qr];
+}
+
+export function diskToHalfPlaneDirect(zx, zy) {
+  // w = (1 - i z) / (z - i)
+  const nr = 1 + zy;
+  const ni = -zx;
+  const dr = zx;
+  const di = zy - 1;
+  const dd = dr * dr + di * di;
+  return [(nr * dr + ni * di) / dd, (ni * dr - nr * di) / dd];
+}
+
 // Walk a tiling's addresses n steps and GUARANTEE the walk travelled, by measuring the geometry rather
 // than by counting symbols.
 //

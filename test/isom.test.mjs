@@ -17,7 +17,7 @@ import {
   capMayBeVisible,
   capThreshold,
 } from "../src/core/minkowski.js";
-import { internalToScreen, diskDistance } from "./legacy-reference.mjs";
+import { diskDistance, wrapAngle } from "./helpers.mjs";
 
 // Deterministic PRNG so failures are reproducible.
 function rng(seed) {
@@ -110,36 +110,43 @@ test("+M and -M are the same isometry (the double cover)", () => {
   assert.ok(Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-15);
 });
 
-test("the fused kernel equals the 2011 internalToScreen where that is well conditioned", () => {
-  const r = rng(5);
-  let worst = 0;
-  const out = [0, 0];
-  for (let i = 0; i < 20000; i++) {
-    const bx = uni(r, -5, 5);
-    const by = uni(r, -5, 5);
-    const rot = uni(r, -Math.PI, Math.PI);
-    const x = uni(r, -5, 5);
-    const y = uni(r, -5, 5);
-    const m = Isom.fromLegacyView(bx, by, rot);
-    m.applyToLocal(x, y, undefined, out);
-    const ref = internalToScreen(x, y, bx, by, rot);
-    worst = Math.max(worst, Math.hypot(out[0] - ref[0], out[1] - ref[1]));
-  }
-  assert.ok(worst < 1e-10, `max abs err ${worst}`);
-});
+test("REGRESSION: recentring on a far point puts it exactly at the disk centre", () => {
+  // Ledger: the dungeon reaches (0, 11711.92), d ~ 20.1. Expanding the projection into a polynomial
+  // in the offset lands this on the boundary instead -- 310 px wrong on a 620 px canvas -- because
+  // the terms that must cancel are each of order y^2 while their difference is O(1).
+  //
+  // The centre assertion is exact at any magnitude: the recentred point is a fixed point, so there
+  // is nothing left to cancel. The neighbour assertion is where the conditioning shows, and it is
+  // checked against the LAW rather than a flat tolerance -- error ~ eps * w^2, where w = cosh(d/2)
+  // is the largest matrix entry. That is the whole reason single-patch mode has a usable range at
+  // all (it runs out near w ~ 1e8, where the products reach 1e16 and the answer is 0/0), and the
+  // reason the atlas never forms a global frame. Measured ratios to eps*w^2 over the cases below:
+  // 0.93, 0.93, 0.44, 0.49 -- a bound of 4x is real headroom, not a rubber stamp.
+  const EPS = Number.EPSILON;
+  for (const [x, y] of [[0, 11711.92], [0, -11711.92], [8000, 8000], [1e6, -3e6]]) {
+    const t = Isom.translationToLocal(x, y);
+    const m = t.inverse();
 
-test("the fused kernel survives the far dungeon point where the 2011 polynomial does not", () => {
-  // Ledger: recentring on (0, 11711.92) (d ~ 20.1) puts the point at the disk CENTRE. The 2011
-  // polynomial lands it on the boundary instead -- 310 px wrong on a 620 px canvas.
-  const x = 0;
-  const y = 11711.92;
-  const m = Isom.translationToLocal(x, y).inverse();
-  const out = m.applyToLocal(x, y, undefined, [0, 0]);
-  const ours = Math.hypot(out[0], out[1]);
-  const ref = internalToScreen(x, y, -x, -y, 0);
-  const theirs = Math.hypot(ref[0], ref[1]);
-  assert.ok(ours < 1e-9, `expected the point at the disk centre, got radius ${ours}`);
-  assert.ok(theirs > 0.5, `expected the legacy formula to fail here, but it gave radius ${theirs}`);
+    const out = m.applyToLocal(x, y, undefined, [0, 0]);
+    assert.ok(
+      Math.hypot(out[0], out[1]) < 1e-9,
+      `recentred on (${x}, ${y}) but it landed at radius ${Math.hypot(out[0], out[1])}`,
+    );
+
+    // And it is genuinely the isometry that moved it, not a collapse of everything onto the origin:
+    // a point at hyperbolic distance 1 from there must come back at radius tanh(1/2).
+    const away = t.applyToLocal(Math.sinh(0.5), 0, undefined, [0, 0]);
+    const awayLocal = diskToLocal(away[0], away[1], [0, 0]);
+    const back = m.applyToLocal(awayLocal[0], awayLocal[1], undefined, [0, 0]);
+    const r = Math.hypot(back[0], back[1]);
+    const w2 = 1 + x * x + y * y;
+    const tol = Math.max(1e-12, 4 * EPS * w2);
+    assert.ok(
+      Math.abs(r - Math.tanh(0.5)) < tol,
+      `at (${x}, ${y}) a unit-distance neighbour landed at radius ${r}, ` +
+        `expected ${Math.tanh(0.5)} to within ${tol}`,
+    );
+  }
 });
 
 test("isometries preserve hyperbolic distance", () => {
@@ -196,22 +203,33 @@ test("normalize lands on the manifold by construction, even at large |b|", () =>
   assert.ok(worst < 1e-15, `|a| vs sqrt(1+|b|^2) rel err ${worst}`);
 });
 
-test("north() equals the 2011 halfPlaneOrientation", async () => {
-  const { halfPlaneOrientation } = await import("./legacy-reference.mjs");
+test("north() is the screen bearing of the ideal point straight up", () => {
+  // north() is applyToIdeal(0, 1), i.e. where the boundary point at the top of the disk has been
+  // carried to. Checked three ways: the two cases where the answer is known exactly, and against
+  // an independent route -- applyToLocal on a point far out along that same geodesic, which must
+  // converge to the same bearing.
+  assert.ok(Math.abs(new Isom(1, 0, 0, 0).north() - Math.PI / 2) < 1e-15, "identity should look north");
+
   const r = rng(9);
+  for (let i = 0; i < 200; i++) {
+    const rot = uni(r, -Math.PI, Math.PI);
+    // A pure rotation of the view turns the bearing to every ideal point by the same angle.
+    const got = Isom.rotation(rot).north();
+    const want = wrapAngle(Math.PI / 2 + rot);
+    assert.ok(Math.abs(wrapAngle(got - want)) < 1e-12, `rotation ${rot}: north ${got}, expected ${want}`);
+  }
+
   let worst = 0;
   for (let i = 0; i < 10000; i++) {
     const bx = uni(r, -4, 4);
     const by = uni(r, -4, 4);
     const rot = uni(r, -Math.PI, Math.PI);
-    const mine = Isom.fromLegacyView(bx, by, rot).north();
-    const theirs = halfPlaneOrientation(bx, by, rot);
-    // halfPlaneOrientation returns a line direction, so it is only defined mod pi.
-    let d = ((mine - theirs + Math.PI) % (2 * Math.PI)) - Math.PI;
-    d = Math.min(Math.abs(d), Math.abs(Math.abs(d) - Math.PI));
-    worst = Math.max(worst, d);
+    const m = Isom.fromOffsetRotation(bx, by, rot);
+    const far = m.applyToLocal(0, 1e9, undefined, [0, 0]);
+    const viaLimit = Math.atan2(far[1], far[0]);
+    worst = Math.max(worst, Math.abs(wrapAngle(m.north() - viaLimit)));
   }
-  assert.ok(worst < 1e-9, `max bearing err ${worst} rad`);
+  assert.ok(worst < 1e-6, `north() disagrees with the far-point limit by ${worst} rad`);
 });
 
 test("cosh(d/2) needs the MODULUS, not just the real part", () => {

@@ -12,15 +12,15 @@ import { localToDisk, diskToLocal, localRadiusToDistance, distanceToLocalRadius,
 import { Cap, coshHalfDistance, coshHalfDistanceSquared, screenRadiusToThresholdSquared, capMayBeVisible, capThreshold } from "./core/minkowski.js";
 import { ViewState, ROTATION_PARALLEL_TRANSPORT, ROTATION_COMPASS } from "./core/view.js";
 import { HyperbolicViewport, DEFAULT_OPTIONS } from "./viewport.js";
-import { compileDrawables, readLegacyDrawable, DEFAULT_STYLE } from "./data/drawable.js";
+import { compileDrawables, DEFAULT_STYLE } from "./data/drawable.js";
 import { StaticSource, CallbackSource } from "./data/source.js";
-import { Renderer, CULL_CAP, CULL_ENDPOINTS } from "./render/renderer.js";
+import { Renderer } from "./render/renderer.js";
 import { Surface } from "./render/surface.js";
 import { PointerInput, clampToRadius } from "./input/pointer.js";
 import { geodesicArc, Arc } from "./render/geodesic.js";
 import { Atlas, CLIP_AUTO, CLIP_ALWAYS, CLIP_NEVER } from "./data/atlas/atlas.js";
 import { Anchor } from "./data/atlas/anchor.js";
-import { RegularTiling, BinaryTiling, regularMetrics, binaryCellCentreLocal, BINARY_LOCAL_HALF_WIDTH, BINARY_LOCAL_Y_LOW, BINARY_LOCAL_Y_HIGH, BIN_RIGHT, BIN_LEFT, BIN_CHILD0, BIN_CHILD1, BIN_PARENT_EVEN, BIN_PARENT_ODD } from "./data/atlas/tiling.js";
+import { RegularTiling, BinaryTiling, regularMetrics, BINARY_LOCAL_HALF_WIDTH, BINARY_LOCAL_Y_LOW, BINARY_LOCAL_Y_HIGH, BIN_RIGHT, BIN_LEFT, BIN_CHILD0, BIN_CHILD1, BIN_PARENT_EVEN, BIN_PARENT_ODD } from "./data/atlas/tiling.js";
 
 export {
   Atlas,
@@ -31,7 +31,6 @@ export {
   RegularTiling,
   BinaryTiling,
   regularMetrics,
-  binaryCellCentreLocal,
   BINARY_LOCAL_HALF_WIDTH,
   BINARY_LOCAL_Y_LOW,
   BINARY_LOCAL_Y_HIGH,
@@ -44,13 +43,10 @@ export {
   HyperbolicViewport,
   DEFAULT_OPTIONS,
   compileDrawables,
-  readLegacyDrawable,
   DEFAULT_STYLE,
   StaticSource,
   CallbackSource,
   Renderer,
-  CULL_CAP,
-  CULL_ENDPOINTS,
   Surface,
   PointerInput,
   clampToRadius,

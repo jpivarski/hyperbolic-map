@@ -1,12 +1,13 @@
-// Gesture solvers, tested differentially against the verbatim 2011 port where a 2011 equivalent
-// exists, and against first principles where it does not.
+// Gesture solvers, tested from first principles: each one is pinned by the property it exists to
+// guarantee (the grabbed point stays under the cursor; a pan is an isometry; compass mode holds one
+// bearing fixed) rather than by agreement with any particular implementation.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { Isom } from "../src/core/isom.js";
 import { ViewState, ROTATION_COMPASS } from "../src/core/view.js";
-import { updateCoordinates, halfPlaneOrientation, diskDistance } from "./legacy-reference.mjs";
+import { diskDistance } from "./helpers.mjs";
 
 function rng(seed) {
   let s = seed >>> 0;
@@ -22,45 +23,6 @@ function wrap(x) {
   if (y < -Math.PI) y += 2 * Math.PI;
   return y;
 }
-
-test("pan matches the 2011 updateCoordinates exactly, in action and in rotation", () => {
-  const r = rng(21);
-  let worstAction = 0;
-  let worstRot = 0;
-  let n = 0;
-  for (let i = 0; i < 8000; i++) {
-    const bx = uni(r, -3, 3);
-    const by = uni(r, -3, 3);
-    const rot = uni(r, -Math.PI, Math.PI);
-    const f0x = uni(r, -0.8, 0.8);
-    const f0y = uni(r, -0.8, 0.8);
-    const fx = uni(r, -0.8, 0.8);
-    const fy = uni(r, -0.8, 0.8);
-    if (Math.hypot(f0x, f0y) >= 0.8 || Math.hypot(fx, fy) >= 0.8) continue;
-    n++;
-
-    const view = new ViewState({ offsetX: bx, offsetY: by, rotation: rot });
-    view.beginPan(f0x, f0y);
-    view.updatePan(fx, fy);
-
-    const k = Math.sqrt(1 - f0x * f0x - f0y * f0y);
-    const [nbx, nby, nrot] = updateCoordinates(
-      bx, by, fx, fy, f0x / k, f0y / k, Math.cos(rot), Math.sin(rot),
-    );
-    const legacy = Isom.fromLegacyView(nbx, nby, nrot);
-
-    for (const p of [[0.3, -0.2], [1.7, 0.9], [-2.2, 0.4]]) {
-      const a = view.liveMatrix.applyToLocal(p[0], p[1], undefined, [0, 0]);
-      const b = legacy.applyToLocal(p[0], p[1], undefined, [0, 0]);
-      worstAction = Math.max(worstAction, Math.hypot(a[0] - b[0], a[1] - b[1]));
-    }
-    // screenRotation is 2*arg(a), so the SU(1,1) double cover shows as a 2*pi offset.
-    worstRot = Math.max(worstRot, Math.abs(wrap(view.liveMatrix.screenRotation() - nrot)));
-  }
-  assert.ok(n > 3000, `too few trials: ${n}`);
-  assert.ok(worstAction < 1e-10, `max action difference ${worstAction}`);
-  assert.ok(worstRot < 1e-9, `max rotation difference ${worstRot}`);
-});
 
 test("pan keeps the grabbed data point under the cursor", () => {
   const r = rng(22);
@@ -133,23 +95,6 @@ test("compass mode holds north fixed across a multi-step drag", () => {
     }
   }
   assert.ok(worst < 1e-9, `north drifted by ${worst} rad`);
-});
-
-test("compass north agrees with the 2011 halfPlaneOrientation", () => {
-  const r = rng(25);
-  let worst = 0;
-  for (let i = 0; i < 5000; i++) {
-    const bx = uni(r, -4, 4);
-    const by = uni(r, -4, 4);
-    const rot = uni(r, -Math.PI, Math.PI);
-    const view = new ViewState({ offsetX: bx, offsetY: by, rotation: rot });
-    const mine = view.north();
-    const theirs = halfPlaneOrientation(bx, by, rot);
-    // halfPlaneOrientation returns a line direction, defined only mod pi.
-    const d = Math.abs(wrap(mine - theirs));
-    worst = Math.max(worst, Math.min(d, Math.abs(d - Math.PI)));
-  }
-  assert.ok(worst < 1e-9, `max bearing difference ${worst} rad`);
 });
 
 test("rim rotation turns the view by exactly the angle swept", () => {

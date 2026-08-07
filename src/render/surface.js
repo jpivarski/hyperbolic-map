@@ -12,18 +12,13 @@ export class Surface {
       width = null,
       height = null,
       autoResize = false,
-      // "auto" follows window.devicePixelRatio. The 2011 code had no notion of this, so its
-      // canvases were blurry on HiDPI displays; pass 1 to reproduce that.
+      // "auto" follows window.devicePixelRatio. A fixed number overrides it, which is what the
+      // pixel-exact capture harnesses pass so that a canvas is the size they asked for.
       devicePixelRatio = "auto",
-      // "min" sizes the disk by min(width, height) so it always fits. The 2011 code used the
-      // canvas WIDTH for both axes, which overflows vertically on a portrait canvas. That is a
-      // behaviour difference, not a bug, so both are available.
-      radiusBasis = "min",
     } = options || {};
 
     this.autoResize = autoResize;
     this.dprOption = devicePixelRatio;
-    this.radiusBasis = radiusBasis;
 
     if (canvas) {
       this.canvas = canvas;
@@ -80,10 +75,10 @@ export class Surface {
     this.resizeObserver.observe(target);
   }
 
-  // The disk radius in CSS pixels for a given zoom.
+  // The disk radius in CSS pixels for a given zoom. Sized by the SMALLER side, so the disk always
+  // fits: sizing by width on both axes would clip it top and bottom on a portrait canvas.
   radiusFor(zoom) {
-    const basis = this.radiusBasis === "width" ? this.cssWidth : Math.min(this.cssWidth, this.cssHeight);
-    return (zoom * basis) / 2;
+    return (zoom * Math.min(this.cssWidth, this.cssHeight)) / 2;
   }
 
   // Build the descriptor passed to the renderer and to hooks. Reuses one object so that a redraw

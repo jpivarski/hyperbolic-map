@@ -13,7 +13,7 @@
 // freshly-set matrix catches those without needing to know what correct looks like.
 //
 // Images are compared on a downsampled signature, not exact pixels, because Chrome moves a canvas
-// between software and GPU rasterization and the two antialias differently (notes/legacy-decoded.md).
+// between software and GPU rasterization and the two antialias differently (notes/canvas-testing.md).
 // Downsampling averages that away while still catching a missing polygon.
 
 (function () {

@@ -62,9 +62,10 @@ class Isom {
     return new Isom(Math.cosh(dist / 2), 0, s * Math.cos(bearing), s * Math.sin(bearing));
   }
 
-  // The 2011 option set stored the view as an offset B in local coordinates plus a rotation R,
-  // applied as Rot(R) . T(B) -- rotation AFTER translation. Order matters.
-  static fromLegacyView(bx, by, rotation) {
+  // The view as an offset B in local coordinates plus a rotation R, applied as Rot(R) . T(B) --
+  // rotation AFTER translation. Order matters. This is what the `offsetX`/`offsetY`/`rotation`
+  // options mean.
+  static fromOffsetRotation(bx, by, rotation) {
     return Isom.rotation(rotation).mul(Isom.translationToLocal(bx, by));
   }
 
@@ -497,7 +498,7 @@ class ViewState {
     } = options;
 
     // The 2011 option set is (offsetX, offsetY, rotation), applied as Rot(R) . T(B).
-    this.matrix = matrix ? matrix.clone() : Isom.fromLegacyView(offsetX, offsetY, rotation);
+    this.matrix = matrix ? matrix.clone() : Isom.fromOffsetRotation(offsetX, offsetY, rotation);
     this.zoom = zoom;
     this.minZoom = minZoom;
     this.maxZoom = maxZoom;
@@ -809,18 +810,13 @@ class Surface {
       width = null,
       height = null,
       autoResize = false,
-      // "auto" follows window.devicePixelRatio. The 2011 code had no notion of this, so its
-      // canvases were blurry on HiDPI displays; pass 1 to reproduce that.
+      // "auto" follows window.devicePixelRatio. A fixed number overrides it, which is what the
+      // pixel-exact capture harnesses pass so that a canvas is the size they asked for.
       devicePixelRatio = "auto",
-      // "min" sizes the disk by min(width, height) so it always fits. The 2011 code used the
-      // canvas WIDTH for both axes, which overflows vertically on a portrait canvas. That is a
-      // behaviour difference, not a bug, so both are available.
-      radiusBasis = "min",
     } = options || {};
 
     this.autoResize = autoResize;
     this.dprOption = devicePixelRatio;
-    this.radiusBasis = radiusBasis;
 
     if (canvas) {
       this.canvas = canvas;
@@ -877,10 +873,10 @@ class Surface {
     this.resizeObserver.observe(target);
   }
 
-  // The disk radius in CSS pixels for a given zoom.
+  // The disk radius in CSS pixels for a given zoom. Sized by the SMALLER side, so the disk always
+  // fits: sizing by width on both axes would clip it top and bottom on a portrait canvas.
   radiusFor(zoom) {
-    const basis = this.radiusBasis === "width" ? this.cssWidth : Math.min(this.cssWidth, this.cssHeight);
-    return (zoom * basis) / 2;
+    return (zoom * Math.min(this.cssWidth, this.cssHeight)) / 2;
   }
 
   // Build the descriptor passed to the renderer and to hooks. Reuses one object so that a redraw
@@ -985,20 +981,16 @@ const DEGENERATE = 1e-10;
 
 // Compute the geodesic from (x1, y1) to (x2, y2), both in disk coordinates, into `out`.
 //
-// `straightIfShorterThan` is a chord-length threshold in DISK units below which the edge is drawn as
-// a straight line. Pass 0 to always use an arc. The 2011 code used a fixed 0.1, which is
-// zoom-independent and therefore visibly wrong when zoomed in; `sagittaTolerance` (in the same disk
-// units) replaces it with a curvature-aware test. Pass sagittaTolerance = 0 to disable it.
-function geodesicArc(x1, y1, x2, y2, out, straightIfShorterThan, sagittaTolerance) {
+// An edge is drawn as a straight chord only when it is visually straight: `sagittaTolerance`, in disk
+// units, is the largest bulge that may be flattened away. A fixed chord-LENGTH threshold would be
+// zoom-independent and therefore visibly wrong when zoomed in, since the same chord bulges further
+// across the screen the closer it is to the centre. Pass sagittaTolerance = 0 to always use an arc.
+function geodesicArc(x1, y1, x2, y2, out, sagittaTolerance) {
   const denom = x1 * y2 - x2 * y1;
   const dist2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
 
   if (Math.abs(denom) <= DEGENERATE) {
     // Collinear with the origin: the geodesic is a diameter.
-    out.straight = true;
-    return out;
-  }
-  if (straightIfShorterThan > 0 && dist2 <= straightIfShorterThan * straightIfShorterThan) {
     out.straight = true;
     return out;
   }
@@ -1056,16 +1048,15 @@ function geodesicArc(x1, y1, x2, y2, out, straightIfShorterThan, sagittaToleranc
 // ===== src/data/drawable.js =====
 // Parse and compile drawables.
 //
-// Input is either the v2 schema (documented in README.md) or the 2011 shape, which is detected and
-// converted. Compiling does the work that would otherwise be repeated every frame: the companion
+// Compiling does the work that would otherwise be repeated every frame: the companion
 // w = sqrt(1 + x^2 + y^2) for each point, the resolved style, and a Minkowski bounding cap for
 // cheap culling.
 //
-// Point flags, preserved from the 2011 format rather than "modernised" into move/line commands: a
-// point's flag string describes the edge LEAVING that point. "L" strokes it; absent means the edge
-// still participates in the fill but is not stroked. "P" draws a marker at the point. The fill path
-// always closes. A move/line model cannot express a closed fill with a disconnected stroke without
-// duplicating geometry, which is why this is kept as-is.
+// Point flags rather than move/line commands: a point's flag string describes the edge LEAVING that
+// point. "L" strokes it; absent means the edge still participates in the fill but is not stroked.
+// "P" draws a marker at the point. The fill path always closes. A move/line model cannot express a
+// closed fill with a disconnected stroke without duplicating geometry, which is why this is the
+// format.
 
 const FLAG_STROKE = 1;
 const FLAG_MARKER = 2;
@@ -1145,57 +1136,14 @@ class Drawable {
     this.text = null;
     this.style = DEFAULT_STYLE;
     this.cap = null;
-    this.visibleFrom = 0;
-    this.visibleTo = 1;
   }
 }
 
-// Convert a 2011-shaped drawable into the v2 shape. Exported so callers with legacy data can
-// convert explicitly; `compileDrawables` also detects and applies it automatically.
-function readLegacyDrawable(d) {
-  if (d.type === "polygon") {
-    const points = [];
-    for (const p of d.d) {
-      if (p.length > 2 && p[2]) points.push([p[0], p[1], p[2]]);
-      else points.push([p[0], p[1]]);
-    }
-    const out = { type: "path", points: points, closed: true };
-    if (d.fillStyle !== undefined) out.fill = d.fillStyle;
-    if (d.strokeStyle !== undefined) out.stroke = d.strokeStyle;
-    if (d.lineWidth !== undefined) out.lineWidth = d.lineWidth;
-    if (d.lineCap !== undefined) out.lineCap = d.lineCap;
-    if (d.lineJoin !== undefined) out.lineJoin = d.lineJoin;
-    if (d.miterLimit !== undefined) out.miterLimit = d.miterLimit;
-    if (d.class !== undefined) out.class = d.class;
-    return out;
-  }
-  if (d.type === "text") {
-    const out = {
-      type: "text",
-      text: d.d,
-      at: [d.ax, d.ay],
-      up: [d.upx, d.upy],
-    };
-    if (d.fillStyle !== undefined) out.fill = d.fillStyle;
-    if (d.textAlign !== undefined) out.align = d.textAlign;
-    if (d.textBaseline !== undefined) out.baseline = d.textBaseline;
-    if (d.font !== undefined) out.font = d.font;
-    if (d.class !== undefined) out.class = d.class;
-    return out;
-  }
-  return null;
-}
-
-function isLegacy(d) {
-  return d && (d.type === "polygon" || (d.type === "text" && d.ax !== undefined));
-}
-
-function compileOne(spec, styleSheet) {
-  const src = isLegacy(spec) ? readLegacyDrawable(spec) : spec;
+function compileOne(src, styleSheet) {
   if (!src) return null;
 
-  if (src.type === "path" || src.type === "polygon") {
-    const pts = src.points || src.d;
+  if (src.type === "path") {
+    const pts = src.points;
     const n = pts.length;
     if (n === 0) return null;
     const out = new Drawable("path");
@@ -1217,8 +1165,6 @@ function compileOne(spec, styleSheet) {
     out.closed = src.closed !== false;
     out.style = resolveStyle(src, styleSheet);
     out.cap = Cap.enclosing(out.xs, out.ys, 0, n);
-    if (src.visibleFrom !== undefined) out.visibleFrom = src.visibleFrom;
-    if (src.visibleTo !== undefined) out.visibleTo = src.visibleTo;
     return out;
   }
 
@@ -1232,8 +1178,6 @@ function compileOne(spec, styleSheet) {
     out.text = String(src.text);
     out.style = resolveStyle(src, styleSheet);
     out.cap = Cap.enclosing(out.xs, out.ys, 0, 2);
-    if (src.visibleFrom !== undefined) out.visibleFrom = src.visibleFrom;
-    if (src.visibleTo !== undefined) out.visibleTo = src.visibleTo;
     return out;
   }
 
@@ -1252,7 +1196,7 @@ function compileOne(spec, styleSheet) {
   return null;
 }
 
-// Accepts an array of drawables, or a {version, drawables} document, in either schema.
+// Accepts an array of drawables, or a {version, coordinates, drawables} document.
 function compileDrawables(data, styleSheet) {
   let list;
   if (Array.isArray(data)) list = data;
@@ -1262,8 +1206,8 @@ function compileDrawables(data, styleSheet) {
 
   const out = [];
   for (let i = 0; i < list.length; i++) {
-    // The 2011 renderer used `while (drawable = nextDrawable())`, so a falsy entry silently
-    // truncated the whole stream. Skip and keep going instead.
+    // A falsy entry skips rather than truncating: a generator that returns a hole in its output
+    // should lose one shape, not everything after it.
     if (!list[i]) continue;
     const c = compileOne(list[i], styleSheet);
     if (c) out.push(c);
@@ -1287,14 +1231,13 @@ function compileDrawables(data, styleSheet) {
 // Coordinates: the library works in CSS pixels throughout. The surface applies the
 // devicePixelRatio transform once, so nothing here has to think about it.
 
-// The 2011 constants, for the faithful-port mode.
-const LEGACY_MAX_STRAIGHT_LINE_LENGTH = 0.1;
+// Text sizing. A text drawable carries an `up` vector rather than a pixel height, so its size is a
+// dimensionless MULTIPLIER applied to a base font: the glyphs scale with the geometry, which is the
+// only thing that makes sense when the projection compresses distance towards the rim. The base is
+// 14pt = 14 * 96/72 px. Reading the multiplier as a pixel height instead makes every glyph
+// sub-pixel and silently drops all the text.
 const FONT_SCALE = 0.05;
-// The 2011 renderer set a fixed `14pt sans-serif` font and then applied `ctx.scale(size, size)`, so
-// its `size` was a dimensionless MULTIPLIER, not a pixel height -- and its MIN_TEXT_SIZE = 0.5 was a
-// multiplier too. 14pt is 14 * 96/72 px. Reading `size` as pixels makes every glyph sub-pixel and
-// silently drops all the text, which is exactly what happened on the first attempt at this port.
-const LEGACY_BASE_FONT_PX = (14 * 96) / 72;
+const BASE_FONT_PX = (14 * 96) / 72;
 
 const scratch = [0, 0];
 const arc = new Arc();
@@ -1332,15 +1275,11 @@ class RenderStats {
   }
 }
 
-// Culling modes.
-//   "endpoints" reproduces the 2011 test: keep an edge only if one of its two projected endpoints
-//               is inside the draw radius. This WRONGLY DROPS long edges that cross the visible
-//               region without either endpoint inside it, and it also runs after all the projection
-//               work, so it saves nothing. Kept so the defect can be seen and compared.
-//   "cap"       rejects a whole drawable up front with a 6-multiply Minkowski test against its
-//               precomputed bounding cap. Correct, and far cheaper.
-const CULL_ENDPOINTS = "endpoints";
-const CULL_CAP = "cap";
+// Culling is always the same test, so it is not an option: reject a whole drawable up front with a
+// 6-multiply Minkowski test against its precomputed bounding cap. The obvious alternative -- keep an
+// edge only if one of its two projected endpoints is inside the draw radius -- is both wrong and
+// slower: it drops long edges that cross the visible region without either endpoint inside it, and it
+// can only run after all the projection work has already been done.
 
 class Renderer {
   constructor() {
@@ -1369,8 +1308,6 @@ class Renderer {
       onAfterDraw = null,
       onDrawBackground = null,
       onDrawRim = null,
-      cullMode = CULL_CAP,
-      arcMode = "sagitta",
       sagittaTolerancePx = 0.25,
       minTextPx = 3,
       minFeaturePx = 0,
@@ -1407,8 +1344,6 @@ class Renderer {
           pass.clip(ctx, view);
         }
         this.drawContent(ctx, view, pass.drawables, pass.matrix, {
-          cullMode,
-          arcMode,
           sagittaTolerancePx,
           minTextPx,
           minFeaturePx,
@@ -1473,75 +1408,70 @@ class Renderer {
     const shiftX = view.cx;
     const shiftY = view.cy;
     const drawRadius = view.drawRadius;
-    const drawRadius2 = drawRadius * drawRadius;
 
     // Everything the cap test needs, computed once per frame.
     const centre = m.centreLocal([0, 0]);
     const cX = centre[0];
     const cY = centre[1];
     const cW = Math.sqrt(1 + cX * cX + cY * cY);
-    const inDiskThreshold2 = screenRadiusToThresholdSquared(Math.min(drawRadius, 0.999999));
     const capCache = new Map();
 
     const minFeaturePx = opts.minFeaturePx || 0;
-    const straightIfShorterThan = opts.arcMode === "fixed" ? LEGACY_MAX_STRAIGHT_LINE_LENGTH : 0;
     // The sagitta tolerance is given in pixels; convert to disk units for this frame's zoom.
-    const sagittaTolerance = opts.arcMode === "fixed" ? 0 : opts.sagittaTolerancePx / scale;
+    const sagittaTolerance = opts.sagittaTolerancePx / scale;
 
     stats.drawables += scene.length;
 
     for (let di = 0; di < scene.length; di++) {
       const d = scene[di];
 
-      if (opts.cullMode === CULL_CAP) {
-        let thr = capCache.get(d.cap.radius);
-        if (thr === undefined) {
-          thr = capThreshold(Math.min(drawRadius, 0.999999), d.cap.radius);
-          capCache.set(d.cap.radius, thr);
-        }
-        // cosh(d/2)^2 between the view centre and this drawable's bounding cap -- the same quantity
-        // the visibility test needs, so compute it once and use it twice.
-        const cap = d.cap;
-        const A = cap.w * cW - cap.x * cX - cap.y * cY;
-        const B = cap.x * cY - cap.y * cX;
-        const ch2 = A * A + B * B;
-        if (ch2 > thr * thr) continue;
+      let thr = capCache.get(d.cap.radius);
+      if (thr === undefined) {
+        thr = capThreshold(Math.min(drawRadius, 0.999999), d.cap.radius);
+        capCache.set(d.cap.radius, thr);
+      }
+      // cosh(d/2)^2 between the view centre and this drawable's bounding cap -- the same quantity
+      // the visibility test needs, so compute it once and use it twice.
+      const cap = d.cap;
+      const A = cap.w * cW - cap.x * cX - cap.y * cY;
+      const B = cap.x * cY - cap.y * cX;
+      const ch2 = A * A + B * B;
+      if (ch2 > thr * thr) continue;
 
-        // Sub-pixel gate. In the Poincare disk the Euclidean and hyperbolic metrics differ by
-        // (1 - |z|^2)/2, and |z| = tanh(d/2) gives 1 - |z|^2 = 1/cosh^2(d/2) = 1/ch2 -- so the cap's
-        // on-screen DIAMETER is capRadius * scale / ch2, with no extra projection whatsoever.
-        //
-        // This matters far more in the hyperbolic plane than it would on a map: measured on the
-        // Escher scene at its default view, 59% of the 38,640 shapes project to under one pixel, and
-        // they carry 45% of all vertices. They are crushed against the rim where the projection
-        // compresses infinite area into a finite ring.
-        //
-        // The STROKE has to be counted, not just the geometry. A shape 0.3 px across drawn with a
-        // 2 px stroke still paints a 2 px mark, so a gate on the fill's size alone erases marks that
-        // are plainly visible. Measured before this was added: at a panned view, 0.17% of colour
-        // channels changed, some by a full 255, while a control comparing two identical renders
-        // differed by exactly nothing -- so those were real losses, not rasterizer noise.
-        //
-        // Default 0, i.e. off. The viewport raises it only while a gesture is in flight.
-        if (minFeaturePx > 0) {
-          const st = d.style;
-          const inkPx =
-            (cap.radius * scale) / ch2 + (st.stroke && st.stroke !== "none" ? st.lineWidth : 0);
-          if (inkPx < minFeaturePx) {
-            stats.subPixelSkipped++;
-            continue;
-          }
+      // Sub-pixel gate. In the Poincare disk the Euclidean and hyperbolic metrics differ by
+      // (1 - |z|^2)/2, and |z| = tanh(d/2) gives 1 - |z|^2 = 1/cosh^2(d/2) = 1/ch2 -- so the cap's
+      // on-screen DIAMETER is capRadius * scale / ch2, with no extra projection whatsoever.
+      //
+      // This matters far more in the hyperbolic plane than it would on a map: measured on the
+      // Escher scene at its default view, 59% of the 38,640 shapes project to under one pixel, and
+      // they carry 45% of all vertices. They are crushed against the rim where the projection
+      // compresses infinite area into a finite ring.
+      //
+      // The STROKE has to be counted, not just the geometry. A shape 0.3 px across drawn with a
+      // 2 px stroke still paints a 2 px mark, so a gate on the fill's size alone erases marks that
+      // are plainly visible. Measured before this was added: at a panned view, 0.17% of colour
+      // channels changed, some by a full 255, while a control comparing two identical renders
+      // differed by exactly nothing -- so those were real losses, not rasterizer noise.
+      //
+      // Default 0, i.e. off. The viewport raises it only while a gesture is in flight.
+      if (minFeaturePx > 0) {
+        const st = d.style;
+        const inkPx =
+          (cap.radius * scale) / ch2 + (st.stroke && st.stroke !== "none" ? st.lineWidth : 0);
+        if (inkPx < minFeaturePx) {
+          stats.subPixelSkipped++;
+          continue;
         }
       }
       stats.survivors++;
 
-      if (d.kind === "path") this.drawPath(ctx, d, m, scale, shiftX, shiftY, drawRadius2, straightIfShorterThan, sagittaTolerance, opts, inDiskThreshold2, cX, cY, cW);
+      if (d.kind === "path") this.drawPath(ctx, d, m, scale, shiftX, shiftY, sagittaTolerance, opts);
       else if (d.kind === "text") this.drawText(ctx, d, m, scale, shiftX, shiftY, opts);
       else if (d.kind === "marker") this.drawMarker(ctx, d, m, scale, shiftX, shiftY);
     }
   }
 
-  drawPath(ctx, d, m, scale, shiftX, shiftY, drawRadius2, straightIfShorterThan, sagittaTolerance, opts, inDiskThreshold2, cX, cY, cW) {
+  drawPath(ctx, d, m, scale, shiftX, shiftY, sagittaTolerance, opts) {
     const stats = this.stats;
     const decimate = opts.decimateTolerancePx || 0;
     const decimate2 = decimate * decimate;
@@ -1553,16 +1483,12 @@ class Renderer {
     ensureVertexCapacity(n);
     const px = vertX;
     const py = vertY;
-    let anyInside = false;
     for (let i = 0; i < n; i++) {
       m.applyToLocal(d.xs[i], d.ys[i], d.ws[i], scratch);
       px[i] = scratch[0];
       py[i] = scratch[1];
-      if (px[i] * px[i] + py[i] * py[i] < drawRadius2) anyInside = true;
     }
     stats.pointsProjected += n;
-
-    if (opts.cullMode === CULL_ENDPOINTS && !anyInside) return;
     stats.drawn++;
 
     const style = d.style;
@@ -1598,7 +1524,7 @@ class Renderer {
             continue;
           }
         }
-        this.edgeTo(ctx, px[i], py[i], px[j], py[j], scale, shiftX, shiftY, straightIfShorterThan, sagittaTolerance);
+        this.edgeTo(ctx, px[i], py[i], px[j], py[j], scale, shiftX, shiftY, sagittaTolerance);
         ex = px[j] * scale;
         ey = py[j] * scale;
       }
@@ -1641,7 +1567,7 @@ class Renderer {
             continue;
           }
         }
-        this.edgeTo(ctx, px[i], py[i], px[j], py[j], scale, shiftX, shiftY, straightIfShorterThan, sagittaTolerance);
+        this.edgeTo(ctx, px[i], py[i], px[j], py[j], scale, shiftX, shiftY, sagittaTolerance);
         sx0 = px[j] * scale;
         sy0 = py[j] * scale;
         penAt = j;
@@ -1692,8 +1618,8 @@ class Renderer {
     }
   }
 
-  edgeTo(ctx, x1, y1, x2, y2, scale, shiftX, shiftY, straightIfShorterThan, sagittaTolerance) {
-    geodesicArc(x1, y1, x2, y2, arc, straightIfShorterThan, sagittaTolerance);
+  edgeTo(ctx, x1, y1, x2, y2, scale, shiftX, shiftY, sagittaTolerance) {
+    geodesicArc(x1, y1, x2, y2, arc, sagittaTolerance);
     if (arc.straight) {
       ctx.lineTo(x2 * scale + shiftX, -y2 * scale + shiftY);
     } else {
@@ -1722,7 +1648,7 @@ class Renderer {
 
     // The up-vector's projected length sets the size, so text shrinks with the hyperbolic
     // foreshortening exactly like the geometry around it.
-    const sizePx = scale * FONT_SCALE * Math.hypot(ux - ax, uy - ay) * LEGACY_BASE_FONT_PX;
+    const sizePx = scale * FONT_SCALE * Math.hypot(ux - ax, uy - ay) * BASE_FONT_PX;
     if (!(sizePx > opts.minTextPx)) {
       stats.textSkipped++;
       return;
@@ -1918,12 +1844,9 @@ class PointerInput {
     if (e.preventDefault) e.preventDefault();
 
     if (this.mode === MODE_PAN) {
-      // Clamp rather than ignore. Ignoring is what made the 2011 drag freeze past the rim and then
-      // resume from the stale position.
-      const [cx, cy] = this.options.panClamp
-        ? clampToRadius(x, y, this.options.interactRadius)
-        : [x, y];
-      if (!this.options.panClamp && cx * cx + cy * cy >= this.options.interactRadius ** 2) return;
+      // Clamp rather than ignore. Ignoring a cursor past the rim is what made the 2011 drag freeze
+      // there and then resume from the stale position; clamping keeps the gesture continuous.
+      const [cx, cy] = clampToRadius(x, y, this.options.interactRadius);
       this.view.updatePan(cx, cy);
       this.changed();
     } else if (this.mode === MODE_ROTATE) {
@@ -2850,10 +2773,7 @@ class Atlas {
     // all a provider can meaningfully use. The contract is unchanged in the way that matters: the
     // callback returns data in TILE-LOCAL coordinates and the library places it.
     const tile = {
-      // `address` is the name used everywhere in the new code; `key` is kept as an alias because the
-      // existing demos and any user code destructure it. Same object, two names, one meaning.
       address: address,
-      key: address,
       // The readable identifier, for filenames and logging. Built here, on a cache miss, rather than
       // per frame.
       id: this.tiling.addressToString(address),
@@ -3119,9 +3039,9 @@ function binaryCellClip(net, box) {
 //
 // Everything outside the Poincare disk is the page's business, not the library's. The library draws
 // the disk fill and the rim annulus; anything else (a world-turtle behind the disk, a star field,
-// a compass rose on top) goes through `layers` or the `onBeforeDraw`/`onAfterDraw` hooks. That is
-// why the 2011 `backgroundImage`, `shellImage` and `shellImageScale` options are gone: they baked
-// one example's art into the library.
+// a compass rose on top) goes through `layers` or the `onBeforeDraw`/`onAfterDraw` hooks. There are
+// deliberately no background-image or shell-image options: they would bake one example's art into
+// the library, and a layer does the same job without the library knowing what the art is.
 
 const DEFAULT_OPTIONS = {
   container: null,
@@ -3130,7 +3050,6 @@ const DEFAULT_OPTIONS = {
   height: null,
   autoResize: false,
   devicePixelRatio: "auto",
-  radiusBasis: "min",
 
   data: null,
   dataProvider: null,
@@ -3153,7 +3072,6 @@ const DEFAULT_OPTIONS = {
   allowZoom: true,
   allowRotate: true,
   rimRotate: true,
-  panClamp: true,
   wheelZoom: true,
   wheelZoomStep: 1.1,
   rotationMode: ROTATION_PARALLEL_TRANSPORT,
@@ -3168,8 +3086,6 @@ const DEFAULT_OPTIONS = {
   rimStroke: "#000000",
   rimLineWidth: 1.5,
 
-  cullMode: CULL_CAP,
-  arcMode: "sagitta",
   sagittaTolerancePx: 0.25,
   // Skip shapes whose projected diameter is below this many pixels. Zero at rest, so a still frame
   // is always drawn in full; `interactMinFeaturePx` applies only while a gesture is in flight, when
@@ -3193,26 +3109,6 @@ const DEFAULT_OPTIONS = {
   onFrame: null,
 };
 
-// The 2011 option names, mapped to their replacements. Accepted with a one-time warning so the
-// original example pages keep working.
-const LEGACY_ALIASES = {
-  initialOffsetX: "offsetX",
-  initialOffsetY: "offsetY",
-  initialRotation: "rotation",
-  initialZoom: "zoom",
-  viewThreshold: "interactRadius",
-  downloadThreshold: null, // superseded by the source's own gating
-  zoomMouseWheel: "wheelZoomStep",
-  backgroundColor: "background",
-  rimFillStyle: "rimFill",
-  rimStrokeStyle: "rimStroke",
-  backgroundImage: null, // now a layer; see docs/demo/layers.js
-  shellImage: null,
-  shellImageScale: null,
-};
-
-let warnedLegacy = false;
-
 // Exported for tests: option validation is pure, so it can be checked without a DOM.
 function normaliseOptionsForTesting(userOptions) {
   return normaliseOptions(userOptions);
@@ -3224,15 +3120,6 @@ function normaliseOptions(userOptions) {
   for (const key of Object.keys(userOptions || {})) {
     if (key in DEFAULT_OPTIONS) {
       opts[key] = userOptions[key];
-    } else if (key in LEGACY_ALIASES) {
-      const target = LEGACY_ALIASES[key];
-      if (!warnedLegacy && typeof console !== "undefined") {
-        warnedLegacy = true;
-        console.warn(
-          "hyperbolic-map: 2011 option names are deprecated. See the alias table in README.md.",
-        );
-      }
-      if (target) opts[target] = userOptions[key];
     } else {
       unknown.push(key);
     }
@@ -3427,8 +3314,6 @@ class HyperbolicViewport {
       onAfterDraw: this.options.onAfterDraw,
       onDrawBackground: this.options.onDrawBackground,
       onDrawRim: this.options.onDrawRim,
-      cullMode: this.options.cullMode,
-      arcMode: this.options.arcMode,
       sagittaTolerancePx: this.options.sagittaTolerancePx,
       decimateTolerancePx: this.options.decimateTolerancePx,
       // Quality snaps back the moment the gesture ends, so what the user studies is always the full
@@ -4404,12 +4289,6 @@ class BinaryTiling {
   }
 }
 
-// The centre of a binary cell in its own local coordinates is the local origin by construction; this
-// helper survives for the demos, which use it to place the hero.
-function binaryCellCentreLocal() {
-  return [0, 0];
-}
-
 // ===== src/index.js =====
 // hyperbolic-map-widget -- public surface.
 //
@@ -4443,13 +4322,10 @@ global.HyperbolicMap = {
   HyperbolicViewport: HyperbolicViewport,
   DEFAULT_OPTIONS: DEFAULT_OPTIONS,
   compileDrawables: compileDrawables,
-  readLegacyDrawable: readLegacyDrawable,
   DEFAULT_STYLE: DEFAULT_STYLE,
   StaticSource: StaticSource,
   CallbackSource: CallbackSource,
   Renderer: Renderer,
-  CULL_CAP: CULL_CAP,
-  CULL_ENDPOINTS: CULL_ENDPOINTS,
   Surface: Surface,
   PointerInput: PointerInput,
   clampToRadius: clampToRadius,
@@ -4463,7 +4339,6 @@ global.HyperbolicMap = {
   RegularTiling: RegularTiling,
   BinaryTiling: BinaryTiling,
   regularMetrics: regularMetrics,
-  binaryCellCentreLocal: binaryCellCentreLocal,
   BINARY_LOCAL_HALF_WIDTH: BINARY_LOCAL_HALF_WIDTH,
   BINARY_LOCAL_Y_LOW: BINARY_LOCAL_Y_LOW,
   BINARY_LOCAL_Y_HIGH: BINARY_LOCAL_Y_HIGH,

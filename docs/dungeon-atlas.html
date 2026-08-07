@@ -110,7 +110,7 @@ try {
         tileData: (tile) => {
           // Addresses are BigInt, exact at any depth: descending one latitude doubles the longitude,
           // so a plain number stops being exact around fifty levels down.
-          const { lat, lon } = tile.key;
+          const { lat, lon } = tile.address;
           const drawables = doc.room.slice();
           const chars = doc.critters[`${lat},${lon}`];
           if (chars) drawables.push(...chars);

@@ -161,12 +161,9 @@ export class PointerInput {
     if (e.preventDefault) e.preventDefault();
 
     if (this.mode === MODE_PAN) {
-      // Clamp rather than ignore. Ignoring is what made the 2011 drag freeze past the rim and then
-      // resume from the stale position.
-      const [cx, cy] = this.options.panClamp
-        ? clampToRadius(x, y, this.options.interactRadius)
-        : [x, y];
-      if (!this.options.panClamp && cx * cx + cy * cy >= this.options.interactRadius ** 2) return;
+      // Clamp rather than ignore. Ignoring a cursor past the rim is what made the 2011 drag freeze
+      // there and then resume from the stale position; clamping keeps the gesture continuous.
+      const [cx, cy] = clampToRadius(x, y, this.options.interactRadius);
       this.view.updatePan(cx, cy);
       this.changed();
     } else if (this.mode === MODE_ROTATE) {

@@ -94,7 +94,11 @@ For reproducing the demos (from the four `WebContent/*.html` pages):
 
 Images: `WebContent/turtle.png` (672×672 RGBA, 480 KB), `WebContent/stars.jpg` (1000×1000, 1.5 MB).
 
-## Legacy drawable shape
+## Legacy drawable shape (historical -- no longer read)
+
+The library reads only the v2 schema below. Support for this shape, and the `readLegacyDrawable`
+converter, were removed with the rest of the compatibility layer. Kept here because the committed
+`docs/*.json` were generated *from* data in this form, so it explains where their fields came from.
 
 ```json
 {"type": "polygon", "d": [[x, y, "L"], [x, y]], "fillStyle": "#000000",
@@ -118,9 +122,14 @@ Optional `"class"` selects a named style; the servlet defined `default`, `grid`,
 ]}
 ```
 
-Point flags become explicit: legacy `"L"` (draw this edge) is the default; a `"M"` flag starts a new
-sub-path. `minRadius`/`maxRadius` become optional `visibleFrom`/`visibleTo`.
-`readLegacyDrawables()` converts the 2011 shape so old data still loads.
+Point flags become explicit: `"L"` (draw this edge) is the default; a `"M"` flag starts a new
+sub-path.
+
+The 2011 `minRadius`/`maxRadius` zoom-gated level of detail has **no v2 equivalent**. It was briefly
+carried as `visibleFrom`/`visibleTo`, which the parser stored and the renderer never read; those
+fields were removed rather than left to lie. `docs/escher.json` still carries `visibleTo: 0.75` on
+32,760 of its 38,640 records and they are simply ignored. Per-tile level of detail in atlas mode is a
+different, working mechanism: see `lod`/`lodPx` in README.md.
 
 ## Output sizing
 

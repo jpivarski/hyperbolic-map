@@ -23,8 +23,10 @@ anything mathematical.
 - **Do not "correct" anything marked verified-correct in `notes/math-audit.md`** without first
   reproducing the verification and recording the new result there. Several parts of the original code
   look wrong and are not.
-- **Never commit `OLD/`.** It held two archived disk images and the original 2011-2012 repo. It has
-  been removed from the working tree and stays `.gitignore`d, so it cannot return by accident.
+- **Never commit `OLD/`.** It held two archived disk images and the original 2011-2012 repo, and it
+  is not redistributable. It has been deleted from the working tree. Note there is **no `.gitignore`
+  rule** stopping it coming back -- if you ever restore it locally, check `git status` before staging.
+  Nothing in this repository depends on it: the last code that did was removed in the PR #2 cleanup.
 - **The demos are not regenerated from sources.** The scripts that built `docs/*.json` from the 2011
   databases and from the Escher raster were removed in the PR #2 cleanup; the committed JSON under
   `docs/` is the artefact. Do not try to rebuild it -- edit it, or write a new generator.
@@ -49,7 +51,7 @@ anything mathematical.
 |---|---|
 | [`log.md`](notes/log.md) | append-only chronological implementation record |
 | [`math-audit.md`](notes/math-audit.md) | every formula, its verification status, and the numbers |
-| [`legacy-decoded.md`](notes/legacy-decoded.md) | what each 2011 function actually did, and its bugs |
+| [`canvas-testing.md`](notes/canvas-testing.md) | why canvas pixels are not deterministic across draws |
 | [`su11-core.md`](notes/su11-core.md) | the SU(1,1) representation and the projection kernel |
 | [`tilings.md`](notes/tilings.md) | `{p,q}` and binary tiling formulas, generators, tile keys |
 | [`escher-circle-limit-iii.md`](notes/escher-circle-limit-iii.md) | the `{8,3}`/`433` derivation and the art fit |

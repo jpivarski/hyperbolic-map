@@ -23,7 +23,6 @@
 // and the significance gate keep that cheap, and results arrive and render mid-gesture.
 
 import { compileDrawables } from "./drawable.js";
-import { coshHalfDistance } from "../core/minkowski.js";
 
 export class StaticSource {
   constructor(data, styleSheet) {

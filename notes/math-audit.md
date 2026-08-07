@@ -70,6 +70,12 @@ Every math-bearing symbol in the original code, and every formula in this librar
 
 ### Original client (`OLD/hyperbolic-storage-space/WebContent/HyperbolicViewport.js`)
 
+> **Historical.** `OLD/` is gone and no code in this repository compares against it any more; the
+> differential tests that used it were replaced by direct property tests in the compatibility-layer
+> removal. This section stays because it records **which of these formulas were verified correct** as
+> well as which were broken, and several of the correct ones look wrong. Do not "fix" anything marked
+> verified here without redoing the verification and recording the new result.
+
 | symbol | status | evidence |
 |---|---|---|
 | `halfPlane_to_hyperShadow` | **BUG** — double cancellation near the half-plane basepoint `i` | returns *exactly 0* for `d/2 ≲ 5e-9`; 4.4e-5 relative error at `5e-7`. `sqrt((s₊+s₋)/(s₊−s₋))` cancels as `s₊→s₋`, then `(u−1/u)/2` cancels again |
@@ -94,6 +100,8 @@ Every math-bearing symbol in the original code, and every formula in this librar
 | `updateOffset` pan gate | **BUG** — freezes instead of clamping | pan is gated on `x²+y² < viewThreshold²`, so dragging past the rim stops and then *resumes where it froze* |
 
 ### Original server (`OLD/hyperbolic-storage-space/src/org/hyperbolicstorage/GeographicalTiles.java`)
+
+> **Historical**, on the same terms as the section above.
 
 | symbol | status | evidence |
 |---|---|---|

@@ -144,10 +144,7 @@ export class Atlas {
     // all a provider can meaningfully use. The contract is unchanged in the way that matters: the
     // callback returns data in TILE-LOCAL coordinates and the library places it.
     const tile = {
-      // `address` is the name used everywhere in the new code; `key` is kept as an alias because the
-      // existing demos and any user code destructure it. Same object, two names, one meaning.
       address: address,
-      key: address,
       // The readable identifier, for filenames and logging. Built here, on a cache miss, rather than
       // per frame.
       id: this.tiling.addressToString(address),
