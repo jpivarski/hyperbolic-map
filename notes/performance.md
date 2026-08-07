@@ -257,3 +257,76 @@ ADDRESS BOOKKEEPING was not, and it dominated:
 
 Both were found by measuring at increasing distance rather than at one point, which is the only way this
 class of problem shows up.
+
+## Atlas flicker and the Escher frame time (2026-08-06, later)
+
+Two reports: the diagnostics flickered while scrolling (regular polygons only), and the Escher atlas
+was slow despite only 233 shapes per tile.
+
+### The flicker: a synchronous callback was costing a frame
+
+`request()` always went through `Promise.resolve().then(...)`, so even data already in hand arrived a
+microtask late — after the current frame had drawn. On a `{p,q}` tiling that is visible, because word
+addresses are not canonical: when the camera re-anchors the walk renames many tiles at once, they all
+miss the address-keyed cache together, and every one of them returns `null` for that frame.
+
+Measured on `{7,3}`, panning one tile spacing in 60 steps:
+
+| | before | after |
+|---|---|---|
+| frame 30 (the single re-anchor) | **26 tiles missing** | 0 |
+| other frames | 1-3 missing on 18 of 60 | 0 |
+| binary tiling, worst frame | 2 missing | 0 |
+
+Binary was nearly immune all along — canonical addresses, so nothing gets renamed. That asymmetry is
+what identified the cause.
+
+Fix: if the callback returns a non-thenable, compile and cache it inline and return it. Asynchronous
+providers are untouched. All nine tilings now pan with **zero** frames missing a tile.
+
+### The Escher frame time: it really was drawing 46,600 shapes
+
+"233 shapes" is per tile; 200 tiles is 46,600. Where the time went, measured by substitution:
+
+| | drawables | frame |
+|---|---|---|
+| full art | 46,600 | 36.8 ms |
+| full art, everything culled by `minFeaturePx` | 46,600 considered, 0 drawn | **6.4 ms** |
+| one shape per tile | 200 | 1.4 ms |
+| clipping off | — | −0.4 ms |
+
+So drawing dominates (~0.65 us per shape), iteration is 0.14 us per considered drawable, and clipping is
+noise. Raising `minFeaturePx` helps but bottoms out around 21 ms, because in an 8 px tile the shapes are
+about a pixel each rather than sub-pixel — there is nothing for a size threshold to remove.
+
+The distribution is the point: of 200 visible tiles, **122 had a screen radius under 8 px**, and 45
+under 4 px.
+
+| | | |
+|---|---|---|
+| >= 32 px | 15 tiles | |
+| 16-32 px | 22 | |
+| 8-16 px | 41 | |
+| 4-8 px | 77 | each still submitting 233 shapes |
+| < 4 px | 45 | |
+
+Fix: per-tile level of detail. A tile may carry `lod` art used below `lodPx` (default 11). For Circle
+Limit III that is one octagon in the area-weighted average colour, which the tracer computes from the
+coverage it measured (ink 0.149, body 0.733, spine 0.118).
+
+### Where it landed
+
+| | before | after |
+|---|---|---|
+| Escher, static frame | 36-47 ms | **12.6 ms** |
+| Escher, drag median | 31 ms | **12.6 ms** |
+| Escher, worst frame (the re-anchor) | **125 ms** | 17.7 ms |
+| drawables per frame | 46,600 | 12,728 |
+| visual difference | — | 0.0 % of pixels inside 85 % of the radius, 0.2 % in the outer ring |
+| diagnostics, drag median | — | 6.4 ms, worst 11.8 ms |
+| dungeon atlas, drag median | — | 5.6 ms (unchanged) |
+
+The 125 ms re-anchor frame needed a separate fix: it was recompiling **160 tiles at once**, all renamed
+by the same re-anchor. Compiled art is now memoised on the identity of the object the callback returns,
+so a provider handing back one of a few shared objects — which the stabiliser rule requires on a `{p,q}`
+tiling anyway — recompiles nothing. A provider that builds a fresh object per call is unaffected.

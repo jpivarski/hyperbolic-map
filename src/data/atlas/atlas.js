@@ -47,6 +47,9 @@ export class Atlas {
       // is invisible until you scroll, so it is checked on the first tile rather than only documented.
       checkTileSymmetry = "warn",
       tileSymmetryTolerance = 1e-6,
+      // Below this on-screen tile radius (in CSS pixels) a tile draws its `lod` art instead of its full
+      // art, if it supplied any. See passes().
+      lodPx = 11,
     } = options;
     if (!tiling) throw new Error("hyperbolic-map: atlas needs a tiling");
     if (typeof tileData !== "function") throw new Error("hyperbolic-map: atlas needs a tileData callback");
@@ -60,6 +63,7 @@ export class Atlas {
     this.onTileLoad = onTileLoad;
     this.onTileError = onTileError;
     this.checkTileSymmetry = checkTileSymmetry;
+    this.lodPx = lodPx;
     this.tileSymmetryTolerance = tileSymmetryTolerance;
     // Populated by the first symmetry check: { residual, checked, ok }. Exposed so a demo page can show
     // it and so tests can assert on it.
@@ -73,6 +77,21 @@ export class Atlas {
     // The camera. Owned here so that the tiling, the walk and the cache all share one notion of where
     // "here" is.
     this.anchor = new Anchor(tiling);
+    // Scratch, and the tile's circumradius in LOCAL coordinates -- used to measure a tile's screen size
+    // for the level-of-detail switch, once per tile per frame.
+    this._c0 = [0, 0];
+    this._c1 = [0, 0];
+    this.tileLocalRadius = Math.sinh((tiling.metrics.circumradius || 1) / 2);
+    // Compiled art, memoised on the IDENTITY of the object the callback returned.
+    //
+    // On a {p,q} tiling the walk renames many tiles at once when the camera re-anchors, so they all miss
+    // the address-keyed cache together. Measured on the Escher atlas during a drag: the re-anchor frame
+    // recompiled 160 tiles and took 125 ms, against a 16 ms median. But the data itself had not changed
+    // -- the rule says art on such a tiling may only depend on the tile CLASS, so a sane provider
+    // returns one of a few shared objects, and those had already been compiled. Keying on object
+    // identity turns the whole stall into 160 map lookups without needing to know anything about the
+    // provider. A provider that builds a fresh object every call gets today's behaviour, unchanged.
+    this._compiled = typeof WeakMap === "function" ? new WeakMap() : null;
   }
 
   // THE RULE, enforced. See symmetry.js for why this matters and what goes wrong without it.
@@ -142,42 +161,87 @@ export class Atlas {
       centreRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
     };
 
-    const p = Promise.resolve()
-      .then(() => this.tileData(tile))
+    // A SYNCHRONOUS callback must be served in THIS frame.
+    //
+    // Going through a promise even for data that is already in hand costs a frame, and on a {p,q}
+    // tiling that frame is visible: word addresses are not canonical, so when the camera re-anchors the
+    // walk renames many tiles at once, every renamed tile misses the cache, and every one of them
+    // vanishes for exactly one frame. Measured on {7,3} panning one tile spacing in 60 steps: 26 of the
+    // on-screen tiles disappeared together on the single re-anchor frame, plus 1-3 per frame from tiles
+    // entering at the rim. That is the flicker. The binary tiling barely showed it (worst 2) because its
+    // addresses are canonical and nothing gets renamed.
+    let result;
+    try {
+      result = this.tileData(tile);
+    } catch (err) {
+      this.failTile(keyString, tile, err);
+      return this.cache.get(keyString) || null;
+    }
+    if (!result || typeof result.then !== "function") {
+      try {
+        return this.acceptTile(keyString, tile, result);
+      } catch (err) {
+        this.failTile(keyString, tile, err);
+        return this.cache.get(keyString) || null;
+      }
+    }
+
+    const p = result
       .then((data) => {
         this.pending.delete(keyString);
-        if (data == null) {
-          this.cache.set(keyString, { drawables: [], withinTile: true });
-          return;
-        }
-        // Check THE RULE once, on the first tile that carries artwork: is this art invariant under the
-        // tile stabiliser? If not, it will jump as the camera scrolls, and nothing else in the library
-        // will complain. Once, not per tile: the answer is a property of the art, and the check is
-        // O(shapes^2) in the worst case.
-        this.verifyTileSymmetry(data);
-        const entry = {
-          drawables: compileDrawables(data, this.styleSheet),
-          withinTile: !!(data && data.withinTile),
-        };
-        this.cache.set(keyString, entry);
-        while (this.cache.size > this.cacheSize) {
-          const oldest = this.cache.keys().next().value;
-          this.cache.delete(oldest);
-        }
-        if (this.onTileLoad) this.onTileLoad(tile, entry.drawables);
+        this.acceptTile(keyString, tile, data);
         if (onReady) onReady();
       })
       .catch((err) => {
         this.pending.delete(keyString);
-        // Cache the failure as empty so a broken tile is not retried every frame.
-        this.cache.set(keyString, { drawables: [], withinTile: true });
-        if (this.onTileError) this.onTileError(tile, err);
-        // `tile.id` is the readable address, not `keyString`: cache keys are folded hashes for speed,
-        // and "tile 9303484400662374000 failed" tells a caller nothing they can act on.
-        else if (typeof console !== "undefined") console.error(`hyperbolic-map: tile ${tile.id} failed`, err);
+        this.failTile(keyString, tile, err);
       });
     this.pending.set(keyString, p);
     return null;
+  }
+
+  // Compile a tile's data, cache it, and return the entry. Shared by the synchronous and asynchronous
+  // paths so they cannot drift apart.
+  acceptTile(keyString, tile, data) {
+    if (data == null) {
+      const empty = { drawables: [], withinTile: true };
+      this.cache.set(keyString, empty);
+      return empty;
+    }
+    // Check THE RULE once, on the first tile that carries artwork: is this art invariant under the tile
+    // stabiliser? If not, it will jump as the camera scrolls, and nothing else in the library will
+    // complain. Once, not per tile: the answer is a property of the art, and the check is O(shapes^2).
+    this.verifyTileSymmetry(data);
+    let entry = this._compiled && typeof data === "object" ? this._compiled.get(data) : null;
+    if (!entry) {
+      entry = {
+        drawables: compileDrawables(data, this.styleSheet),
+        withinTile: !!(data && data.withinTile),
+        // Optional level of detail: a cheap stand-in used when the tile is small on screen. Compiled
+        // here so switching between them per frame costs nothing.
+        lod: data.lod
+          ? compileDrawables({ version: 1, coordinates: data.coordinates || "local", drawables: data.lod }, this.styleSheet)
+          : null,
+        lodPx: typeof data.lodPx === "number" ? data.lodPx : this.lodPx,
+      };
+      if (this._compiled && typeof data === "object") this._compiled.set(data, entry);
+    }
+    this.cache.set(keyString, entry);
+    while (this.cache.size > this.cacheSize) {
+      const oldest = this.cache.keys().next().value;
+      this.cache.delete(oldest);
+    }
+    if (this.onTileLoad) this.onTileLoad(tile, entry.drawables);
+    return entry;
+  }
+
+  failTile(keyString, tile, err) {
+    // Cache the failure as empty so a broken tile is not retried every frame.
+    this.cache.set(keyString, { drawables: [], withinTile: true });
+    if (this.onTileError) this.onTileError(tile, err);
+    // `tile.id` is the readable address, not `keyString`: cache keys are folded hashes for speed, and
+    // "tile 9303484400662374000 failed" tells a caller nothing they can act on.
+    else if (typeof console !== "undefined") console.error(`hyperbolic-map: tile ${tile.id} failed`, err);
   }
 
   // Build the render passes for the current view: one per visible tile, each with its own matrix and
@@ -206,6 +270,19 @@ export class Atlas {
       // The composition the whole rewrite is about: camera-relative view times camera-relative tile
       // frame. Both factors O(1); no world frame is ever formed.
       const net = Vc.mul(t.rel);
+
+      // LEVEL OF DETAIL. Most tiles on screen are tiny -- measured on the Escher atlas, 122 of 200 had a
+      // screen radius under 8 px -- and submitting a few hundred shapes for an 8 px tile is most of the
+      // frame. Drawing 46,600 shapes cost 37 ms; the same frame with everything culled cost 6.4 ms, so
+      // it really is the drawing, and per-drawable culling cannot help because the shapes are each about
+      // a pixel rather than sub-pixel.
+      let drawables = entry.drawables;
+      if (entry.lod && entry.lod.length) {
+        net.applyToDisk(0, 0, this._c0);
+        net.applyToLocal(this.tileLocalRadius, 0, undefined, this._c1);
+        const px = Math.hypot(this._c1[0] - this._c0[0], this._c1[1] - this._c0[1]) * view.radius;
+        if (px < entry.lodPx) drawables = entry.lod;
+      }
       // `id` is LAZY. Overlays and diagnostics want the readable string, but most frames never look at
       // it, and building 200 of them costs ~20 ms once the words are thousands of symbols long.
       const tiling = this.tiling;
@@ -218,7 +295,7 @@ export class Atlas {
       const wantClip =
         this.clip === CLIP_ALWAYS || (this.clip === CLIP_AUTO && !entry.withinTile);
       out.push({
-        drawables: entry.drawables,
+        drawables: drawables,
         matrix: net,
         clip: wantClip ? this.clipPathFor(net) : null,
       });

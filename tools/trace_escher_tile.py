@@ -319,14 +319,42 @@ def main():
                     "points": [[round(x * c - y * s, 6), round(x * s + y * c, 6)] for x, y in pts],
                 })
 
+    # Level of detail. Most tiles on screen are tiny -- 122 of 200 had a screen radius under 8 px on the
+    # Escher atlas -- and a few hundred shapes in an 8 px tile is most of the frame time for no visible
+    # gain. So the tile also carries a single octagon in its own AREA-WEIGHTED AVERAGE colour, which the
+    # renderer substitutes below `lodPx`. At that size the detail reads as a flat tone anyway, and the
+    # average is what that tone is.
+    cover = {}
+    tot = int(keep.sum())
+    for name, c in (("ink", INK), ("body", BODY), ("spine", SPINE)):
+        cover[name] = round(float(((sym == c) & keep).sum()) / max(1, tot), 5)
+
+    def mix(hexes_weights):
+        r = g = b = 0.0
+        for hx, w in hexes_weights:
+            r += int(hx[1:3], 16) * w
+            g += int(hx[3:5], 16) * w
+            b += int(hx[5:7], 16) * w
+        return "#%02x%02x%02x" % (int(round(r)), int(round(g)), int(round(b)))
+
+    lod_fill = mix([(PALETTE["ink"], cover["ink"]), (PALETTE["body"], cover["body"]),
+                    (PALETTE["spine"], cover["spine"])])
+    print(f"coverage {cover} -> lod fill {lod_fill}")
+
     doc = {
         "version": 1,
         "coordinates": "local",
+        "lodPx": 11,
+        "lod": [{
+            "type": "path", "closed": True, "fill": lod_fill, "stroke": "none",
+            "points": [[round(x, 6), round(y, 6)] for x, y in oct_scaled],
+        }],
         "meta": {
             "tiling": {"p": P, "q": Q, "frameSymmetry": 4},
             "inradius": PSI,
             "circumradius": CHI,
             "source": args.image,
+            "coverage": cover,
             "fit": {"diskRadiusPx": Rd, "centrePx": [CXp, CYp], "libraryToRasterDegrees": args.rotation},
             "note": (
                 "One {8,3} octagon of Escher's Circle Limit III, traced from the raster and made EXACTLY "

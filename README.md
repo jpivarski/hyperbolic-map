@@ -323,6 +323,7 @@ const viewport = new HyperbolicViewport({
     clip: "auto",     // "always" | "never" | "auto" (honours a tile's `withinTile: true`)
     maxTiles: 200,
     cacheSize: 512,
+    lodPx: 11,        // below this on-screen tile radius, use the tile's `lod` art if it has any
   },
   anchor: { lat: -1n, lon: 0n },   // optional: open on a given tile, at any distance
 });
@@ -387,6 +388,41 @@ viewport.stats.maxViewEntry;   // stays near 1 at any distance -- the invariant 
 
 The callback returns **data, not URLs**, so it can fetch, synthesise infinite content, or merge
 several overlays. Placing and rotating each tile is always the library's job.
+
+**Return data synchronously when you can.** A callback that returns a plain object (rather than a
+promise) is compiled and drawn in the *same* frame. That matters more than it sounds: `{p,q}` addresses
+are not canonical, so when the camera re-anchors the walk renames many tiles at once and they all miss
+the cache together. Measured on `{7,3}`, going through a promise made 26 tiles vanish for exactly one
+frame on every tile crossing — a visible flicker. Asynchronous providers still work exactly as before;
+they just cannot avoid the first frame.
+
+**Return the same object for tiles that look the same.** Compiled art is memoised on the identity of the
+object you return, so a provider that hands back one of a few shared objects — which is what
+[the rule](#the-rule-your-tile-art-must-obey) requires on a `{p,q}` tiling anyway — never pays to
+recompile. Measured on the Escher atlas, the re-anchor frame recompiled 160 tiles and took **125 ms**
+before this and is now indistinguishable from an ordinary frame.
+
+### Level of detail
+
+Most tiles on screen are small. Measured on the Escher atlas at its default zoom, 122 of 200 visible
+tiles had a screen radius under 8 pixels — and each was still submitting 233 shapes. Drawing them cost
+about 30 ms of a 37 ms frame, and per-drawable culling could not help because the shapes are around a
+pixel each rather than sub-pixel.
+
+So a tile may carry a cheap stand-in, used when it is small:
+
+```js
+tileData: () => ({
+  drawables: [...],   // the real art
+  lod: [...],         // drawn instead when the tile is small; often a single filled polygon
+  lodPx: 11,          // optional per-tile override of atlas.lodPx
+})
+```
+
+For Circle Limit III the `lod` is one octagon in the tile's **area-weighted average colour**, which
+`tools/trace_escher_tile.py` computes from the traced coverage. Measured: 46,600 drawables become
+12,728 and a 36 ms frame becomes 12.6 ms, while the picture changes by **0.0 % of pixels inside 85 % of
+the radius** and 0.2 % in the outermost ring.
 
 ### `RegularTiling({p, q, frameSymmetry})`
 

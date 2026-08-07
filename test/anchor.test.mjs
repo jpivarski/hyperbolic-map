@@ -774,3 +774,94 @@ test("the tile cache evicts without ever serving another tile's data", () => {
   assert.equal(b.addressKey(addr), b.addressKey(addr));
   assert.equal(b.addressToString(addr), "-40,123456789012345678901234567890");
 });
+
+test("synchronous tile data is drawn in the SAME frame, not the next one", () => {
+  // The flicker. Going through a promise even for data already in hand costs a frame, and on a {p,q}
+  // tiling that frame is visible: word addresses are not canonical, so a re-anchor renames many tiles
+  // at once, every renamed tile misses the cache, and every one of them vanishes for exactly one frame.
+  // Measured in the browser on {7,3}: 26 tiles disappeared together on the single re-anchor frame.
+  const tiling = new RegularTiling({ p: 7, q: 3 });
+  const atlas = new Atlas({
+    tiling,
+    maxTiles: 40,
+    checkTileSymmetry: "off",
+    tileData: () => ({ drawables: [{ type: "path", points: [[0, 0], [0.1, 0], [0.05, 0.1]], closed: true, fill: "#123456" }] }),
+  });
+  const view = { matrix: Isom.identity(), effectiveRadius: 0.5, radius: 200 };
+  const wanted = atlas.anchor.neighbourhood(Isom.identity(), 0.5, 40).length;
+  assert.ok(wanted > 5, `only ${wanted} tiles -- not exercising anything`);
+  // The VERY FIRST pass, with a cold cache, must already draw everything.
+  const passes = atlas.passes(view, () => {});
+  assert.equal(passes.length, wanted, `first frame drew ${passes.length} of ${wanted} tiles`);
+  assert.equal(atlas.pending.size, 0, "a synchronous provider should leave nothing pending");
+});
+
+test("an asynchronous provider still works, and still resolves", async () => {
+  const tiling = new RegularTiling({ p: 5, q: 4 });
+  let calls = 0;
+  const atlas = new Atlas({
+    tiling,
+    maxTiles: 12,
+    checkTileSymmetry: "off",
+    tileData: () => {
+      calls++;
+      return Promise.resolve({ drawables: [{ type: "path", points: [[0, 0], [0.1, 0], [0.05, 0.1]], closed: true, fill: "#abc" }] });
+    },
+  });
+  const view = { matrix: Isom.identity(), effectiveRadius: 0.5, radius: 200 };
+  assert.equal(atlas.passes(view, () => {}).length, 0, "async data cannot be ready on the first frame");
+  assert.ok(atlas.pending.size > 0);
+  for (let i = 0; i < 8 && atlas.pending.size; i++) await Promise.all([...atlas.pending.values()]);
+  assert.ok(atlas.passes(view, () => {}).length > 5, "async data should be drawn once resolved");
+  assert.ok(calls > 5);
+});
+
+test("compiled art is memoised on the identity of the returned object", () => {
+  // What turns a re-anchor from a 125 ms stall into nothing. The walk renames many tiles at once, so
+  // they all miss the address-keyed cache together -- but a provider obeying the rule returns one of a
+  // few shared objects, and those are already compiled.
+  const tiling = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  const shared = [0, 1, 2].map((k) => ({
+    drawables: [{ type: "path", points: [[0, 0], [0.1, 0], [0.05, 0.1]], closed: true, fill: `#00000${k}` }],
+  }));
+  const atlas = new Atlas({
+    tiling, maxTiles: 60, checkTileSymmetry: "off",
+    tileData: (t) => shared[t.classIndex % 3],
+  });
+  const view = { matrix: Isom.identity(), effectiveRadius: 0.5, radius: 200 };
+  const passes = atlas.passes(view, () => {});
+  assert.ok(passes.length > 5);
+  // However many tiles were drawn, there are only three distinct compiled drawable arrays.
+  const distinct = new Set(passes.map((p) => p.drawables));
+  assert.ok(distinct.size <= 3, `${distinct.size} distinct compiled arrays for 3 shared data objects`);
+  // And re-requesting under a brand-new key reuses the compiled entry rather than rebuilding it.
+  const before = [...distinct][0];
+  atlas.cache.clear();
+  const again = atlas.passes(view, () => {});
+  assert.ok(again.some((p) => p.drawables === before), "clearing the address cache should not recompile");
+});
+
+test("a small tile draws its lod art instead of its full art", () => {
+  const tiling = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  const full = [];
+  for (let i = 0; i < 40; i++) full.push({ type: "path", points: [[0, 0], [0.05, 0], [0.02, 0.05]], closed: true, fill: "#111" });
+  const data = {
+    drawables: full,
+    lod: [{ type: "path", points: [[0, 0], [0.3, 0], [0.15, 0.3]], closed: true, fill: "#222" }],
+    lodPx: 12,
+  };
+  const atlas = new Atlas({ tiling, maxTiles: 120, checkTileSymmetry: "off", tileData: () => data });
+  // A big canvas: every tile is large, so nothing should be simplified.
+  const big = atlas.passes({ matrix: Isom.identity(), effectiveRadius: 0.6, radius: 4000 }, () => {});
+  assert.ok(big.length > 5);
+  assert.ok(big.every((p) => p.drawables.length === 40), "no tile should use lod art on a huge canvas");
+  // A tiny canvas: every tile is small, so all of them should be.
+  const small = atlas.passes({ matrix: Isom.identity(), effectiveRadius: 0.6, radius: 20 }, () => {});
+  assert.ok(small.length > 5);
+  assert.ok(small.every((p) => p.drawables.length === 1), "every tile should use lod art on a tiny canvas");
+  // And a realistic one should use both, which is the case that actually happens: the walk reaches the
+  // rim, where tiles compress towards a point, so the near ones are large and the far ones are not.
+  const mid = atlas.passes({ matrix: Isom.identity(), effectiveRadius: 0.97, radius: 260 }, () => {});
+  const lodCount = mid.filter((p) => p.drawables.length === 1).length;
+  assert.ok(lodCount > 0 && lodCount < mid.length, `mixed canvas used lod for ${lodCount} of ${mid.length}`);
+});

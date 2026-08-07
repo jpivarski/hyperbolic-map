@@ -1144,3 +1144,38 @@ is confirmed by the exact check; the sweeping version of it did not.
 * Circle Limit III: 233 drawables, 2,540 points, ~37 ms static and ~31 ms during a drag (the old tile
   was 90/530 at 39 ms; the extra cost is absorbed by `minFeaturePx`, which drops 20,291 sub-pixel
   drawables and decimates 162,063 vertices per frame).
+
+## 2026-08-06 (night) — the flicker and the Escher frame time
+
+Two reports after the stabiliser fix landed: the diagnostics flickered while scrolling, but **only the
+regular polygons**, and the Escher atlas was slow "despite only 233 shapes".
+
+**The flicker.** The "only the regular polygons" was the whole clue. `request()` routed every callback
+through `Promise.resolve().then(...)`, so data already in hand still arrived a microtask late — one
+frame. On a `{p,q}` tiling the camera re-anchoring renames many tiles at once (word addresses are not
+canonical), they all miss the address-keyed cache together, and every one returns `null` for that frame.
+Measured on `{7,3}`: 26 tiles vanished together on the single re-anchor frame of a 60-step pan. Binary
+barely showed it (worst 2) because its addresses are canonical and nothing is renamed. Serving
+synchronous callbacks inline fixes it: **0 frames with a missing tile, on all nine tilings.**
+
+**The frame time.** "233 shapes" is per tile; 200 tiles is 46,600 shapes. Substitution measurements:
+drawing them is 36.8 ms, merely iterating them with everything culled is 6.4 ms, one shape per tile is
+1.4 ms, and clipping is worth 0.4 ms. So it is genuinely the drawing, and `minFeaturePx` bottoms out
+around 21 ms because in an 8 px tile the shapes are about a pixel each — a size threshold has nothing to
+remove. The distribution says it plainly: **122 of 200 visible tiles had a screen radius under 8 px**.
+
+Fix: per-tile level of detail (`lod` / `lodPx`). Circle Limit III's is one octagon in the area-weighted
+average colour, computed by the tracer from its own coverage measurement. 46,600 drawables -> 12,728,
+36 ms -> 12.6 ms, and the picture changes by 0.0 % of pixels inside 85 % of the radius.
+
+**A second, larger stall showed up only once the first was fixed.** With synchronous serving the
+re-anchor no longer blinks — it *stalls*, because the renamed tiles are now recompiled inside the frame.
+Measured: the re-anchor frame recompiled **160 tiles and took 125 ms**, against a 16 ms median.
+Memoising compiled art on the identity of the object the callback returns removes it entirely (17.7 ms),
+because a provider obeying the stabiliser rule returns one of a few shared objects anyway.
+
+Escher, end to end: static 36-47 ms -> 12.6 ms, drag median 31 -> 12.6 ms, worst frame 125 -> 20 ms.
+
+All 130 node tests pass (four new ones pin the synchronous path, the async path, the memoisation and the
+LOD switch), all nine browser checks pass including smoothness at 38/38, and compound scroll is clean on
+all nine tilings.

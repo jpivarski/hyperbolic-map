@@ -86,9 +86,21 @@ try {
   // on, and why the tile's word address is not.
   const BODY_IN_FILE = "#7ba05b";
   const CLASS_COLOURS = ["#79bd68", "#e1ba62", "#cf7050"];
+
+  // The low-detail stand-in has to be recoloured too, and it is not simply the class colour: it is the
+  // tile's AREA-WEIGHTED average, so it has to be re-mixed against the ink and spine using the coverage
+  // the tracer recorded. Without this a distant tile would read as a lighter patch than a near one.
+  const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+  const mix = (parts) => "#" + [0, 1, 2].map((k) =>
+    Math.round(parts.reduce((a, [c, w]) => a + hex(c)[k] * w, 0)).toString(16).padStart(2, "0")).join("");
+  const cov = tile.meta.coverage;
   const byClass = CLASS_COLOURS.map((col) => ({
     version: 1,
     coordinates: "local",
+    lodPx: tile.lodPx,
+    lod: tile.lod.map((d) => Object.assign({}, d, {
+      fill: mix([["#141414", cov.ink], [col, cov.body], ["#fbf6e6", cov.spine]]),
+    })),
     drawables: tile.drawables.map((d) => (d.fill === BODY_IN_FILE ? Object.assign({}, d, { fill: col }) : d)),
   }));
 
