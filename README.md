@@ -1,43 +1,26 @@
 # Hyperbolic Map Widget
 
-A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model).
+A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model). Think of it like [Google Earth](https://earth.google.com/) for a negatively curved surface, rather than positively curved one (a sphere). [This is a nice summary](https://sites.pitt.edu/~jdnorton/teaching/HPS_0410/chapters/non_Euclid_postulates/postulates.html) of Euclidean, spherical, and hyperbolic geometries.
 
+See the demos here:
 
+https://jpivarski.github.io/hyperbolic-map-widget/
 
-
-
-<!--
-
-An interactive viewer for vector maps of the **hyperbolic plane**, drawn in the Poincaré disk.
-Scroll and rotate it like any map — except that the space it shows has more room in it than a flat
-map could ever hold: every step outward reveals exponentially more.
-
-Zero runtime dependencies. Plain JavaScript (ES2020). Mouse and multi-touch.
-
-**[Live examples →](https://jpivarski.github.io/hyperbolic-map-widget/)**
-
-- [The mathematics](docs/MATH.md) — what the coordinates mean and how the projection works.
-- [Implementation notes](notes/) — the audit, the design decisions, and the reasoning behind them.
-
-This is a revival of a 2011–2012 experiment ([hyperbolic-storage-space](https://github.com/jpivarski/hyperbolic-storage-space),
-written up as *Lost in Hyperbolia*), which paired a Java servlet with a browser client. The server and
-the blog are gone. The client has been rewritten from scratch, the example data recovered from the
-original database files, and the mathematics re-derived and checked — which turned up several real
-errors in the original, all documented in [`notes/math-audit.md`](notes/math-audit.md).
-
----
+This library is pure JavaScript (ES2020) without any runtime dependencies. It has been modernized and packaged from my 2012 blog post, [Lost in Hyperbolia](http://coffeeshopphysics.com/articles/2012-12/22_lost_in_hyperbolia/) ([GitHub repo](https://github.com/jpivarski/hyperbolic-storage-space)). Scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers or dragging the outer ring with a mouse.
 
 ## Install
 
-```sh
+```bash
 npm install hyperbolic-map-widget
 ```
+
+and
 
 ```js
 import { HyperbolicViewport } from "hyperbolic-map-widget";
 ```
 
-Or drop in the bundle and use the `HyperbolicMap` global:
+or drop in the bundle and use the `HyperbolicMap` global:
 
 ```html
 <script src="hyperbolic-map.iife.js"></script>
@@ -65,23 +48,17 @@ const viewport = new HyperbolicViewport({
 });
 ```
 
-Drag inside the disk to scroll, drag the outer ring to rotate, wheel to zoom. On a touchscreen: one
-finger scrolls, two fingers pinch and twist.
+Replace `drawables` with your own vector art, and use scripts from the [tools/](tools/) directory to convert between JSON and SVG.
 
-## Coordinates in one paragraph
+The coordinates $(x, y)$ are projected onto the screen as $(x/w, y/w)$ with $w = \sqrt{1 + x^2 + y^2}$ when the viewport is at the origin.
 
-A point is a pair `(x, y)`. Its distance from the origin is `d = 2·asinh(√(x²+y²))`, so `√(x²+y²)`
-is `sinh(d/2)` — the plane is covered by ordinary finite numbers, with no crowding near a boundary.
-The viewer projects them into the Poincaré disk, where straight lines (geodesics) appear as circular
-arcs. Angles are true; distances are not. [`docs/MATH.md`](docs/MATH.md) has the details, including
-why the half-angle is there.
-
----
+There are two primary drawing modes:
+* in the default, drawables are expressed in a single coordinate system (as above);
+* with an [atlas of tiles](#atlas-of-tiles), the space is divided into regular tiles, each with its own local coordinate system. You provide a `tiling` scheme, such as regular polygons or a binary tree, and a `tileData` function that returns drawables by tile index. This makes it easier to express repeating patterns and avoids floating-point errors at large distances from the origin.
 
 ## Options
 
-Every option is optional except a place to draw. Unknown option names **throw**, because a silently
-ignored typo in an options object is a miserable way to lose an afternoon.
+All are optional except that either a `container` or a `canvas` must be supplied. An unrecognized option name raises an error.
 
 ### Where it draws
 
@@ -108,7 +85,7 @@ ignored typo in an options object is a miserable way to lose an afternoon.
 | option | default | meaning |
 |---|---|---|
 | `center` | `null` | the data point to put in the middle |
-| `offsetX`, `offsetY` | `0` | the raw view offset — the negation of `center` |
+| `offsetX`, `offsetY` | `0` | the raw view offset—the negation of `center` |
 | `rotation` | `0` | radians |
 | `zoom` | `0.95` | the disk's radius as a fraction of half the canvas |
 | `minZoom`, `maxZoom` | `0.5`, `null` | clamps; `null` means unbounded |
@@ -117,12 +94,12 @@ ignored typo in an options object is a miserable way to lose an afternoon.
 
 | option | default | meaning |
 |---|---|---|
-| `interactive` | `true` | master switch |
-| `allowPan`, `allowZoom`, `allowRotate` | `true` | **these actually gate everything** — in 2011 they were consulted only in the two-finger path, so `allowZoom: false` pages were still wheel-zoomable |
+| `interactive` | `true` | no interactivity if `false` |
+| `allowPan`, `allowZoom`, `allowRotate` | `true` | allow panning/scrolling, zooming, and rotation |
 | `rimRotate` | `true` | dragging the outer ring rotates |
-| `panClamp` | `true` | dragging past the rim clamps. `false` reproduces the 2011 *freeze*, which is half of the old stuck-drag bug |
+| `panClamp` | `true` | dragging past the rim clamps |
 | `wheelZoom`, `wheelZoomStep` | `true`, `1.1` | |
-| `rotationMode` | `"parallel-transport"` | or `"compass"` |
+| `rotationMode` | `"parallel-transport"` | or `"compass"` to keep one direction fixed |
 | `compassTarget` | `[0, 1]` | the ideal point held at a fixed bearing in compass mode |
 | `interactRadius` | `0.9` | inside this, drag scrolls; outside it, drag rotates |
 | `drawRadius` | `1.0` | content beyond this is culled |
@@ -131,95 +108,72 @@ ignored typo in an options object is a miserable way to lose an afternoon.
 
 | option | default | meaning |
 |---|---|---|
-| `background` | `"#ffffff"` | the disk's interior |
-| `pageBackground` | `null` | the whole canvas, behind everything |
-| `rimFill`, `rimStroke`, `rimLineWidth` | `"#f5d6ab"`, `"#000000"`, `1.5` | the rotatable annulus |
-| `cullMode` | `"cap"` | or `"endpoints"` for the 2011 test, which drops long edges crossing the view |
-| `arcMode` | `"sagitta"` | or `"fixed"` for the 2011 zoom-independent threshold |
+| `background` | `"#ffffff"` | the disk's interior color |
+| `pageBackground` | `null` | the whole canvas, behind the disk |
+| `rimFill`, `rimStroke`, `rimLineWidth` | `"#f5d6ab"`, `"#000000"`, `1.5` | the rotatable annulus around the disk |
+| `cullMode` | `"cap"` | or `"endpoints"` |
+| `arcMode` | `"sagitta"` | or `"fixed"` |
 | `sagittaTolerancePx` | `0.25` | when an arc may be drawn as a straight chord |
 | `decimateTolerancePx` | `0.25` | drop a vertex projecting within this distance of the last one drawn |
-| `minFeaturePx` | `0` | skip a shape whose projected size (including its stroke) is below this |
+| `minFeaturePx` | `0` | don't draw a shape whose projected size (including its stroke) is below this threshold |
 | `interactMinFeaturePx` | `0.5` | `minFeaturePx` used only while a gesture is in flight |
-| `minTextPx` | `3` | text smaller than this is skipped |
+| `minTextPx` | `3` | don't draw text smaller than this threshold |
 
 ### Hooks
 
-`onBeforeDraw` and `onAfterDraw` receive `(ctx, view)`; `layers` is an array of
-`{z, draw(ctx, view), attach?, detach?}`. Everything with `z < 0` is drawn **before** the disk's
-opaque fill, so it shows only outside the disk.
+`onBeforeDraw` and `onAfterDraw` receive `(ctx, view)`; `layers` is an array of `{z, draw(ctx, view), attach?, detach?}`. Everything with `z < 0` is drawn **before** the disk's opaque fill, so it shows only outside the disk.
 
-```
-1  pageBackground        4  content
-2  layers z < 0          5  the rim annulus
-3  onBeforeDraw          6  layers z >= 0, then onAfterDraw
-   → disk fill
-```
+**Draw order:**
+1. `pageBackground`
+2. layers with `z < 0`
+3. `onBeforeDraw`
+4. all drawables
+5. rim annulus
+6. layers with `z >= 0`
+7. `onAfterDraw`
 
-The `view` object passed to a hook is read-only: `{width, height, cx, cy, radius, zoom, rotation,
-bearing, matrix, ctxScale, drawRadius, interactRadius, effectiveRadius, interacting, toScreen,
-fromScreen}`.
+The `view` object passed to a hook is read-only: `{width, height, cx, cy, radius, zoom, rotation, bearing, matrix, ctxScale, drawRadius, interactRadius, effectiveRadius, interacting, toScreen, fromScreen}`.
 
-This is why there are no image options. The 2011 viewer had `shellImage` and `backgroundImage`,
-which baked one example's art — a world-turtle on a field of stars — into the library.
-[`docs/demo/layers.js`](docs/demo/layers.js) reproduces exactly that look from outside, in about
-forty lines, with one layer rotating with the disk and one not.
-
-Also available: `onDrawBackground`, `onDrawRim`, `onViewChange`, `onGestureStart`, `onGestureEnd`,
-`onFrame`.
+Also available: `onDrawBackground`, `onDrawRim`, `onViewChange`, `onGestureStart`, `onGestureEnd`, `onFrame`.
 
 ### Methods
 
-`getView()`, `getMatrix()`, `setMatrix(isom)`, `setZoom(z)`, `setRotation(θ)`, `panTo(x, y)`,
-`getCamera()`, `setCamera(camera)`, `panToTile(address, local?)`,
-`setData(data, name?)`, `addSource(name, dataOrCallback, {transform})`, `removeSource(name)`,
-`setSourceTransform(name, isom)`, `toScreen(x, y)`, `fromScreen(px, py)`, `invalidate()`,
-`render()`, `resize(w, h)`, `destroy()`.
+* `getView()`
+* `getMatrix()`
+* `setMatrix(isom)`
+* `setZoom(z)`
+* `setRotation(θ)`
+* `panTo(x, y)`
+* `getCamera()`
+* `setCamera(camera)`
+* `panToTile(address, local?)`
+* `setData(data, name?)`
+* `addSource(name, dataOrCallback, {transform})`
+* `removeSource(name)`
+* `setSourceTransform(name, isom)`
+* `toScreen(x, y)`
+* `fromScreen(px, py)`
+* `invalidate()`
+* `render()`
+* `resize(w, h)`
+* `destroy()`
 
-**In atlas mode, use `getCamera`/`setCamera`/`panToTile`.** The first four take and return *global*
-coordinates, and far from the origin no global coordinate can be represented — that is the whole
-reason the atlas is anchored (see [Atlas of tiles](#atlas-of-tiles)). Their meaning is unchanged and
-they remain correct in single-patch mode and while the camera is still anchored to the origin tile;
-past that they **throw**, naming `getCamera()`, rather than returning a plausible wrong number.
+**In atlas mode, use `getCamera`/`setCamera`/`panToTile`.** The first four take and return *global* coordinates, and far from the origin no global coordinate can be represented—that is the whole reason the atlas is anchored (see [Atlas of tiles](#atlas-of-tiles)). Their meaning is unchanged and they remain correct in single-patch mode and while the camera is still anchored to the origin tile; past that they raise errors, naming `getCamera()`, rather than returning a wrong number.
 
 ```js
-const cam = viewport.getCamera();   // { address, matrix, zoom } -- matrix is anchor-relative
-viewport.setCamera(cam);            // exact round trip
+const cam = viewport.getCamera();    // { address, matrix, zoom }; matrix is anchor-relative
+viewport.setCamera(cam);             // exact round trip
 viewport.panToTile(address, [0, 0]); // centre a tile, at any distance
-viewport.tileAtScreen(px, py);       // { address, id, local } -- which tile is under this pixel?
+viewport.tileAtScreen(px, py);       // { address, id, local }; which tile is under this pixel?
 ```
 
-`toScreen` and `fromScreen` work in whatever frame the view is expressed in: the global frame in
-single-patch mode, the current anchor tile's frame in atlas mode (pair them with
-`getCamera().address`). `tileAtScreen` is the atlas-mode picking question, and it deliberately answers
-with the address the *renderer* used, so it agrees with what is on screen even for tilings whose word
-addresses are not canonical.
+`toScreen` and `fromScreen` work in whatever frame the view is expressed in: the global frame in single-patch mode, the current anchor tile's frame in atlas mode (pair them with `getCamera().address`). `tileAtScreen` is the atlas-mode picking question, and it deliberately answers with the address the *renderer* used, so it agrees with what is on screen even for tilings whose word addresses are not canonical.
 
-`setSourceTransform` is worth knowing about: it applies an extra isometry to one named source without
-recompiling its drawables. The clock example rotates its hands with it once a second, which is an
-O(1) matrix change rather than rebuilding every hand.
-
-### 2011 option names
-
-Accepted, with a one-time deprecation warning.
-
-| 2011 | now |
-|---|---|
-| `initialOffsetX`, `initialOffsetY` | `offsetX`, `offsetY` (or `center`, which is the negation) |
-| `initialRotation`, `initialZoom` | `rotation`, `zoom` |
-| `viewThreshold` | `interactRadius` |
-| `zoomMouseWheel` | `wheelZoomStep` |
-| `backgroundColor` | `background` |
-| `rimFillStyle`, `rimStrokeStyle` | `rimFill`, `rimStroke` |
-| `downloadThreshold` | gone — the data source gates its own requests |
-| `backgroundImage`, `shellImage`, `shellImageScale` | gone — use `layers` |
-
----
+`setSourceTransform` applies an extra isometry to one named source without recompiling its drawables. The clock example rotates its hands with it once a second, which is an $\mathcal{O}(1)$ matrix change rather than rebuilding every hand.
 
 ## The drawable format
 
-A document is `{"version": 1, "coordinates": "local", "drawables": [...]}`, or just a bare array.
-Coordinates are always in the local system described above (or, inside an atlas, relative to the
-tile's own centre).
+A document is `{"version": 1, "coordinates": "local", "drawables": [...]}`, or just a bare array. Coordinates are always in the local system described above (or, inside an atlas, relative to the tile's own centre).
 
 ### `path`
 
@@ -230,15 +184,13 @@ tile's own centre).
  "fill": "#cde", "stroke": "#036", "lineWidth": 2}
 ```
 
-A point's optional third element is a **flag string for the edge leaving that point**:
+A point's optional third element is a flag string for the edge leaving that point:
 
 - `"L"` — stroke that edge;
 - absent — the edge still takes part in the fill, but is not stroked;
 - `"P"` — also draw a marker at this point.
 
-So the fill path always closes while the stroke may be disconnected. This is inherited from the 2011
-format and kept deliberately: a move/line command model cannot express a closed fill with a
-disconnected outline without duplicating the geometry.
+So the fill path always closes while the stroke may be disconnected. This is deliberate: a move/line command model cannot express a closed fill with a disconnected outline without duplicating the geometry.
 
 ### `text`
 
@@ -247,27 +199,7 @@ disconnected outline without duplicating the geometry.
  "fill": "#000", "align": "center", "baseline": "bottom"}
 ```
 
-`at` is the anchor and `up` is a second point giving the text's up direction. The distance between
-their *projections* sets the size, so text foreshortens with the geometry around it. Text smaller
-than `minTextPx` is skipped.
-
-### Why `decimateTolerancePx` matters more here than on a flat map
-
-The Poincaré projection compresses unbounded area into the rim, so in any large scene most shapes
-arrive far smaller than a pixel. On the Escher fixture at its default view, 59 % of edges are shorter
-than half a pixel and 39 % shorter than a quarter, and 22,894 of the 38,640 shapes fit entirely
-inside a single pixel. Every one of those edges still costs a canvas call.
-
-`decimateTolerancePx` drops a vertex that projects within that distance of the last vertex actually
-emitted — measured against the last *emitted* point, not the previous vertex, so a long run of small
-steps cannot accumulate into visible drift. At the default 0.25 px this removes about half the
-vertices and roughly a quarter of the frame time, while changing twelve colour channels out of
-780,000 by a maximum of 2/255. Set it to `0` for an exact rendering.
-
-`minFeaturePx` is the blunter version: drop the whole shape. It defaults to off because it is only
-lossless for *unstroked* art — a shape 0.3 px across drawn with a 2 px stroke still paints a 2 px
-mark, so the threshold is compared against the projected size **plus** the stroke width. On art where
-everything is stroked, as the Escher fixture is, it correctly skips almost nothing.
+`at` is the anchor and `up` is a second point giving the text's up direction. The distance between their _projections_ sets the size, so text foreshortens with the geometry around it. Text smaller than `minTextPx` is skipped.
 
 ### `marker`
 
@@ -277,44 +209,16 @@ everything is stroked, as the Escher fixture is, it correctly skips almost nothi
 
 ### Shared fields
 
-`class` selects a named style from `styles`; `fill`, `stroke`, `lineWidth`, `lineCap`, `lineJoin`,
-`miterLimit`, `align`, `baseline`, `font` override it. `visibleFrom` / `visibleTo` gate a drawable by
-level of detail. Use `"none"` for no fill or no stroke.
-
-The 2011 shape (`{"type": "polygon", "d": [...], "fillStyle": ..., "ax"/"ay"/"upx"/"upy"}`) is
-detected and converted automatically, so old data still loads.
-
----
+`class` selects a named style from `styles`; `fill`, `stroke`, `lineWidth`, `lineCap`, `lineJoin`, `miterLimit`, `align`, `baseline`, `font` override it. `visibleFrom` / `visibleTo` gate a drawable by level of detail. Use `"none"` for no fill or no stroke.
 
 ## Atlas of tiles
 
 Instead of one global coordinate system, give each tile of a tiling its own. Two reasons:
 
-- **Precision.** Data far from the origin loses resolution in a single patch: at hyperbolic distance
-  20 the disk coordinate is `1 − 3.6e-9`, so only about seven significant digits remain in the
-  quantity that matters. In an atlas every coordinate is small and measured from its own tile's
-  centre.
-- **Infinite repeats.** Return the same tile for every address and the pattern never ends.
+- **Infinite repeats.** Return the same tile for every address for a repeating pattern.
+- **Precision.** Data far from the origin loses resolution in a single patch: at hyperbolic distance 20 the disk coordinate is `1 − 3.6e-9`, so only about seven significant digits remain in the quantity that matters. In an atlas, every coordinate is measured from its own tile's centre.
 
-### Nothing is ever expressed globally
-
-This is the part that makes the atlas actually work, rather than merely postponing the problem. A
-tile's frame relative to the *world* has entries of order `cosh(d/2)` — 1.08e75 for binary cell
-(500, 0) — so composing it with an equally large view matrix to get an O(1) screen position destroys
-every digit. So neither is ever formed. The view is stored relative to the **camera's own tile**:
-
-```
-V_c    = V · F_c          the view, in the camera tile's frame
-R_c→k  = F_c⁻¹ · F_k      a tile's frame relative to the camera, one constant generator per walk step
-net    = V_c · R_c→k      both factors O(1) for every tile that can be on screen
-```
-
-When the camera would drift away from its tile it changes tile instead, multiplying `V_c` by one small
-generator. `viewport.stats.maxViewEntry` is the number that shows this working: it stays near 1 no
-matter how far you scroll. Measured consequences — the rendered picture is **byte-identical** at 1, 5,
-50, 500 and 5000 tiles from the origin across nine tilings, and screen-position error against a
-60-digit reference is flat at ~5e-16 at every distance. `docs/tiling-diagnostics.html` runs those
-checks in the browser; `dev/audit_atlas_math.py` and `dev/audit_atlas_numeric.py` are the audits.
+To use it, pass a `tiling` and `tileData` instead of `data` or `dataProvider`:
 
 ```js
 const viewport = new HyperbolicViewport({
@@ -324,7 +228,7 @@ const viewport = new HyperbolicViewport({
     tileData: async (tile) => {
       // tile.address (also aliased as tile.key) identifies the tile; tile.id is its string form and
       // tile.relativeFrame is its position relative to the camera, if you want it.
-      // Return DATA in TILE-LOCAL coordinates. Never rotate anything yourself.
+      // Return DATA in TILE-LOCAL coordinates.
       const res = await fetch(`tiles/${tile.id}.json`);
       return res.json();
     },
@@ -337,132 +241,38 @@ const viewport = new HyperbolicViewport({
 });
 ```
 
-### The rule your tile art must obey
+The `tile` index is a route from the origin to the tile, which is not unique for a given tile. For unique tile coordinates, use `tile.classIndex`, which comes from a group homomorphism. Think of it this way: with square tiles on an uncurved (Euclidean) plane, "2 steps right, 1 step up" is a different `tile` index from "1 step up, 2 steps right," but they have the same class index.
 
-> **A tile's frame is defined only up to the tile stabiliser `C_m`.** The walk reaches each tile by the
-> shortest route from the **camera**, so when the camera crosses into a new tile the routes change and
-> every tile's frame may change by a rotation of `2πk/m` about its own centre. Therefore:
->
-> 1. **tile art must be invariant under rotation by `2π/m` about the tile centre**, and
-> 2. **it must not depend on the tile's word address** — two routes to one tile can spell it
->    differently, so `hash(address)` is not a stable colour.
->
-> Art that breaks either half looks perfect standing still and **jumps as you scroll**.
+To draw a regular tiling of the hyperbolic plane, such as M.C. Escher's _Circle Limit_ series, make sure that
+* the tile art is invariant under a rotation of `2π/m` around the `m`-sided polygon's center;
+* the return value of `tileData` does not depend on the `tile` index.
 
-`m` is `frameSymmetry` (default `p`), and `BinaryTiling` has `m = 1` with canonical addresses, so it is
-exempt from both halves — its cells may each carry entirely different, entirely asymmetric art.
-
-This is easy to get wrong and invisible until you scroll, so **the library checks it** on the first tile
-that carries artwork and tells you what to do about it:
+The library can check this automatically:
 
 ```js
 atlas: {
   checkTileSymmetry: "warn",   // "warn" (default) | "throw" | "off"
 }
-viewport.atlas.tileSymmetry;   // { residual, checked, m, ok } -- residual 0 means exactly invariant
+viewport.atlas.tileSymmetry;   // { residual, checked, m, ok }; residual = 0 means ok
 ```
 
-Measured examples: a single asymmetric stroke scores `0.25`; C₄ shapes painted in four different
-colours score `0.36` (**the colouring counts**, which is why Escher's four fish colours cannot be used);
-the Circle Limit III tile in `docs/escher-atlas.json` scores `4e-17`.
+### Performance hints
 
-**Per-tile variety is still available**, via `tile.classIndex`. Tile classes come from a group
-homomorphism rather than from the address, so every route to a tile gives the same class:
+**Return data synchronously when you can.** A callback that returns a plain object (rather than a promise) is compiled and drawn in the *same* frame. That matters more than it sounds: `{p,q}` addresses are not canonical, so when the camera re-anchors the walk renames many tiles at once and they all miss the cache together. Measured on `{7,3}`, going through a promise made 26 tiles vanish for exactly one frame on every tile crossing—a visible flicker. Asynchronous providers still work exactly as before; they just cannot avoid the first frame.
 
-```js
-tileData: (tile) => palette[tile.classIndex]   // tile.classCount classes, 0-based
-```
+**Return the same object for tiles that look the same.** Compiled art is memoised on the identity of the object you return, so a provider that hands back one of a few shared objects never pays to recompile.
 
-`{8,3}` with `frameSymmetry: 4` has **3** classes (a proper 3-colouring of the octagons — no two
-neighbours match), `{5,4}` and `{6,4}` have 2, and the rest have 1, meaning every tile must look the
-same. The counts follow the abelianisation of the walk group and are verified at construction.
+**Prevent very small tiles from drawing.** Tiles smaller than the `lodPx` threshold are replaced by `lod`, which may be a solid color.
 
-[`docs/tiling-diagnostics.html`](docs/tiling-diagnostics.html) lets you switch between art that obeys
-the rule and art that breaks it, and its check 9 measures the difference: 0–1 changed pixels crossing a
-tile boundary versus 746–18,071 for art that violates one half or the other.
+### Regular tiling
 
-#### Two data models, one renderer
+Use the `RegularTiling({p, q, frameSymmetry})` class.
 
-`data`/`dataProvider` and `atlas` are not two ways of doing one thing. They index data differently:
+The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever `1/p + 1/q < 1/2`. Addresses are arrays of generator indices—a word describing a walk from the origin tile. Two different words can name the same tile (the group has braid relations), so the walk also deduplicates geometrically; see `notes/open-questions.md` for the measured extent of that and the Coxeter automaton that would remove it.
 
-| | indexed by | asks |
-|---|---|---|
-| `data` / `dataProvider` | the **view** | "give me what is visible from here" — global coordinates, with a significance gate and an `AbortSignal` |
-| `atlas` | the **tile** | "give me tile k" — tile-local coordinates, cached per tile |
+`frameSymmetry` (a divisor of `p`, default `p`) declares the rotational symmetry your art has, and it selects the walk group so that the tile stabiliser is exactly `C_m`. If your art is not invariant under rotations of `2π/m`, polygons will appear to rotate abruptly at certain points as you scroll.
 
-Neither question is expressible as the other, which is why both exist. What they share is everything
-after that: each produces a list of `{drawables, matrix, clip?}` **passes** for one frame, and a single
-renderer draws them, so projection, culling, decimation, arcs and gestures have one implementation.
-`render()` is a loop over pass producers rather than a branch on which mode the viewport is in.
-
-An atlas **cannot** be combined with `data` or `dataProvider`, and the constructor says so rather than
-drawing it wrong. In atlas mode the view matrix is expressed in the camera tile's frame, so a source
-whose coordinates are global has no fixed placement — measured, a point at the global origin lands
-0.93 disk units away after sixty small pans. Use `layers` for anything that belongs in screen space and
-the atlas callback for anything that belongs to a tile. `addSource` and `setData` refuse for the same
-reason.
-
-```js
-// atlas mode
-viewport.getCamera();   // { address, matrix, zoom }
-viewport.stats.maxViewEntry;   // stays near 1 at any distance -- the invariant made visible
-```
-
-The callback returns **data, not URLs**, so it can fetch, synthesise infinite content, or merge
-several overlays. Placing and rotating each tile is always the library's job.
-
-**Return data synchronously when you can.** A callback that returns a plain object (rather than a
-promise) is compiled and drawn in the *same* frame. That matters more than it sounds: `{p,q}` addresses
-are not canonical, so when the camera re-anchors the walk renames many tiles at once and they all miss
-the cache together. Measured on `{7,3}`, going through a promise made 26 tiles vanish for exactly one
-frame on every tile crossing — a visible flicker. Asynchronous providers still work exactly as before;
-they just cannot avoid the first frame.
-
-**Return the same object for tiles that look the same.** Compiled art is memoised on the identity of the
-object you return, so a provider that hands back one of a few shared objects — which is what
-[the rule](#the-rule-your-tile-art-must-obey) requires on a `{p,q}` tiling anyway — never pays to
-recompile. Measured on the Escher atlas, the re-anchor frame recompiled 160 tiles and took **125 ms**
-before this and is now indistinguishable from an ordinary frame.
-
-### Level of detail
-
-Most tiles on screen are small. Measured on the Escher atlas at its default zoom, 122 of 200 visible
-tiles had a screen radius under 8 pixels — and each was still submitting 233 shapes. Drawing them cost
-about 30 ms of a 37 ms frame, and per-drawable culling could not help because the shapes are around a
-pixel each rather than sub-pixel.
-
-So a tile may carry a cheap stand-in, used when it is small:
-
-```js
-tileData: () => ({
-  drawables: [...],   // the real art
-  lod: [...],         // drawn instead when the tile is small; often a single filled polygon
-  lodPx: 11,          // optional per-tile override of atlas.lodPx
-})
-```
-
-For Circle Limit III the `lod` is one octagon in the tile's **area-weighted average colour**, which
-was measured from the traced coverage and is recorded in the tile's `meta`. Measured: 46,600 drawables become
-12,728 and a 36 ms frame becomes 12.6 ms, while the picture changes by **0.0 % of pixels inside 85 % of
-the radius** and 0.2 % in the outermost ring.
-
-### `RegularTiling({p, q, frameSymmetry})`
-
-The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever
-`1/p + 1/q < 1/2`. Addresses are arrays of generator indices — a word describing a walk from the
-origin tile. Two different words can name the same tile (the group has braid relations), so the walk
-also deduplicates geometrically; see `notes/open-questions.md` for the measured extent of that and the
-Coxeter automaton that would remove it.
-
-`frameSymmetry` (a divisor of `p`, default `p`) declares the rotational symmetry **your art has**, and
-it selects the walk group so that the tile stabiliser is exactly `C_m`. It is the `m` in
-[the rule above](#the-rule-your-tile-art-must-obey), so getting it wrong is not a performance hint but a
-correctness error: art declared 8-fold and drawn 4-fold will rotate as you scroll.
-
-Lowering `m` makes the rule **easier** to satisfy (less symmetry demanded of the art) at the cost of a
-larger generator set. For Escher's *Circle Limit III* it must be `4`, not `8`: the pattern has 4-fold
-centres at the octagon centres, and the natural general-purpose generator — a half-turn about an edge
-midpoint — is outside that group entirely.
+Lowering `m` makes the rule **easier** to satisfy (less symmetry demanded of the art) at the cost of a larger generator set. For Escher's *Circle Limit III* it must be `4`, not `8`: the pattern has 4-fold centres at the octagon centres, and the natural general-purpose generator—a half-turn about an edge midpoint—is outside that group entirely.
 
 The tiling also exposes what the rule needs:
 
@@ -473,21 +283,15 @@ tiling.classModulus;      // how many distinct tile classes exist (1 = every til
 tiling.tileClass(addr);   // 0 .. classModulus-1, the same by every route
 ```
 
-### `BinaryTiling()`
+### Binary-tree tiling
 
-The binary (Böröczky) tiling, addressed by `{lat, lon}` as **BigInt**. Point-to-cell is two `floor`s,
-which no `{p,q}` scheme can match, and the integer addresses make natural filenames and are canonical:
-one cell, one address, no ambiguity. BigInt because descending one latitude doubles the longitude, so
-about fifty levels down a plain number stops being exact — and addresses are identity only, never
-geometry, so it costs nothing per frame. Cells are congruent but not
-regular polygons — two sides are geodesics and two are horocycles — and the tiling is *not*
-tile-transitive, so it cannot make a seamless repeating pattern. It is the right choice for a map,
-and it is what the 2011 server used.
+Use the `BinaryTiling()` class.
 
-### Writing your own
+The binary (Böröczky) tiling, addressed by `{lat, lon}` as **BigInt**. Point-to-cell is two `floor`s, which no `{p,q}` scheme can match, and the integer addresses make natural filenames and are canonical: one cell, one address, no ambiguity. BigInt because descending one latitude doubles the longitude, so about fifty levels down a plain number stops being exact—and addresses are identity only, never geometry, so it costs nothing per frame. Cells are congruent but not regular polygons—two sides are geodesics and two are horocycles—and the tiling is *not* tile-transitive, so it cannot make a seamless repeating pattern.
 
-Everything is local: a tiling is never asked where a tile is in the world, only how to step between
-neighbours.
+### Custom tiling
+
+A new tiling can be constructed in the following way:
 
 ```js
 {
@@ -509,42 +313,15 @@ neighbours.
 }
 ```
 
-The generators must be **constant matrices** — independent of which tile you are in. That is what
-makes a walk a product of small factors, and it is the whole trick. In SU(1,1) an edge half-turn
-squares to `−I` rather than `+I` (the spin double cover), so `inverseGenerator` may return the index of
-a matrix equal to the negation of the inverse; any comparison of frames must work **up to sign**.
-
----
+The generators must be constant matrices—independent of which tile you are in. That is what makes a walk a product of small factors, and it is the whole trick. In SU(1,1) an edge half-turn squares to `−I` rather than `+I` (the spin double cover), so `inverseGenerator` may return the index of a matrix equal to the negation of the inverse; any comparison of frames must work up to sign.
 
 ## Development
 
-```sh
+```bash
 npm test          # node:test, no dependencies
 npm run check     # enforce the source constraints the bundler relies on
 npm run build     # produce dist/ and refresh docs/lib/
 npm run serve     # serve docs/ at http://localhost:8000
 ```
 
-The browser bundle is built by concatenating `src/` in dependency order, with no bundler. That is
-only valid because the source style is constrained — single-line intra-package imports at the top of
-each file, `export class|function|const|let` declarations only, no dynamic `import()`, no top-level
-`await`, no cross-module name collisions — and `dev/check-bundle.mjs` enforces exactly those rules.
-
-`dev/` holds the maintenance scripts: the bundler and its style checker (`build.mjs`,
-`check-bundle.mjs`), the two mathematical audits (`audit_atlas_math.py` needs `sympy`;
-`audit_atlas_numeric.py` needs `mpmath` and is fed by `emit_atlas_samples.mjs`), and
-`capture_server.py`, which serves the repo and accepts canvas pixels over HTTP so rendered output can
-be diffed exactly. The scripts that originally generated the example data from the 2011 databases have
-been removed; the data they produced is committed under `docs/`.
-
-Please read [`AGENTS.md`](AGENTS.md) and [`notes/`](notes/) before changing anything mathematical.
-[`notes/math-audit.md`](notes/math-audit.md) records what was verified **correct** as well as what was
-broken — several parts of the original code look wrong and are not.
-
-## Licence
-
-BSD 3-Clause. See [LICENSE](LICENSE).
-
-Escher's *Circle Limit III* is used here as a hand-traced study for a mathematical demonstration.
-
--->
+Please read [`AGENTS.md`](AGENTS.md) and [`notes/`](notes/) before changing anything mathematical. [`notes/math-audit.md`](notes/math-audit.md) records what was verified to be correct.
