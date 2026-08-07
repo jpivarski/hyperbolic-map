@@ -1131,3 +1131,16 @@ ordinary step, and looks the same at 6,114 hyperbolic units out as at the origin
 about 0.02, so a grid at 0.1 or 5-degree steps steps straight over the centres. At d=1.851 exactly it
 scored 3.7; at 1.8 and 1.9 it read 25. The conclusion that the *cut tile* has no C4 structure stands and
 is confirmed by the exact check; the sweeping version of it did not.
+
+### Final verification of the stabiliser work
+
+* Node suite 126/126.
+* All nine browser checks pass, including the new check 9 at **38/38** across all nine tilings with
+  negative controls in both halves of the rule.
+* Compound scroll re-run on all nine tilings: 354 gestures each, **zero findings, zero path-dependent
+  tiles**, `max|V|` 1.02-1.16 — unchanged from the pre-change baseline.
+* `escher.html`, `dungeon.html`, `clock.html`, `relativity.html`, `dungeon-atlas.html` all load with no
+  error box and unchanged drawable counts.
+* Circle Limit III: 233 drawables, 2,540 points, ~37 ms static and ~31 ms during a drag (the old tile
+  was 90/530 at 39 ms; the extra cost is absorbed by `minFeaturePx`, which drops 20,291 sub-pixel
+  drawables and decimates 162,063 vertices per frame).

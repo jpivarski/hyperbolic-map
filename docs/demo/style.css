@@ -75,14 +75,3 @@ code {
 .gallery p { margin: 0.3rem 0 0; font-size: 0.85rem; color: var(--muted); }
 .gallery a { color: var(--accent); text-decoration: none; font-weight: 600; }
 .gallery a:hover { text-decoration: underline; }
-
-/* The stabiliser rule, called out on the diagnostics page. It is the one thing a reader has to take
-   away, so it gets a box rather than a paragraph. */
-.rule {
-  border-left: 4px solid #b5651d;
-  background: #fdf3e7;
-  padding: 0.7em 1em;
-  margin: 1em 0;
-  max-width: 62em;
-  line-height: 1.5;
-}
