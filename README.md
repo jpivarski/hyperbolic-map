@@ -131,7 +131,7 @@ Draw order:
 7. layers with `z >= 0`
 8. `onAfterDraw`
 
-Steps 4 and 6 are *replacements*, not additions: supplying `onDrawBackground` or `onDrawRim` suppresses the default fill rather than drawing over it.
+Steps 4 and 6 are alternatives: supplying `onDrawBackground` or `onDrawRim` suppresses the default fill rather than drawing over it.
 
 The `view` object passed to a hook is read-only: `{width, height, cx, cy, radius, zoom, rotation, bearing, matrix, ctxScale, drawRadius, interactRadius, effectiveRadius, interacting, toScreen, fromScreen}`.
 
@@ -363,3 +363,18 @@ npm run serve     # serve docs/ at http://localhost:8000
 This project has an [`AGENTS.md`](AGENTS.md) for coding agents and everything in the [`notes/`](notes/) directory is maintained by agents. In particular, [`notes/math-audit.md`](notes/math-audit.md) records the mathematical formulas that have been verified.
 
 Pull requests are welcome!
+
+## Alternatives
+
+As of August 2026, no other library provides this functionality: generic vector art in a hyperbolic plane. Here are some _similar_ project.
+
+| project | what it is | how it differs |
+|---|---|---|
+| [hyperbolic-canvas](https://github.com/ItsNickBarry/hyperbolic-canvas) | a Poincaré-disk **drawing interface** for HTML canvas (MIT, no dependencies) | closest in spirit, but it is a geometry-and-paths layer: `Point`, `Line`, `Circle`, `Polygon`, and `fill`/`stroke`. There is no view to pan, zoom or rotate, no data format, and no widget—you drive the canvas yourself |
+| [d3-hypertree](https://github.com/glouwa/d3-hypertree) | an interactive **hyperbolic tree browser** for the web (MIT, SVG, built on d3) | the closest thing to a drop-in widget, and it does pan and cull at scale—but the data model is a *hierarchy*, which the library lays out for you. You bring a tree, not arbitrary vector art |
+| [Cinderella](https://doc.cinderella.de/) / [CindyJS](https://cindyjs.org/) | interactive geometry software with native hyperbolic views (Poincaré and Beltrami–Klein) | for *constructions*—points, lines, incidences you build and drag—rather than rendering a dataset someone else produced |
+| [HyperRogue](https://github.com/zenorogue/hyperrogue) and its [RogueViz](https://roguetemple.com/z/hyper/rogueviz.php) engine | a mature non-Euclidean engine (GPL-2.0, C++) covering H², H³, S³, Nil, Solv and more | far more geometry than this library, and used for real visualisation and research—but it is a desktop application and engine, not something you embed in a page |
+| [HyperEngine](https://github.com/HackerPoet/HyperEngine) | the non-Euclidean Unity backend behind the game [*Hyperbolica*](https://codeparade.itch.io/hyperbolica) (MIT, C#) | a game engine for first-person 3D, not a 2D map viewer |
+| [EscherSketch](https://github.com/looeee/hyperbolic-tiling) and similar tessellation generators | tools that *produce* hyperbolic tilings and Escher-like art | they generate a picture; they are not a viewer for your own data |
+
+My original [hyperbolic-storage-space](https://github.com/jpivarski/hyperbolic-storage-space) (2012) was directly inspired by Lamping and Rao's Hyperbolic Browser at Xerox PARC in 1996 ([general paper](https://doi.org/10.1006/jvlc.1996.0003), [visualizing trees](https://doi.org/10.1145/257089.257389), [video demo](https://youtu.be/8bhq08BQLDs?si=6bsYQMgkDnXEratZ)), commercialized as StarTree, of which [d3-hypertree](https://github.com/glouwa/d3-hypertree) is the modern-day descendant.
