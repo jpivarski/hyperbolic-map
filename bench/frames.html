@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Frame-time benchmark</title>
+<style>body{font:12px ui-monospace,monospace;margin:8px}canvas{border:1px solid #ccc}</style>
+</head>
+<body>
+<div id="map"></div>
+<pre id="log"></pre>
+
+<script src="../dist/hyperbolic-map.iife.js"></script>
+<script>
+// Frame-time benchmark. Measures the library's own draw, not the browser's compositing, by timing
+// vp.render() directly -- the render is fully synchronous, so wall time around it is the frame cost.
+//
+// MACHINE LOAD MATTERS. This box is sometimes busy with unrelated work, and a number measured then
+// is worse than no number. The caller records /proc/loadavg before and after every run and throws
+// the result away if the machine was busy; see notes/performance.md.
+
+const H = window.HyperbolicMap;
+let vp = null;
+
+window.build = function (opts) {
+  if (vp) vp.destroy();
+  document.getElementById("map").innerHTML = "";
+  vp = new H.HyperbolicViewport(
+    Object.assign({ container: "#map", width: 620, height: 620, devicePixelRatio: 1 }, opts),
+  );
+  window.vp = vp;
+  return { drawables: vp.stats.drawables };
+};
+
+window.loadJSON = async function (url) {
+  return await (await fetch(url)).json();
+};
+
+// Render the same view `n` times and report the distribution. The median is the honest headline; the
+// max catches a garbage-collection pause that an average would hide.
+window.timeRender = function (n) {
+  const t = [];
+  for (let i = 0; i < n; i++) {
+    const a = performance.now();
+    vp.render();
+    t.push(performance.now() - a);
+  }
+  t.sort((x, y) => x - y);
+  const at = (q) => +t[Math.min(t.length - 1, Math.floor(q * t.length))].toFixed(2);
+  return {
+    n,
+    median: at(0.5),
+    p95: at(0.95),
+    max: +t[t.length - 1].toFixed(2),
+    min: +t[0].toFixed(2),
+    stats: {
+      drawables: vp.stats.drawables,
+      survivors: vp.stats.survivors,
+      drawn: vp.stats.drawn,
+      pointsProjected: vp.stats.pointsProjected,
+      canvasCalls: vp.stats.canvasCalls,
+      textDrawn: vp.stats.textDrawn,
+    },
+  };
+};
+
+// Time a realistic PAN, which is what the user actually feels: the view changes every frame, so
+// nothing can be cached between frames.
+window.timePan = function (n) {
+  const t = [];
+  const start = vp.getCamera();
+  for (let i = 0; i < n; i++) {
+    const s = (i / n) * 0.6;
+    vp.setCamera({ address: start.address, matrix: H.Isom.translation(s, 0.7).inverse().mul(start.matrix), zoom: start.zoom });
+    const a = performance.now();
+    vp.render();
+    t.push(performance.now() - a);
+  }
+  vp.setCamera(start);
+  t.sort((x, y) => x - y);
+  const at = (q) => +t[Math.min(t.length - 1, Math.floor(q * t.length))].toFixed(2);
+  return { n, median: at(0.5), p95: at(0.95), max: +t[t.length - 1].toFixed(2) };
+};
+
+window.settle = async function () {
+  for (let i = 0; i < 15; i++) {
+    vp.render();
+    if (!vp.atlas || vp.atlas.pending.size === 0) return;
+    await Promise.all([...vp.atlas.pending.values()]);
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+};
+</script>
+</body>
+</html>

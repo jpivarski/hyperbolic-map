@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hyperbolic-map-widget &mdash; examples</title>
+<link rel="stylesheet" href="demo/style.css">
+</head>
+<body>
+
+<h1>hyperbolic-map-widget</h1>
+
+<p>An interactive viewer for vector maps of the <strong>hyperbolic plane</strong>, drawn in the
+Poincar&eacute; disk. Scroll and rotate it like a map, except that the space it shows has more room
+in it than any flat map could &mdash; every step outward reveals exponentially more.</p>
+
+<p>Zero dependencies, plain JavaScript.
+See the <a href="https://github.com/jpivarski/hyperbolic-map-widget">README</a> for the API and
+<a href="MATH.md">MATH.md</a> for the geometry.</p>
+
+<h2>Examples</h2>
+
+<ul class="gallery">
+  <li>
+    <h3><a href="escher.html">Circle Limit III</a></h3>
+    <p>Escher&rsquo;s interlocking fish, 38,640 polygons. Drag to scroll, drag the ring to rotate.</p>
+  </li>
+  <li>
+    <h3><a href="dungeon.html">The vast dungeon</a></h3>
+    <p>Rooms with five doors each, on the back of a world-turtle. Zoom and rotate.</p>
+  </li>
+  <li>
+    <h3><a href="clock.html">Hyperbolic clock</a></h3>
+    <p>Every second of twelve hours on one face, because there is always more room further out.</p>
+  </li>
+  <li>
+    <h3><a href="relativity.html">Compass mode</a></h3>
+    <p>Holding a bearing fixed while scrolling, versus letting the curvature turn you.</p>
+  </li>
+  <li>
+    <h3><a href="escher-atlas.html">Infinite Circle Limit III</a></h3>
+    <p>One exact tile of fish on a true <code>{8,3}</code> tiling, repeated forever.</p>
+  </li>
+  <li>
+    <h3><a href="dungeon-atlas.html">Infinite dungeon</a></h3>
+    <p>A prototype room in every cell, characters overlaid, numbers generated on the fly.</p>
+  </li>
+</ul>
+
+<h2>Controls</h2>
+
+<table>
+  <tr><th>Drag inside the disk</th><td>scroll the map</td></tr>
+  <tr><th>Drag the outer ring</th><td>rotate</td></tr>
+  <tr><th>Mouse wheel</th><td>zoom (where enabled)</td></tr>
+  <tr><th>One finger</th><td>scroll</td></tr>
+  <tr><th>Two fingers</th><td>pinch to zoom, twist to rotate</td></tr>
+</table>
+
+<h2>What this is</h2>
+
+<p>It is a revival. The original was a 2011&ndash;2012 experiment pairing a Java servlet with a
+browser client, written up in a blog post called <em>Lost in Hyperbolia</em>; the server and the blog
+are long gone. The client has been rewritten from scratch as a modern library, the example data
+recovered from the original database files, and the mathematics re-derived and checked &mdash; which
+turned up a handful of real errors in the original, documented in
+<a href="MATH.md">MATH.md</a>.</p>
+
+</body>
+</html>

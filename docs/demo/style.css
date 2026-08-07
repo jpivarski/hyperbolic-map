@@ -1,0 +1,77 @@
+/* Styling for the example pages only. The library ships no CSS. */
+
+:root {
+  --ink: #1a1a1a;
+  --muted: #666;
+  --rule: #ddd;
+  --accent: #2a6496;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+}
+
+nav { margin-bottom: 1rem; font-size: 0.9rem; }
+nav a { color: var(--accent); text-decoration: none; }
+nav a:hover { text-decoration: underline; }
+
+h1 { font-size: 1.5rem; line-height: 1.25; margin: 0 0 0.5rem; }
+h2 { font-size: 1.15rem; margin-top: 2rem; }
+
+p { margin: 0.75rem 0; }
+
+#map {
+  margin: 1rem 0 0.5rem;
+  /* A checkerboard, so it is obvious where the canvas is transparent rather than white. */
+  background-image:
+    linear-gradient(45deg, #f0f0f0 25%, transparent 25%, transparent 75%, #f0f0f0 75%),
+    linear-gradient(45deg, #f0f0f0 25%, transparent 25%, transparent 75%, #f0f0f0 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+  display: inline-block;
+  line-height: 0;
+}
+
+#map canvas { cursor: grab; }
+#map canvas:active { cursor: grabbing; }
+
+.status, .readout {
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+  margin: 0.25rem 0;
+  min-height: 1.5em;
+}
+
+.note {
+  font-size: 0.9rem;
+  color: var(--muted);
+  border-left: 3px solid var(--rule);
+  padding-left: 0.75rem;
+}
+
+.controls { margin: 0.5rem 0; font-size: 0.9rem; }
+.controls label { margin-right: 1rem; white-space: nowrap; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; }
+
+code {
+  font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #f5f5f5;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 1rem; padding: 0; list-style: none; }
+.gallery li { border: 1px solid var(--rule); border-radius: 6px; padding: 0.75rem 0.9rem; }
+.gallery h3 { margin: 0 0 0.3rem; font-size: 1rem; }
+.gallery p { margin: 0.3rem 0 0; font-size: 0.85rem; color: var(--muted); }
+.gallery a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.gallery a:hover { text-decoration: underline; }

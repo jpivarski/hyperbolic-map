@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Infinite dungeon &mdash; hyperbolic-map-widget</title>
+<link rel="stylesheet" href="demo/style.css">
+</head>
+<body>
+<nav><a href="index.html">&larr; all examples</a></nav>
+
+<h1>Infinite dungeon</h1>
+
+<p>The same dungeon, split into an atlas. Every cell of the tiling is its own little coordinate
+system, so the numbers describing a room are always small no matter how far from the origin that room
+is. Wander as far as you like.</p>
+
+<div id="map"></div>
+<p class="status"><span id="status">…</span></p>
+<p class="readout" id="readout"></p>
+
+<div class="controls">
+  <label><input type="checkbox" id="clip"> clip each cell (see below)</label>
+  <label><input type="checkbox" id="numbers" checked> room numbers</label>
+  <label>jump to row <input id="row" type="number" value="0" style="width:5em"> col <input id="col" type="number" value="0" style="width:6em"> <button id="go">go</button></label>
+</div>
+
+<h2>Three sources, composed in one callback</h2>
+
+<p>The callback that supplies each tile merges three things, which is the point of returning
+<em>data</em> rather than a URL:</p>
+
+<ol>
+  <li>a <strong>prototype room</strong> &mdash; seven shapes, stored once, drawn in every cell;</li>
+  <li><strong>video-game characters</strong> &mdash; finitely many, so they live in a lookup keyed by
+      cell coordinate;</li>
+  <li><strong>room numbers</strong> &mdash; there are infinitely many, so they are computed on the fly
+      from the cell&rsquo;s own coordinates.</li>
+</ol>
+
+<p class="note"><strong>Clipping is off here, deliberately.</strong> The 2012 room art is drawn
+<em>straddling</em> cell boundaries &mdash; the floor plate spans the corner where four cells meet,
+and the doors are what <em>connect</em> adjacent rooms, so they have to cross the boundary. Each
+piece is still drawn exactly once, by the cell that owns it, so nothing overlaps; but confining each
+cell&rsquo;s drawing to its own cell severs the junctions and leaves fragments. Tick the box above to
+see it happen. The <a href="escher-atlas.html">Escher tile</a>, whose art <em>is</em> designed to fill
+its tile, clips correctly &mdash; which is why the library makes this a per-atlas choice rather than
+a rule.</p>
+
+<p class="note">Why the numbers are always small: cell <em>(latitude, longitude)</em> is
+<code>x&nbsp;&isin;&nbsp;[lon&middot;2<sup>lat</sup>, (lon+1)&middot;2<sup>lat</sup>]</code>,
+<code>y&nbsp;&isin;&nbsp;[2<sup>lat</sup>, 2<sup>lat+1</sup>]</code> in the half-plane &mdash; but in
+its <em>own</em> frame every cell is the identical box
+<code>x&nbsp;&isin;&nbsp;&plusmn;1/(2&radic;2)</code>,
+<code>y&nbsp;&isin;&nbsp;[2<sup>&minus;&frac12;</sup>, 2<sup>&frac12;</sup>]</code>. The
+<code>2<sup>lat</sup></code> divides out. In the
+<a href="dungeon.html">single-patch version</a> the far rooms need coordinates up to 11712, where a
+disk coordinate has only about seven significant digits left.</p>
+
+<script src="lib/hyperbolic-map.iife.js"></script>
+<script type="module">
+import { attachReadout, errorBox } from "./demo/common.js";
+
+try {
+  const status = document.getElementById("status");
+  status.textContent = "loading…";
+  const doc = await (await fetch("dungeon-atlas.json")).json();
+  const cellCount = Object.keys(doc.critters).length;
+  status.textContent =
+    `${doc.room.length}-shape prototype room + characters in ${cellCount} cells`;
+
+  const tiling = new HyperbolicMap.BinaryTiling();
+  const HALF = HyperbolicMap.BINARY_LOCAL_HALF_WIDTH;
+
+  // Room-number anchors, in the cell's own frame. Straight from the 2012 generator: the label sits
+  // at v = 1.2 with the up-vector at v = 1.4, in the cell's normalised box.
+  const SQRT2 = Math.SQRT2;
+  const numAt = HyperbolicMap.halfPlaneToLocal(0, 1.2 / SQRT2, [0, 0]);
+  const numUp = HyperbolicMap.halfPlaneToLocal(0, 1.4 / SQRT2, [0, 0]);
+
+  // Start on the hero's room, cell (latitude -1, longitude 0), which prints as row 0 column 0. The
+  // camera is ANCHORED to that cell, so the starting view is the identity in the cell's own frame --
+  // no global coordinate is computed for it at all.
+  const HERO = { lat: -1n, lon: 0n };
+
+  let viewport = null;
+  function build() {
+    const clip = document.getElementById("clip").checked;
+    const wantNumbers = document.getElementById("numbers").checked;
+    const keep = viewport ? viewport.getCamera() : null;
+    if (viewport) viewport.destroy();
+
+    viewport = new HyperbolicMap.HyperbolicViewport({
+      container: "#map",
+      width: 620,
+      height: 620,
+      anchor: HERO,
+      zoom: 2.2,
+      minZoom: 0.5,
+      maxZoom: 12,
+      interactRadius: 0.9,
+      background: "#606060",
+      rimFill: "#5d5d4e",
+      atlas: {
+        tiling: tiling,
+        maxTiles: 220,
+        clip: clip ? "always" : "never",
+        // Three overlays merged here. The callback returns DATA, never URLs or geometry
+        // transformations -- the library rotates each tile's contents into place.
+        tileData: (tile) => {
+          // Addresses are BigInt, exact at any depth: descending one latitude doubles the longitude,
+          // so a plain number stops being exact around fifty levels down.
+          const { lat, lon } = tile.key;
+          const drawables = doc.room.slice();
+          const chars = doc.critters[`${lat},${lon}`];
+          if (chars) drawables.push(...chars);
+          // The hero's room is left unlabelled, as in 2012.
+          if (wantNumbers && !(lat === -1n && lon === 0n)) {
+            drawables.push({
+              type: "text", text: String(-lat - 1n), at: numAt, up: numUp,
+              fill: "#000000", baseline: "bottom", align: "center",
+            });
+            drawables.push({
+              type: "text", text: String(-lon), at: numAt, up: numUp,
+              fill: "#000000", baseline: "top", align: "center",
+            });
+          }
+          return { version: 1, coordinates: "local", drawables };
+        },
+      },
+    });
+    if (keep) viewport.setCamera(keep);
+    attachReadout(viewport, document.getElementById("readout"));
+    window.viewport = viewport;
+    window.tiling = tiling;
+  }
+  build();
+  document.getElementById("clip").addEventListener("change", build);
+  document.getElementById("numbers").addEventListener("change", build);
+
+  // Jump to a room by its printed number. row = -latitude-1, col = -longitude.
+  document.getElementById("go").addEventListener("click", () => {
+    const row = parseInt(document.getElementById("row").value, 10) || 0;
+    const col = parseInt(document.getElementById("col").value, 10) || 0;
+    // panToTile takes the ADDRESS, so this works at any depth -- no global frame is ever formed, and
+    // there is no coordinate to lose precision. The previous version built the cell's global frame and
+    // panned to its centre, which is exactly the pattern this rewrite removed.
+    viewport.panToTile({ lat: BigInt(-row - 1), lon: BigInt(-col) }, [0, 0]);
+  });
+} catch (err) {
+  errorBox(err);
+}
+</script>
+</body>
+</html>

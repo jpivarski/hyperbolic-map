@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A/B: 2011 renderer vs. the new library</title>
+<style>
+  body { font: 13px/1.4 ui-monospace, monospace; margin: 10px; background: #fff; }
+  .row { display: flex; gap: 8px; align-items: flex-start; }
+  .cell { text-align: center; }
+  canvas { border: 1px solid #ccc; display: block; }
+  h2 { font-size: 13px; margin: 4px 0; font-weight: normal; }
+</style>
+</head>
+<body>
+
+<!-- A/B comparison harness. Renders the SAME drawables at the SAME view through the original 2011
+     HyperbolicViewport.js and through the new library, and produces a pixel diff. The 2011 renderer
+     is the oracle for anything that is supposed to be behaviour-preserving. -->
+
+<div class="row">
+  <div class="cell"><h2 id="ta">2011</h2><canvas id="a"></canvas></div>
+  <div class="cell"><h2 id="tb">new</h2><canvas id="b"></canvas></div>
+  <div class="cell"><h2 id="td">diff</h2><canvas id="d"></canvas></div>
+</div>
+<pre id="log"></pre>
+
+<script src="../OLD/hyperbolic-storage-space/WebContent/HyperbolicViewport.js"></script>
+<script src="../dist/hyperbolic-map.iife.js"></script>
+<script>
+const SIZE = 420;
+for (const id of ["a", "b", "d"]) {
+  const c = document.getElementById(id);
+  c.width = SIZE;
+  c.height = SIZE;
+}
+
+// The 2011 viewer insists on creating its own canvas inside a container, so give it one and then
+// steal the canvas it makes.
+const hostA = document.createElement("div");
+hostA.style.cssText = "position:absolute;left:-99999px;top:0";
+document.body.appendChild(hostA);
+
+window.renderPair = async function (opts) {
+  const { drawables, offsetX = 0, offsetY = 0, rotation = 0, zoom = 0.95,
+          viewThreshold = 0.9, background = "#ffffff", rimFill = "#f5d6ab" } = opts;
+
+  // ---- A: the 2011 renderer, untouched ----
+  hostA.innerHTML = "";
+  const legacy = new HyperbolicViewport(
+    new HyperbolicMapStatic({ drawables: drawables }),
+    hostA, SIZE, SIZE,
+    { initialOffsetX: offsetX, initialOffsetY: offsetY, initialRotation: rotation,
+      initialZoom: zoom, minZoom: zoom, maxZoom: zoom, allowZoom: false,
+      viewThreshold: viewThreshold, backgroundColor: background, rimFillStyle: rimFill },
+  );
+  const ca = document.getElementById("a");
+  const cxa = ca.getContext("2d");
+  cxa.clearRect(0, 0, SIZE, SIZE);
+  cxa.drawImage(hostA.querySelector("canvas"), 0, 0);
+
+  // ---- B: the new library, configured to match ----
+  const cb = document.getElementById("b");
+  if (window.__vp) window.__vp.destroy();
+  window.__vp = new HyperbolicMap.HyperbolicViewport({
+    canvas: cb, width: SIZE, height: SIZE,
+    devicePixelRatio: 1,          // match the 2011 backing store exactly
+    radiusBasis: "width",         // match the 2011 disk sizing exactly
+    data: drawables,
+    offsetX: offsetX, offsetY: offsetY, rotation: rotation,
+    zoom: zoom, minZoom: zoom, maxZoom: zoom, allowZoom: false,
+    interactRadius: viewThreshold,
+    background: background, rimFill: rimFill,
+    interactive: false,
+  });
+  window.__vp.render();
+
+  // ---- diff ----
+  const A = cxa.getImageData(0, 0, SIZE, SIZE).data;
+  const B = cb.getContext("2d").getImageData(0, 0, SIZE, SIZE).data;
+  const cd = document.getElementById("d");
+  const cxd = cd.getContext("2d");
+  const out = cxd.createImageData(SIZE, SIZE);
+  let differing = 0;
+  let worst = 0;
+  for (let i = 0; i < A.length; i += 4) {
+    const dr = Math.abs(A[i] - B[i]);
+    const dg = Math.abs(A[i + 1] - B[i + 1]);
+    const db = Math.abs(A[i + 2] - B[i + 2]);
+    const da = Math.abs(A[i + 3] - B[i + 3]);
+    const m = Math.max(dr, dg, db, da);
+    if (m > 16) differing++;
+    if (m > worst) worst = m;
+    // red where they differ, faint grey where they agree, so the shape of the disagreement shows
+    out.data[i] = m > 16 ? 255 : 240;
+    out.data[i + 1] = m > 16 ? 0 : 240;
+    out.data[i + 2] = m > 16 ? 0 : 240;
+    out.data[i + 3] = 255;
+  }
+  cxd.putImageData(out, 0, 0);
+
+  const pct = (100 * differing) / (SIZE * SIZE);
+  document.getElementById("log").textContent =
+    `${drawables.length} drawables   differing pixels: ${differing} (${pct.toFixed(2)}%)   worst channel delta: ${worst}`;
+  return { differing, pct, worst, total: SIZE * SIZE };
+};
+
+// Upload a canvas's own pixels to the capture server.
+window.shoot = async function (id, name) {
+  const url = document.getElementById(id).toDataURL("image/png");
+  await fetch(`/__shot/${name}.png`, { method: "POST", body: url });
+  return name;
+};
+</script>
+</body>
+</html>
