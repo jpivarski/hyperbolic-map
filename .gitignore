@@ -1,10 +1,13 @@
-# Source material for the revival: two archived disk images and the original
-# 2011-2012 git repo. Large, not ours to redistribute, and not part of the build.
+# Source material for the 2011-2012 revival: archived disk images and the original git repo. No
+# longer in the working tree, but kept ignored so it cannot be committed by accident if restored.
 OLD/
 
 node_modules/
 *.log
 .DS_Store
+__pycache__/
+*.pyc
 
-# Local regeneration artefacts (fixtures, baseline data). Rebuild with tools/*.py.
+# Scratch for local checks: dev/capture_server.py writes canvas captures here, and
+# dev/audit_atlas_numeric.py reads its sample file from here.
 build/

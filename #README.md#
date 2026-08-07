@@ -1,6 +1,6 @@
 # Hyperbolic Map Widget
 
-A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model).
+A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model). Think of it like [Google Earth](https://earth.google.com/), but instead of presenting data on 
 
 
 

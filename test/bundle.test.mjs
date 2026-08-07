@@ -1,5 +1,5 @@
-// The browser bundle is produced by concatenation, with no bundler (see tools/build.mjs). That is
-// only safe because tools/check-bundle.mjs constrains the source style, so these tests guard the
+// The browser bundle is produced by concatenation, with no bundler (see dev/build.mjs). That is
+// only safe because dev/check-bundle.mjs constrains the source style, so these tests guard the
 // arrangement end to end: the bundle must evaluate in a clean realm, expose the same surface as the
 // ESM entry point, and actually compute the same answers.
 
@@ -15,7 +15,7 @@ const BUNDLE = ROOT + "dist/hyperbolic-map.iife.js";
 
 function buildIfNeeded() {
   if (!existsSync(BUNDLE)) {
-    execFileSync("node", ["tools/build.mjs"], { cwd: ROOT, stdio: "pipe" });
+    execFileSync("node", ["dev/build.mjs"], { cwd: ROOT, stdio: "pipe" });
   }
   return readFileSync(BUNDLE, "utf8");
 }

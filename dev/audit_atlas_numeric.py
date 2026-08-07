@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Numerical far-field audit of the anchored atlas, against a 60-digit mpmath oracle.
 
-    node tools/emit_atlas_samples.mjs > build/atlas-samples.json
-    python3 tools/audit_atlas_numeric.py
+    node dev/emit_atlas_samples.mjs > build/atlas-samples.json
+    python3 dev/audit_atlas_numeric.py
 
 The question this answers is narrow and important: does the float64 anchored path compute the RIGHT
 screen positions, and does its error stay FLAT as the camera travels arbitrarily far from the origin?
@@ -157,7 +157,7 @@ def binary_generators():
 
 path = os.path.join("build", "atlas-samples.json")
 if not os.path.exists(path):
-    print(f"missing {path}; run:  node tools/emit_atlas_samples.mjs > {path}", file=sys.stderr)
+    print(f"missing {path}; run:  node dev/emit_atlas_samples.mjs > {path}", file=sys.stderr)
     raise SystemExit(1)
 data = json.load(open(path))
 

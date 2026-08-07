@@ -23,16 +23,25 @@ anything mathematical.
 - **Do not "correct" anything marked verified-correct in `notes/math-audit.md`** without first
   reproducing the verification and recording the new result there. Several parts of the original code
   look wrong and are not.
-- **Never commit `OLD/`.** It holds two archived disk images and the original repo; it is
-  `.gitignore`d and is source material only.
+- **Never commit `OLD/`.** It held two archived disk images and the original 2011-2012 repo. It has
+  been removed from the working tree and stays `.gitignore`d, so it cannot return by accident.
+- **The demos are not regenerated from sources.** The scripts that built `docs/*.json` from the 2011
+  databases and from the Escher raster were removed in the PR #2 cleanup; the committed JSON under
+  `docs/` is the artefact. Do not try to rebuild it -- edit it, or write a new generator.
 - **Before quoting any performance number, check CPU and GPU load** immediately before and after the
   measurement, and record both alongside the result. This machine is often busy with unrelated work.
   If it is busy, say so and defer the measurement rather than reporting a misleading figure.
 - **No global software installs.** Temporary or local installs only. `node`, `npm` and `python3` are
   already available.
-- The library has **zero runtime dependencies** and must stay that way. `tools/check-bundle.mjs`
-  enforces the source constraints that let `tools/build.mjs` work without a bundler — run
+- The library has **zero runtime dependencies** and must stay that way. `dev/check-bundle.mjs`
+  enforces the source constraints that let `dev/build.mjs` work without a bundler — run
   `npm run check` after touching module structure.
+- **`dev/` is maintenance scripting, not shipped code**: the bundler and its style checker, the two
+  mathematical audits (`audit_atlas_math.py` needs `sympy`; `audit_atlas_numeric.py` needs `mpmath`
+  and is fed by `node dev/emit_atlas_samples.mjs > build/atlas-samples.json`), and
+  `capture_server.py` for exact canvas-pixel diffs. Re-run both audits after changing anything in
+  `src/core/` or `src/data/atlas/`. A future `tools/` directory is reserved for USER-facing scripts
+  (SVG conversion, tile-art guides) and is not the same thing.
 
 ## Notes index
 

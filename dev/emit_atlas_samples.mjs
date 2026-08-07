@@ -1,10 +1,10 @@
 // Emit what the ANCHORED path actually computes, as JSON, for the numerical audit to check.
 //
-//     node tools/emit_atlas_samples.mjs > build/atlas-samples.json
+//     node dev/emit_atlas_samples.mjs > build/atlas-samples.json
 //
 // For each tiling and each walk distance, this walks the camera out along a fixed word, then records
 // the relative frame and the projected screen position of a few tile-local sample points for every
-// tile in the neighbourhood. tools/audit_atlas_numeric.py recomputes the same quantities at 60 digits
+// tile in the neighbourhood. dev/audit_atlas_numeric.py recomputes the same quantities at 60 digits
 // three independent ways and compares.
 //
 // The walk words are deterministic and are emitted too, so the oracle walks EXACTLY the same path --

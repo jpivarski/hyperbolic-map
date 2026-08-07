@@ -1212,3 +1212,54 @@ comments. Both units were previously untested and now have tests (four new ones,
 No behaviour change intended and none measured: 134/134 node tests, all nine browser checks (smoothness
 38/38), compound scroll clean on all nine tilings, and all six demo pages render with unchanged drawable
 counts — clock 87,864, dungeon 5,270, escher 38,640, relativity 5,306.
+
+## 2026-08-07 — PR #2 cleanup: `tools/` becomes `dev/`, demo-generation removed
+
+`OLD/` has been deleted from the working tree (by Jim), and the demos will not be regenerated from
+sources again. That makes a clean cut possible: anything whose only job was to *produce* the committed
+artefacts is now dead weight, while anything needed to *maintain* the library stays.
+
+**Removed** (7 files, ~1,100 lines, plus 20 KB of committed `.pyc`):
+
+| | why |
+|---|---|
+| `babudb_dump.py` | read `OLD/`; could never run again |
+| `make_docs_data.py`, `make_dungeon_atlas.py` | read `build/fixtures`, themselves derived from `OLD/` |
+| `fit_escher_tile.py` | already marked SUPERSEDED |
+| `trace_escher_tile.py` | regenerated `docs/escher-atlas.json` from the raster; not doing that again |
+| `escher-circle-limit-iii-source.jpg` | the non-free Wikipedia scan of *Circle Limit III*, committed into a BSD-3 repo |
+| `tools/__pycache__/*.pyc` | committed build artefact; `__pycache__/` and `*.pyc` now ignored |
+
+**Kept, moved to `dev/`** — maintenance scripting, not shipped code:
+
+`build.mjs` and `check-bundle.mjs` (the actual build: `npm run build`/`npm run check`),
+`audit_atlas_math.py` and `audit_atlas_numeric.py` with its feeder `emit_atlas_samples.mjs` (the two
+mathematical audits, re-runnable), and `capture_server.py` (exact canvas-pixel diffs).
+
+`tools/` is now free, and is reserved for USER-facing scripts — SVG conversion, tile-art guides — which
+is a different kind of thing and should not share a directory with the build.
+
+Both scripts compute their root as `new URL("..", import.meta.url)`, so the move needed no path edits
+inside them. Verified after moving: `npm run check`, `npm run build` (dist and `docs/lib` byte-identical),
+`npm test` 134/134, `audit_atlas_math.py` 31/31, `audit_atlas_numeric.py` 7/7, and all seven demo pages
+loading with unchanged drawable counts.
+
+**Dangling references, handled by kind.** Paths that merely *moved* were swapped everywhere. References
+to *deleted* files were treated by what the surrounding text is for:
+
+* live code and tests (`tiling.js`, `tiling.test.mjs`, `audit_atlas_math.py` claim 11b) describe the
+  offending *formula* (`A > nw^2`) instead of the file, which is the durable statement anyway;
+* `README.md`, `AGENTS.md` and `docs/escher-atlas.html` were corrected -- they made claims about tools
+  that no longer exist;
+* `notes/math-audit.md` is a living ledger, so its references were made to resolve;
+* `notes/escher-circle-limit-iii.md` keeps its narrative (it is an accurate account of how the tile was
+  derived) behind one callout saying the scripts are gone and are in git history;
+* `notes/log.md` is append-only history and was not rewritten -- earlier entries still say `tools/`,
+  which is what the paths were at the time.
+
+`docs/escher-atlas.json`'s `meta.source` pointed at the deleted raster; it now describes the provenance
+in prose instead of a path that cannot resolve.
+
+**Still open, deliberately not touched:** `bench/ab.html`, `bench/baseline.html` and
+`bench/make_legacy_fixtures.py` all target the 2011 implementation via `../OLD/`, so they are now
+definitively dead -- but `bench/` was outside the scope of this instruction.

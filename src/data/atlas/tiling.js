@@ -11,7 +11,7 @@
 // constant generator per step of the walk (see anchor.js). Every matrix on the path from a tile's own
 // JSON coordinates to the screen is then O(1), whatever the camera's absolute position.
 //
-// Proved in tools/audit_atlas_math.py (31/31), recorded in notes/math-audit.md. Load-bearing results:
+// Proved in dev/audit_atlas_math.py (31/31), recorded in notes/math-audit.md. Load-bearing results:
 //
 //   * appending a generator multiplies the frame on the RIGHT, F_{c.g} = F_c . G_g, so the relative
 //     frame of a neighbour IS that generator and a walk telescopes to a plain product (claims 3, 3b, 4);
@@ -379,10 +379,10 @@ export class RegularTiling {
   // sqrt(A^2 + B^2) with A = w*nw - x*nx - y*ny and B = x*ny - y*nx. Audit claim 11 proves the
   // boundary of this test passes through the edge midpoint at exactly the inradius.
   //
-  // NOTE: this is NOT the test in tools/fit_escher_tile.py, which compares A against nw^2. That is a
-  // different, larger region -- at the edge midpoint its value is -0.63 at the {8,3} inradius instead
-  // of zero (audit claim 11b). Harmless in the cutter, which deliberately over-includes and relies on
-  // render-time clipping, but wrong here.
+  // NOTE: the tempting near-miss is to compare A against nw^2 instead. That is a different, LARGER
+  // region -- at the edge midpoint its value is -0.63 at the {8,3} inradius instead of zero (audit
+  // claim 11b, dev/audit_atlas_math.py). The 2012 Escher tile cutter used it, harmlessly, because it
+  // deliberately over-included and relied on render-time clipping; here it would be wrong.
   containsLocal(x, y, tol = 0) {
     const w = Math.sqrt(1 + x * x + y * y);
     const own = w * w;

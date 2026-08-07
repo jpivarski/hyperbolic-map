@@ -168,7 +168,7 @@ function walkAddress(tiling, n, seed) {
 // frame and compose it with the global view. Near the origin those frames are small and trustworthy,
 // so agreement there says the anchored machinery computes the same thing rather than merely something
 // self-consistent. (Far from the origin the naive route is the broken one, which is checked separately
-// in tools/audit_atlas_numeric.py against a 60-digit oracle.)
+// in dev/audit_atlas_numeric.py against a 60-digit oracle.)
 export async function checkGroundTruth(lines) {
   const H = window.HyperbolicMap;
   let worst = 0;

@@ -31,8 +31,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "check": "node tools/check-bundle.mjs",
-    "build": "node tools/check-bundle.mjs && node tools/build.mjs && node -e \"require('fs').copyFileSync('dist/hyperbolic-map.iife.js','docs/lib/hyperbolic-map.iife.js')\"",
+    "check": "node dev/check-bundle.mjs",
+    "build": "node dev/check-bundle.mjs && node dev/build.mjs && node -e \"require('fs').copyFileSync('dist/hyperbolic-map.iife.js','docs/lib/hyperbolic-map.iife.js')\"",
     "test": "node --test \"test/**/*.test.mjs\"",
     "bench": "node bench/bench.mjs",
     "serve": "python3 -m http.server --directory docs 8000"

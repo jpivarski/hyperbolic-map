@@ -13,7 +13,7 @@
 // numerically, which is the entire point: at binary cell (500, 0) the global frame has entries of
 // 1.08e75, and forming `V . F_k` to get an O(1) screen position destroys every digit.
 //
-// Two identities make this work, both proved in tools/audit_atlas_math.py:
+// Two identities make this work, both proved in dev/audit_atlas_math.py:
 //
 //   re-anchor   crossing into c' = c.g  =>  V_c' = V_c . G_g          (claim 3)
 //   telescoping R_{c -> c.w} = G_w1 . G_w2 . ...                       (claim 4)

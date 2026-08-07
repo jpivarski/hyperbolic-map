@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Symbolic audit of the anchored-atlas mathematics. Run before trusting any of it.
 
-    python3 tools/audit_atlas_math.py
+    python3 dev/audit_atlas_math.py
 
 Every claim the anchored atlas rests on is stated here and proved as a SymPy identity, or reduced to
 one. The point of doing this before writing the implementation is that a wrong formula is far cheaper
@@ -308,11 +308,12 @@ check(11, "the bisector of two centres 2*psi apart meets the bearing at exactly 
       zero(sp.simplify(A_mid ** 2 + B_mid ** 2 - mw_ ** 2)),
       f"at the edge midpoint  A = {sp.simplify(A_mid)},  B = {B_mid},  w = {mw_}  ->  A^2+B^2-w^2 = 0")
 
-# The test currently in tools/fit_escher_tile.py, with the same neighbour centre, is
+# The near-miss test -- used by the 2012 Escher tile cutter, since removed -- with the same neighbour
+# centre, is
 #     outside  <=>  w*nw - x*nx - y*ny  >  nw^2
 # Its boundary is a different locus: it is not zero at the edge midpoint, so it is not the bisector.
 legacy_at_mid = sp.simplify(sp.expand(A_mid - nw_ ** 2, trig=True))
-check("11b", "FINDING: the legacy fit_escher_tile.py containment test is NOT that bisector",
+check("11b", "FINDING: the legacy `A > nw^2` containment test is NOT that bisector",
       not zero(legacy_at_mid),
       f"its value at the edge midpoint is {legacy_at_mid}, nonzero for psi > 0 "
       f"({float(legacy_at_mid.subs(t_h, 0.3821427)):+.4f} at the {{8,3}} inradius) -- it admits a "

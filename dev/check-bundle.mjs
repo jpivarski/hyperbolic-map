@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Enforce the source constraints that let tools/build.mjs concatenate src/ into a browser
+// Enforce the source constraints that let dev/build.mjs concatenate src/ into a browser
 // bundle without a bundler dependency. Run via `npm run check` (and automatically by `npm run
 // build`). If this passes, plain concatenation in dependency order is a valid transform.
 //
@@ -57,7 +57,7 @@ for (const file of files) {
     });
   }
   // `export { ... }` lists are allowed ONLY in the barrel (src/index.js), where they are the
-  // ESM public surface. tools/build.mjs strips that block for the browser bundle, since the
+  // ESM public surface. dev/build.mjs strips that block for the browser bundle, since the
   // bundle shares one scope and re-export is meaningless there.
   const isBarrel = file === join(SRC, "index.js");
   if (!isBarrel && /^export\s*\{/m.test(text)) {
@@ -117,7 +117,7 @@ if (problems.length) {
   console.error(`check-bundle: ${problems.length} problem(s)\n`);
   for (const p of problems) console.error("  " + p);
   console.error(`
-These constraints let tools/build.mjs produce the browser bundle by concatenation, with no
+These constraints let dev/build.mjs produce the browser bundle by concatenation, with no
 bundler dependency. See AGENTS.md.`);
   process.exit(1);
 }

@@ -305,8 +305,8 @@ test("the binary cell's local box is the same for every (latitude, longitude)", 
 
 test("containsLocal for a regular tiling is the nearest-centre region, not the legacy one", () => {
   // Audit claim 11: the boundary is the perpendicular bisector, which passes through the edge midpoint
-  // at exactly the inradius. Claim 11b found that tools/fit_escher_tile.py uses a DIFFERENT, larger
-  // region, so this must not share that formula.
+  // at exactly the inradius. Claim 11b found that comparing A against nw^2 instead -- as the 2012
+  // Escher tile cutter did -- gives a DIFFERENT, larger region, so this must not share that formula.
   for (const spec of REGULARS) {
     const t = new RegularTiling(spec);
     const psi = t.metrics.inradius;

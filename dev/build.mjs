@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Build dist/hyperbolic-map.iife.js by concatenating src/ in dependency order.
 //
-// There is no bundler dependency: tools/check-bundle.mjs constrains the source style so that
+// There is no bundler dependency: dev/check-bundle.mjs constrains the source style so that
 // stripping the import lines and the `export ` keyword, then concatenating in topological
 // order, is a valid transform. Run `npm run build` (which checks first).
 //
@@ -102,7 +102,7 @@ const version = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).ver
 
 const parts = [];
 parts.push(`/* hyperbolic-map-widget ${version} - https://github.com/jpivarski/hyperbolic-map-widget
- * Built by tools/build.mjs (concatenation in dependency order; no bundler).
+ * Built by dev/build.mjs (concatenation in dependency order; no bundler).
  * Generated file - do not edit. Edit src/ and run \`npm run build\`.
  */`);
 parts.push(`(function (global) {`);
@@ -140,7 +140,7 @@ writeFileSync(join(DIST, "hyperbolic-map.iife.js"), out);
 writeFileSync(join(DIST, "hyperbolic-map.min.js"), minify(out));
 
 // The examples load their own copy so that docs/ works straight from file:// with no build step.
-// This copy MUST happen here rather than in the npm "build" script: running `node tools/build.mjs`
+// This copy MUST happen here rather than in the npm "build" script: running `node dev/build.mjs`
 // on its own is the natural thing to do, and when the copy lived only in package.json that left
 // docs/lib stale. Every browser test then silently measured the OLD bundle -- which cost a full
 // debugging cycle chasing a bug that had already been fixed.
