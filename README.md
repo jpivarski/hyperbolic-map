@@ -1,18 +1,18 @@
 # Hyperbolic Map Widget
 
-A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model). Think of it like [Google Earth](https://earth.google.com/) for a negatively curved surface, rather than positively curved one (a sphere). [Here is a nice summary](https://sites.pitt.edu/~jdnorton/teaching/HPS_0410/chapters/non_Euclid_postulates/postulates.html) of Euclidean, spherical, and hyperbolic geometries.
+A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model). Think of it like Google Earth for a negatively curved surface, rather than a sphere, which is positively curved.
 
-See the demos: https://jpivarski.github.io/hyperbolic-map-widget/
+**See the demos:** https://jpivarski.github.io/hyperbolic-map-widget/
 
-This library is pure JavaScript (ES2020) without any runtime dependencies. It has been modernized and packaged from my 2012 blog post, [Lost in Hyperbolia](http://coffeeshopphysics.com/articles/2012-12/22_lost_in_hyperbolia/) (with associated [GitHub repo](https://github.com/jpivarski/hyperbolic-storage-space)). Scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers or dragging the outer ring with a mouse.
+Scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers or dragging the outer ring with a mouse.
+
+The library is pure JavaScript (ES2020) without any runtime dependencies. It has been modernized and packaged from my 2012 blog post, [Lost in Hyperbolia](http://coffeeshopphysics.com/articles/2012-12/22_lost_in_hyperbolia/) (with associated [GitHub repo](https://github.com/jpivarski/hyperbolic-storage-space)).
 
 ## Install
 
 ```bash
 npm install hyperbolic-map-widget
 ```
-
-and
 
 ```js
 import { HyperbolicViewport } from "hyperbolic-map-widget";
@@ -50,9 +50,9 @@ Replace `drawables` with your own vector art, and use scripts from the [tools/](
 
 The coordinates $(x, y)$ are projected onto the screen as $(\frac{x}{w}, \frac{y}{w})$ with $w = \sqrt{1 + x^2 + y^2}$ when the viewport is at the origin.
 
-There are two primary drawing modes:
+**There are two primary drawing modes:**
 * in the above (specify `data` or `dataProvider`), drawables are expressed in a single coordinate system;
-* with an [atlas of tiles](#atlas-of-tiles) (specify `tiling` and `tileData`), the space is divided into regular tiles, each with its own local coordinate system. The `tiling` scheme defines the placement of tiles, such as regular polygons or a binary tree, and you write the `tileData` function that returns drawables by tile index. This makes it easier to express repeating patterns and avoids floating-point errors at large distances from the origin.
+* with an [atlas of tiles](#atlas-of-tiles) (specify `atlas`), the space is divided into regular tiles, each with its own local coordinate system. A `tiling` scheme defines the placement of tiles, such as regular polygons or a binary tree, and you write a `tileData` function that returns drawables by tile index. This makes it easier to express repeating patterns and avoids floating-point errors at large distances from the origin.
 
 ## Options
 
@@ -66,8 +66,8 @@ All are optional except that either a `container` or a `canvas` must be supplied
 | `canvas` | — | use an existing canvas instead |
 | `width`, `height` | container size, or 400 | CSS pixels |
 | `autoResize` | `false` | follow the container's size with a `ResizeObserver` |
-| `devicePixelRatio` | `"auto"` | `"auto"`, or a number. `1` reproduces the 2011 blurriness on HiDPI |
-| `radiusBasis` | `"min"` | `"min"` fits the disk to the smaller side; `"width"` is the 2011 behaviour, which overflows a portrait canvas |
+| `devicePixelRatio` | `"auto"` | `"auto"`, or a number. |
+| `radiusBasis` | `"min"` | `"min"` fits the disk to the smaller side; `"width"` overflows a portrait canvas |
 
 ### What it draws
 
@@ -98,7 +98,7 @@ All are optional except that either a `container` or a `canvas` must be supplied
 | `panClamp` | `true` | dragging past the rim clamps |
 | `wheelZoom`, `wheelZoomStep` | `true`, `1.1` | |
 | `rotationMode` | `"parallel-transport"` | or `"compass"` to keep one direction fixed |
-| `compassTarget` | `[0, 1]` | the ideal point held at a fixed bearing in compass mode |
+| `compassTarget` | `[0, 1]` | the direction held fixed in compass mode |
 | `interactRadius` | `0.9` | inside this, drag scrolls; outside it, drag rotates |
 | `drawRadius` | `1.0` | content beyond this is culled |
 
@@ -218,7 +218,7 @@ Instead of one global coordinate system, give each tile of a tiling its own. Two
 - **Infinite repeats.** Return the same tile for every address for a repeating pattern.
 - **Precision.** Data far from the origin loses resolution in a single patch: at hyperbolic distance 20 the disk coordinate is `1 − 3.6e-9`, so only about seven significant digits remain in the quantity that matters. In an atlas, every coordinate is measured from its own tile's centre.
 
-To use it, pass a `tiling` and `tileData` instead of `data` or `dataProvider`:
+To use it, pass an `atlas` instead of `data` or `dataProvider`:
 
 ```js
 const viewport = new HyperbolicViewport({
@@ -324,4 +324,6 @@ npm run build     # produce dist/ and refresh docs/lib/
 npm run serve     # serve docs/ at http://localhost:8000
 ```
 
-Please read [`AGENTS.md`](AGENTS.md) and [`notes/`](notes/) before changing anything mathematical. [`notes/math-audit.md`](notes/math-audit.md) records what was verified to be correct.
+This project has an [`AGENTS.md`](AGENTS.md) for coding agents and everything in the [`notes/`](notes/) directory is maintained by agents. In particular, [`notes/math-audit.md`](notes/math-audit.md) records the mathematical formulas that have been verified.
+
+Pull requests are welcome!
