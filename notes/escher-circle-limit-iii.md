@@ -130,3 +130,65 @@ found — likely the 1996 *Intelligencer* paper, which revisits the 1979 one). P
 1996/1997 and the Dunham Bridges PDFs were inaccessible (403 / scanned binary); everything above is via
 Wikipedia, bendwavy.org's transcription of Coxeter 1997, Dunham's HTML Math Horizons paper, and my own
 independent numerical derivations.
+
+## Retraced from the raster, exactly C4-symmetric (2026-08-06)
+
+The tile cut by `tools/fit_escher_tile.py` had to be replaced, and the reason is worth keeping because
+it is not the reason I expected.
+
+**It had no 4-fold structure at all.** The library's symmetry check scores it `Infinity`: not one of its
+90 shapes has a C4 partner. Its own metadata says why — the cutter's bearing scan "does NOT
+discriminate" (spread 1.06x), so the octagon centre was *defaulted* to bearing 0 rather than located.
+
+**And no cut of the traced vector art could have worked.** Four independently traced copies of one fish
+have different vertex counts, so they cannot map onto one another exactly. Measured at the vector art's
+own known 3-fold centre, the exact check also returns `Infinity`. Symmetry has to be **constructed**,
+not found: trace one wedge and repeat it by exact rotation.
+
+**The vector art is also mis-scaled.** Using a validated centroid-matching metric (origin, m=3: 0.0097;
+non-symmetries: 0.20-0.29), no 4-fold centre exists anywhere on the circle of radius chi. Its 3-fold
+lattice sits at 1.85 where `{8,3}` predicts 1.7214 — about 4% of radial scale error. That is consistent
+with the disk radius having been measured slightly wrong when the art was produced.
+
+**The raster is not.** Fitting the disk radius by requiring the pattern to be invariant under the walk
+group's own generator gives a sharp peak at **158.5 px** against a nominal image half-width of 157.5
+(agreement 0.54, falling to 0.42 at +-8 px). So Escher's print really is at the `{8,3}` scale, and
+`tools/trace_escher_tile.py` traces from it directly.
+
+Fitted alignment, all by the same criterion:
+
+| | |
+|---|---|
+| disk radius | 158.5 px |
+| disk centre | (157.5, 157.0) |
+| library -> raster rotation | -22.5 deg (the octagon's vertices sit at raster bearings 0, 45, 90, ...) |
+
+Controls: rotating to the other vertex class scores 0.50 (it is also a genuine 3-fold point, so this is
+expected), and rotating 20 degrees to where no vertex lies scores 0.42.
+
+### Two classification attempts that failed
+
+1. **Brightness threshold for the ink.** Swallowed the dark blue and dark red fish whole: of the 2,360
+   dark pixels in the central region, 2,132 are saturated fish colour and only 228 are neutral outline.
+   The tile came out with black holes where those fish should be.
+2. **Local-median contrast.** Found the lines but broke them into dashes.
+
+What works is a **black top-hat** — how much darker is this pixel than the closing of its neighbourhood
+— which is the operator meant for thin dark structures and finds a 1 px outline on any background.
+
+### Why the fish are not Escher's four colours
+
+Because a 4-colouring that is not stabiliser-invariant is not a function of the tile. Around an octagon
+centre the four fish alternate green-orange, so Escher's colouring is `C2` while the shape is `C4`;
+C4 shapes in four colours score 0.36 on the symmetry check. The four fish in a tile therefore share a
+colour, and variety comes from the tile class — `{8,3}` m=4 admits three classes, giving a proper
+3-colouring of the octagons in which no two neighbours match, path-independent by construction.
+
+### Result
+
+Symmetry residual **3.9e-17** (was `Infinity`). Crossing a tile boundary changes **3 pixels**, identical
+to an ordinary step of the same size (was a visible snap). At 6,114 hyperbolic units from the origin the
+picture is indistinguishable from the origin view, with `max|V| = 1.000`.
+
+The raster is 316 px across, so the outlines are approximate and the fish are simplified. What is exact
+is the geometry and the symmetry.

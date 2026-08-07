@@ -369,6 +369,59 @@ constant, so a relative frame has to be *composed along a path* rather than comp
 - Frame time is flat out to 200,000 tiles (about 150,000 hyperbolic units).
 - `stats.maxViewEntry` stays near 1 forever; it is the invariant made visible.
 
+### The stabiliser: what tile art is allowed to look like
+
+The anchored composition fixes the arithmetic, but it brings a constraint with it that is easy to miss
+and impossible to work around, because it is a property of the group rather than of the code.
+
+A tile's frame is not unique. If `F_k` carries the base tile onto tile `k`, so does `F_k · s` for any
+`s` in the **stabiliser** of the base tile — the subgroup fixing it. For a `{p,q}` walk group that
+stabiliser is the cyclic group `C_m` of rotations about the tile centre, `m = frameSymmetry` (default
+`p`). Measured directly, by walking the tile graph and collecting `F_seen⁻¹ · F_new` at every collision:
+every discrepancy is a rotation by a multiple of `2π/m`, never anything else.
+
+The renderer must therefore pick a representative, and it picks the one the walk reaches first — which
+depends on the **camera**, because the walk starts there. So:
+
+```
+camera crosses a tile boundary  ⟹  the routes change  ⟹  the representatives change
+```
+
+Measured on `{8,3}` with `m = 4`, panning from one octagon centre to the next in 100 steps: at step 51,
+the single step where the anchor changes, **16 of the 30 on-screen tiles change identity**, with no
+motion at all — their displacement is the same 0.00–0.01 disk units as every other step. Their frames
+differ by exactly 0°, ±90° or 180°.
+
+Hence the rule:
+
+> Tile art must be invariant under rotation by `2π/m` about the tile centre, and must not depend on the
+> tile's word address.
+
+The second half is the same problem wearing different clothes: a word address is not canonical either
+(next section), so `hash(address)` changes at a re-anchor even though the tile has not moved.
+
+**What is still allowed to vary between tiles.** A tile class, provided it comes from a group
+homomorphism `φ: Γ → Z/n`. A homomorphism is defined on group *elements*, so every word for a tile gives
+the same value; and if it kills the stabiliser it descends to tiles. The available `n` is fixed by the
+abelianisation:
+
+| generators | `φ(g)` order | classes |
+|---|---|---|
+| vertex rotations, `m < p` (e.g. `{8,3}` m=4) | `q` | `q` — three for Circle Limit III, a proper 3-colouring |
+| edge half-turns, `m = p` | divides 2, and `q·φ(g) = 0` | 2 when `q` is even, 1 when odd |
+
+`BinaryTiling` escapes all of this: its stabiliser is trivial and its `(lat, lon)` addresses are
+canonical, so its cells may each carry different, entirely asymmetric art. That is exactly why it was
+the one tiling that always scrolled cleanly, and why the dungeon demo can put a different room in every
+cell.
+
+**Escher's colours are a casualty.** Around an octagon centre in *Circle Limit III* the four fish
+alternate green–orange, so the colouring is only `C₂` while the shape is `C₄`. C₄ shapes in four
+different colours score 0.36 on the library's symmetry check — a clear failure — so the four fish in a
+tile must share a colour, and variety has to come from the tile class instead. This is not a limitation
+of the implementation; a 4-colouring that is not invariant under the stabiliser simply is not a function
+of the tile.
+
 ### The one thing that is still not canonical
 
 Tile *identity*, for regular tilings only. A `{p, q}` address is a word over the generators, reduced

@@ -328,6 +328,50 @@ const viewport = new HyperbolicViewport({
 });
 ```
 
+### The rule your tile art must obey
+
+> **A tile's frame is defined only up to the tile stabiliser `C_m`.** The walk reaches each tile by the
+> shortest route from the **camera**, so when the camera crosses into a new tile the routes change and
+> every tile's frame may change by a rotation of `2πk/m` about its own centre. Therefore:
+>
+> 1. **tile art must be invariant under rotation by `2π/m` about the tile centre**, and
+> 2. **it must not depend on the tile's word address** — two routes to one tile can spell it
+>    differently, so `hash(address)` is not a stable colour.
+>
+> Art that breaks either half looks perfect standing still and **jumps as you scroll**.
+
+`m` is `frameSymmetry` (default `p`), and `BinaryTiling` has `m = 1` with canonical addresses, so it is
+exempt from both halves — its cells may each carry entirely different, entirely asymmetric art.
+
+This is easy to get wrong and invisible until you scroll, so **the library checks it** on the first tile
+that carries artwork and tells you what to do about it:
+
+```js
+atlas: {
+  checkTileSymmetry: "warn",   // "warn" (default) | "throw" | "off"
+}
+viewport.atlas.tileSymmetry;   // { residual, checked, m, ok } -- residual 0 means exactly invariant
+```
+
+Measured examples: a single asymmetric stroke scores `0.25`; C₄ shapes painted in four different
+colours score `0.36` (**the colouring counts**, which is why Escher's four fish colours cannot be used);
+the Circle Limit III tile built by `tools/trace_escher_tile.py` scores `4e-17`.
+
+**Per-tile variety is still available**, via `tile.classIndex`. Tile classes come from a group
+homomorphism rather than from the address, so every route to a tile gives the same class:
+
+```js
+tileData: (tile) => palette[tile.classIndex]   // tile.classCount classes, 0-based
+```
+
+`{8,3}` with `frameSymmetry: 4` has **3** classes (a proper 3-colouring of the octagons — no two
+neighbours match), `{5,4}` and `{6,4}` have 2, and the rest have 1, meaning every tile must look the
+same. The counts follow the abelianisation of the walk group and are verified at construction.
+
+[`docs/tiling-diagnostics.html`](docs/tiling-diagnostics.html) lets you switch between art that obeys
+the rule and art that breaks it, and its check 9 measures the difference: 0–1 changed pixels crossing a
+tile boundary versus 746–18,071 for art that violates one half or the other.
+
 An atlas **cannot** be combined with `data` or `dataProvider`, and the constructor says so rather than
 drawing it wrong. In atlas mode the view matrix is expressed in the camera tile's frame, so a source
 whose coordinates are global has no fixed placement — measured, a point at the global origin lands
@@ -352,12 +396,24 @@ origin tile. Two different words can name the same tile (the group has braid rel
 also deduplicates geometrically; see `notes/open-questions.md` for the measured extent of that and the
 Coxeter automaton that would remove it.
 
-`frameSymmetry` (a divisor of `p`, default `p`) declares the rotational symmetry **your art has**,
-and it matters more than it looks. Repeating one tile everywhere produces a consistent pattern only
-if the art is invariant under the tile's stabiliser in the walk group. If your art is only `m`-fold
-symmetric, say so, and the library picks generators whose stabiliser is `C_m`. See
-[`docs/MATH.md`](docs/MATH.md#tilings) — for Escher's *Circle Limit III* this must be `4`, not `8`,
-and the natural general-purpose generator (a half-turn about an edge midpoint) is the wrong one.
+`frameSymmetry` (a divisor of `p`, default `p`) declares the rotational symmetry **your art has**, and
+it selects the walk group so that the tile stabiliser is exactly `C_m`. It is the `m` in
+[the rule above](#the-rule-your-tile-art-must-obey), so getting it wrong is not a performance hint but a
+correctness error: art declared 8-fold and drawn 4-fold will rotate as you scroll.
+
+Lowering `m` makes the rule **easier** to satisfy (less symmetry demanded of the art) at the cost of a
+larger generator set. For Escher's *Circle Limit III* it must be `4`, not `8`: the pattern has 4-fold
+centres at the octagon centres, and the natural general-purpose generator — a half-turn about an edge
+midpoint — is outside that group entirely.
+
+The tiling also exposes what the rule needs:
+
+```js
+tiling.stabiliserOrder;   // m: art must be invariant under rotation by 2*pi/m
+tiling.selfRotation;      // that rotation, as an Isom
+tiling.classModulus;      // how many distinct tile classes exist (1 = every tile identical)
+tiling.tileClass(addr);   // 0 .. classModulus-1, the same by every route
+```
 
 ### `BinaryTiling()`
 
@@ -388,6 +444,10 @@ neighbours.
   containsLocal(x, y, tol?),                  // is this tile-local point inside this tile?
   boundaryLocal(),                            // for clipping, in tile-local coordinates
   addressesAreCanonical,                      // true if one tile has exactly one address
+  stabiliserOrder,                            // m -- THE RULE: art must be invariant under 2*pi/m
+  selfRotation,                               // that rotation as an Isom (identity when m = 1)
+  classModulus,                               // number of tile classes (1 = every tile must match)
+  tileClass(address),                         // 0 .. classModulus-1, path-independent
 }
 ```
 

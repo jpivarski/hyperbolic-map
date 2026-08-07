@@ -1075,3 +1075,59 @@ even if `rebase` ignored the target completely.
   Worth noting the trap: the view's `cx/cy/radius` are CSS pixels while `getImageData` is device pixels,
   so a naive stray-pixel test reports 207,698 stray pixels at dpr 2 on a perfectly correct canvas. That
   was my measurement, not the renderer.
+
+## 2026-08-06 (evening) — the stabiliser rule, and a new Circle Limit III
+
+The user reported that every regular tiling in the diagnostics jumps as you drag: colour and hook
+orientation snap at a threshold that is "a strict function of position". They guessed a `ceil`/`floor`
+error. It is not that, and the real cause is more interesting.
+
+**The cause.** A tile's frame is defined only up to the tile **stabiliser** `C_m`. The walk reaches each
+tile by the shortest route *from the camera*, so when the camera re-anchors the routes change and with
+them the frames. Measured on `{8,3}` m=4, panning one tile spacing in 100 steps: at step 51 — the single
+step where the anchor changes — 16 of the 30 on-screen tiles change identity with **zero motion**, their
+frames differing by exactly 0, +-90 or 180 degrees, and their colours changing because colour was
+`hash(address)` and word addresses are not canonical either. The threshold sits exactly at the
+perpendicular bisector, which is where it belongs. Nothing was rounding wrongly.
+
+So the fix is not in the walk. It is that **art must be invariant under the stabiliser**, and the
+library now says so, checks it, and provides the escape hatch that makes per-tile variety still
+possible. `notes/tilings.md` has the full rule.
+
+**The escape hatch.** A tile class from a group homomorphism `phi: Gamma -> Z/n`. Homomorphisms are
+defined on group elements, so every word for a tile gives the same value — unlike the address. From the
+abelianisation, verified by walking the graph: 3 classes for `{8,3}` m=4 (a proper 3-colouring of the
+octagons), 2 for `{5,4}`, `{6,4}` and `{9,4}`, 1 elsewhere.
+
+**Circle Limit III.** The existing tile could not be repaired. It scores `Infinity` on the symmetry
+check — not one of its 90 shapes has a C4 partner — and its own cutter admits the octagon centre was
+defaulted rather than fitted. Worse, *no* cut of traced art can pass, because four independently traced
+fish have different vertex counts. And the vector art is mis-scaled: its 3-fold lattice sits at 1.85
+where `{8,3}` predicts 1.7214.
+
+The raster is not mis-scaled — fitting the disk radius by requiring invariance under the walk group's
+own generator peaks sharply at 158.5 px against a nominal 157.5 — so `tools/trace_escher_tile.py` traces
+one 90-degree sector from the woodcut and repeats it by exact rotation. Residual 3.9e-17.
+
+**Three measurement traps on the way, all caught by controls.**
+
+1. `local_to_disk` used `x/(1+w)` where the library's local coordinates need `x/w`. It sampled only the
+   inner half of the octagon, which is why the white spine class came back empty.
+2. A brightness threshold for the ink swallowed the dark blue and red fish whole (2,132 of 2,360 dark
+   pixels are saturated fish colour, not outline). A local-median rule found the lines but dashed them.
+   A black top-hat works.
+3. The first two smoothness metrics could not detect the bug they existed to detect: consecutive frames
+   of a pan gave 1.3x, a sub-pixel hop 2.5x. The negative control is what exposed both. Bisecting to the
+   boundary, comparing at +-1e-4 of a tile spacing, masking the rim and counting only substantial
+   changes gives 0-1 against 746-18,071.
+
+**Where it landed.** All nine tilings scroll smoothly with pinwheel art built one wedge at a time
+(residuals 6e-17 to 7e-16). Check 9 tests both halves of the rule separately and includes negative
+controls, 23/23. Circle Limit III crosses a tile boundary with 3 changed pixels, identical to an
+ordinary step, and looks the same at 6,114 hyperbolic units out as at the origin.
+
+**One thing I got wrong along the way and had to walk back.** I reported early that the art "has no
+4-fold centre anywhere". That was a scanning artefact: the render-based metric has a capture radius of
+about 0.02, so a grid at 0.1 or 5-degree steps steps straight over the centres. At d=1.851 exactly it
+scored 3.7; at 1.8 and 1.9 it read 25. The conclusion that the *cut tile* has no C4 structure stands and
+is confirmed by the exact check; the sweeping version of it did not.

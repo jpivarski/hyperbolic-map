@@ -139,3 +139,57 @@ For regular tilings, enumerate breadth-first from the tile containing the view c
 only at a vertex is still reachable through a neighbour) while using the exact bound for inclusion.
 Tighten `ρ` to the **screen rectangle**, not the disk: `min(drawRadius, hypot(w,h)/(2·scale))`. At the
 dungeon's `zoom: 3` only `|z| ≲ 0.47` is visible, which roughly quarters the tile count.
+
+## THE STABILISER RULE (2026-08-06)
+
+**Read this before writing any tile art.** It is the constraint that the whole atlas design hangs on,
+and it is invisible until you scroll.
+
+A tile's frame is only defined up to the tile's **stabiliser**: the subgroup of the walk group that
+fixes that tile. For `{p,q}` it is `C_m`, the rotations by multiples of `2*pi/m` about the tile centre,
+with `m = frameSymmetry` (default `p`). Measured, not assumed — walk the tile graph keeping one frame
+per tile, and at every collision compute `F_seen^-1 . F_new`: every discrepancy observed is a rotation
+by a multiple of `2*pi/m`, never a translation, never any other angle. Pinned by the test
+`THE RULE: a tile's frame is defined only up to the stabiliser C_m`.
+
+The renderer reaches each tile by the shortest route **from the camera**, so re-anchoring changes the
+routes and with them the representatives. Measured on `{8,3}` m=4, panning one tile spacing in 100
+steps: at step 51 — the one step where the anchor changes — 16 of 30 on-screen tiles change identity
+with zero motion, their frames differing by 0, +-90 or 180 degrees.
+
+So:
+
+* **art must be invariant under `2*pi/m` about the tile centre**;
+* **art must not depend on the word address** — words are not canonical either, so `hash(address)`
+  flickers at a re-anchor.
+
+Per-tile variation is still possible through `tileClass()`, which comes from a homomorphism
+`phi: Gamma -> Z/n` and is therefore the same by every route. From the abelianisation, verified by walk:
+
+| tiling | stabiliser | classes |
+|---|---|---|
+| `{8,3}` m=4 | C_4 | **3** (proper 3-colouring of the octagons) |
+| `{8,3}` m=8 | C_8 | 1 |
+| `{7,3}` | C_7 | 1 |
+| `{5,4}` | C_5 | **2** |
+| `{4,5}` | C_4 | 1 |
+| `{6,4}` | C_6 | **2** |
+| `{3,7}` | C_3 | 1 |
+| `{12,3}` | C_12 | 1 |
+| `{9,4}` | C_9 | **2** |
+| binary | trivial | unconstrained (addresses are canonical) |
+
+The rule for `m = p`: `phi(g)` has order dividing 2, and going around a vertex forces `q*phi(g) = 0`, so
+there are two classes when `q` is even and one when `q` is odd. For `m < p` the generators are vertex
+rotations of order `q`, giving `Z/q`.
+
+### How to build art that satisfies it
+
+Build one wedge of `2*pi/m` and repeat it by exact rotation. Do not build the whole tile and hope it
+comes out symmetric: in tile-local coordinates the stabiliser is an ordinary Euclidean rotation, so a
+wedge repeated exactly is symmetric to machine precision (measured 6e-17 to 7e-16 for the diagnostics
+pinwheels, 3.9e-17 for the Circle Limit III tile), whereas anything traced or fitted is not (the old
+Escher tile scored **Infinity** — not one of its 90 shapes had a C4 partner).
+
+The library checks this on the first tile carrying art: `atlas.checkTileSymmetry` is `"warn"` by
+default, `"throw"` to make it fatal, `"off"` to silence it.
