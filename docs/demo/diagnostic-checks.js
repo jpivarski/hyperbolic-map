@@ -174,7 +174,7 @@ export async function checkGroundTruth(lines) {
   let worst = 0;
   let where = "";
   for (const key of KEYS) {
-    const { vp, tiling } = build(key, { motif: "asym", hashColour: true });
+    const { vp, tiling } = build(key, { motif: "illegal", hashColour: true });
     await settle(vp);
     const view = vp.surface.buildView(vp.view, vp.options);
     // The camera's own global frame has to be divided out. `view.matrix` is V_c = V . F_c, so the
@@ -262,7 +262,7 @@ export async function checkInvariance(lines, only) {
   const failures = [];
   const travelled = [];
   let checked = 0;
-  const opts = { motif: "sym", hashColour: false };
+  const opts = { motif: "legal", hashColour: false, uniform: true };
   for (const key of only || KEYS) {
     const tiling0 = makeTiling(key);
     // The binary tiling's exact symmetry is LATITUDE SHIFT: z -> 2z maps cell (lat, lon) to
@@ -484,7 +484,7 @@ export async function checkBounded(lines) {
   let worstRel = 0;
   let where = "";
   for (const key of KEYS) {
-    const { vp, tiling } = build(key, { motif: "asym", hashColour: true });
+    const { vp, tiling } = build(key, { motif: "illegal", hashColour: true });
     for (const walk of [0, 5, 500, 5000]) {
       const address = key === "binary" ? { lat: BigInt(walk), lon: 0n } : walkAddress(tiling, walk, 8 + walk);
       vp.panToTile(address, [0, 0]);
@@ -570,6 +570,7 @@ export async function runAllChecks() {
   await checkAddressRoundTrip(lines);
   await checkBounded(lines);
   await checkPicking(lines);
+  await checkSmoothness(lines);
   lines.sort((a, b) => parseInt(a.text, 10) - parseInt(b.text, 10));
   lines.push({
     ok: lines.every((l) => l.ok),
@@ -592,3 +593,156 @@ window.diagChecks = {
   bounded: checkBounded,
   picking: checkPicking,
 };
+
+// ---- 9. SMOOTHNESS across a tile boundary -------------------------------------------------------
+//
+// The check the user's own report demanded, and the one the rest of the suite could not make.
+//
+// Panning across a tile centre forces a re-anchor, and at that instant every tile's frame may change by
+// an element of the stabiliser C_m, and every word address may change too. If the art obeys the rule,
+// neither is visible; if it does not, the picture snaps.
+//
+// Measuring it needs care, and the first two attempts were not sensitive enough:
+//
+//   * comparing consecutive frames of an ordinary pan buries the jump, because a pan changes a lot of
+//     pixels by itself -- the illegal motif scored only 1.3x the median that way;
+//   * even a sub-pixel hop is not enough: a 0.35 px shift still re-antialiases every stroke edge, which
+//     came to 1,994 changed channels against 5,017 for a real jump. 2.5x is not a separation.
+//
+// So: BISECT to the boundary, then compare the picture at t* - eps and t* + eps with eps = 1e-4 of a
+// tile spacing, i.e. about 0.01 px of motion. Now the continuous part contributes essentially nothing
+// and any difference at all is the discontinuity. Each frame is rendered in a FRESH viewport, because
+// re-reading one canvas across renders is not reproducible in Chrome.
+//
+// Includes a NEGATIVE CONTROL -- art that breaks the rule must be caught -- because this suite has
+// already been burned more than once by checks that could not fail.
+export async function checkSmoothness(lines, only) {
+  const H = window.HyperbolicMap;
+  const SZ = 240;
+  const failures = [];
+  const detail = [];
+
+  // The camera at parameter t along a straight pan of one tile spacing, canonicalised: build it in a
+  // fresh viewport from the origin tile and let the library re-anchor, so the state is exactly what
+  // scrolling there would produce.
+  const makeVp = (key, opts) => {
+    const spec = DIAG_TILINGS[key];
+    const tiling = makeTiling(key);
+    const host = document.createElement("div");
+    host.style.cssText = "position:absolute;left:-10000px;top:0";
+    document.body.appendChild(host);
+    const vp = new H.HyperbolicViewport({
+      container: host, width: SZ, height: SZ, devicePixelRatio: 1,
+      zoom: 0.95, interactRadius: 0.92, background: "#ffffff", rimFill: "#eeeeee", drawRadius: 0.8,
+      atlas: {
+        tiling, maxTiles: 160, clip: "always", checkTileSymmetry: "off",
+        tileData: (t) => ({ version: 1, coordinates: "local", drawables: motifFor(tiling, spec, t.address, opts) }),
+      },
+    });
+    return { vp, host, tiling };
+  };
+
+  const at = async (key, opts, t, wantPixels) => {
+    const { vp, host, tiling } = makeVp(key, opts);
+    const d = tiling.metrics.centreSpacing * t;
+    if (d > 0) {
+      const T = H.Isom.translationToDisk(0, -Math.tanh(d / 2));
+      vp.view.matrix = T.mul(vp.view.matrix).normalize();
+      vp.view.liveMatrix = vp.view.matrix.clone();
+    }
+    await settle(vp);
+    const addr = tiling.addressToString(vp.atlas.anchor.address);
+    let data = null;
+    if (wantPixels) {
+      const canvas = host.querySelector("canvas");
+      data = new Uint8ClampedArray(canvas.getContext("2d").getImageData(0, 0, SZ, SZ).data);
+    }
+    vp.destroy();
+    host.remove();
+    return { addr, data };
+  };
+
+  // Compare only the INTERIOR. At the rim, tiles legitimately enter and leave the visible set and the
+  // maxTiles budget as the camera moves, which changes pixels for reasons that have nothing to do with
+  // the stabiliser. Including the rim put the flat-fill control at 2x when it should be ~1x.
+  // Count only SUBSTANTIAL changes. Two pictures that differ by 0.03 px of pan differ slightly on every
+  // stroke edge, and rotating a tile's clip polygon onto itself re-rasterises its edge pixels even
+  // though the region is identical -- both are antialiasing, not motion. A pixel that changes by more
+  // than a quarter of full scale has changed what it is showing, which is the thing being measured.
+  // Without this the flat-fill case sat at 2x while a real jump was 3x, which is not a separation.
+  const BIG = 64;
+  const interiorDiff = (a, b) => {
+    const c = SZ / 2;
+    const R = SZ * 0.34;
+    let n = 0;
+    let worst = 0;
+    for (let y = 0; y < SZ; y++) {
+      for (let x = 0; x < SZ; x++) {
+        if (Math.hypot(x - c, y - c) > R) continue;
+        const i = (y * SZ + x) * 4;
+        for (let k = 0; k < 3; k++) {
+          const d = Math.abs(a[i + k] - b[i + k]);
+          if (d > worst) worst = d;
+          if (d > BIG) n++;
+        }
+      }
+    }
+    return { n, worst };
+  };
+
+  const cases = [];
+  for (const key of only || KEYS) {
+    cases.push({ key, opts: { motif: "legal", hashColour: false }, mustJump: false });
+    cases.push({ key, opts: { motif: "fill", hashColour: false }, mustJump: false });
+  }
+  // The negative control. Not for the binary tiling: its stabiliser is trivial and its addresses are
+  // canonical, so even the "illegal" motif is perfectly legal there and correctly does NOT jump.
+  for (const key of (only || KEYS).filter((k) => k !== "binary").slice(0, 3)) {
+    cases.push({ key, opts: { motif: "illegal", hashColour: true }, mustJump: true });
+  }
+
+  for (const { key, opts, mustJump } of cases) {
+    const a0 = (await at(key, opts, 0, false)).addr;
+    const a1 = (await at(key, opts, 1, false)).addr;
+    if (a0 === a1) {
+      failures.push(`${key}/${opts.motif}: panning a full tile spacing never changed the anchor`);
+      continue;
+    }
+    // Bisect for the parameter at which the anchor changes.
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 22; i++) {
+      const mid = (lo + hi) / 2;
+      if ((await at(key, opts, mid, false)).addr === a0) lo = mid;
+      else hi = mid;
+    }
+    const eps = 1e-4;
+    const [before, after] = [await at(key, opts, lo - eps, true), await at(key, opts, hi + eps, true)];
+    // The control: the same 2*eps of motion, nowhere near a boundary.
+    const [cA, cB] = [await at(key, opts, 0.25 - eps, true), await at(key, opts, 0.25 + eps, true)];
+    const jump = interiorDiff(before.data, after.data);
+    const ctrl = interiorDiff(cA.data, cB.data);
+    const budget = Math.max(40, ctrl.n * 3 + 30);
+    const jumped = jump.n > budget;
+    detail.push(`${key} ${opts.motif}${mustJump ? "*" : ""} ${jump.n}/${ctrl.n}`);
+    if (jumped && !mustJump) {
+      failures.push(
+        `${key} (${opts.motif}): crossing the boundary changed ${jump.n} channels (worst ${jump.worst}) ` +
+          `against ${ctrl.n} for the same motion elsewhere -- the picture JUMPS`,
+      );
+    }
+    if (!jumped && mustJump) {
+      failures.push(
+        `${key} (${opts.motif}): NEGATIVE CONTROL FAILED -- rule-breaking art changed only ${jump.n} ` +
+          `channels against a budget of ${budget}, so this check could not detect a jump`,
+      );
+    }
+  }
+  lines.push({
+    ok: failures.length === 0,
+    text: `9. smoothness across tile boundaries: ${cases.length - failures.length}/${cases.length} pans ` +
+      `behave as required; boundary/elsewhere changed channels, * = must jump:\n     ` +
+      detail.join("  ") +
+      (failures.length ? `\n     ${failures.slice(0, 6).join("\n     ")}` : ""),
+  });
+}

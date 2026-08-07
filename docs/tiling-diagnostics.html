@@ -54,11 +54,11 @@ underneath: it must stay near 1 forever.</p>
     </fieldset>
     <fieldset>
       <legend>artwork</legend>
-      <label><input type="radio" name="motif" value="asym" checked> asymmetric line (shows orientation)</label>
-      <label><input type="radio" name="motif" value="sym"> symmetrised (exactly tile-symmetric)</label>
+      <label><input type="radio" name="motif" value="legal" checked> legal: as asymmetric as the rule allows</label>
+      <label><input type="radio" name="motif" value="illegal"> <b>illegal</b>: breaks the rule, jumps as you scroll</label>
       <label><input type="radio" name="motif" value="fill"> flat fill (shows tile ownership)</label>
       <label><input type="radio" name="motif" value="over"> overflowing fill (tests clipping)</label>
-      <label><input type="checkbox" id="hashColour" checked> colour by address hash</label>
+      <label><input type="checkbox" id="hashColour" checked> colour by address hash (<b>illegal</b> on {p,q}: addresses are not canonical)</label>
       <label><input type="checkbox" id="clip" checked> clip each tile to its own boundary</label>
       <label><input type="checkbox" id="outline"> outline tile boundaries</label>
     </fieldset>
