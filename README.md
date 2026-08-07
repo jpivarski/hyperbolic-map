@@ -125,9 +125,9 @@ Draw order:
 1. `pageBackground`
 2. layers with `z < 0`
 3. `onBeforeDraw`
-4. the disk's opaque interior, filled with `background` — or `onDrawBackground` instead, if you supply it
+4. disk interior filled with `background` color or `onDrawBackground`
 5. all drawables
-6. the rim annulus — or `onDrawRim` instead, if you supply it
+6. the rim annulus or `onDrawRim`
 7. layers with `z >= 0`
 8. `onAfterDraw`
 
@@ -161,7 +161,7 @@ _(Documentation TBD.)_
 * `resize(w, h)`
 * `destroy()`
 
-In atlas mode (see [atlas of tiles](#atlas-of-tiles)), use `getCamera`/`setCamera`/`panToTile` instead of `getView`/`getMatrix`/`setMatrix`/`panTo`. Those four take and return *global* coordinates, and far from the origin no global coordinate can be represented—that is the whole reason the atlas is anchored. Their meaning is unchanged and they remain correct in single-patch mode and while the camera is still anchored to the origin tile; past that they raise errors, naming `getCamera()`, rather than returning a wrong number.
+In atlas mode (see [atlas of tiles](#atlas-of-tiles)), use `getCamera`/`setCamera`/`panToTile` instead of `getView`/`getMatrix`/`setMatrix`/`panTo`. Those four take and return global coordinates, and far from the origin no global coordinate can be represented—that is the whole reason the atlas is anchored. Their meaning is unchanged and they remain correct in single-patch mode and while the camera is still anchored to the origin tile; past that they raise errors, naming `getCamera()`, rather than returning a wrong number.
 
 (`setZoom` and `setRotation` are unaffected: zoom and screen rotation are not global-coordinate quantities, so they work the same in either mode.)
 
@@ -244,9 +244,9 @@ const viewport = new HyperbolicViewport({
     cacheSize: 512,
     lodPx: 11,        // below this on-screen tile radius, use the tile's `lod` art if any
   },
-  // Optional: open on a given tile rather than the origin, however far out it is. The address must
-  // be one of THIS tiling's own — a walk word for RegularTiling (usually a saved
-  // `getCamera().address`), or `{lat, lon}` BigInts for BinaryTiling.
+  // Optional: open on a given tile rather than the origin, however far out it is.
+  // The address must be one of THIS tiling's own—a walk word for RegularTiling (usually
+  // a saved `getCamera().address`), or `{lat, lon}` BigInts for BinaryTiling.
   anchor: tiling.originAddress(),
 });
 ```
