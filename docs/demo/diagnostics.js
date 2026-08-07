@@ -36,6 +36,12 @@
 //           this selected and tiles visibly snap to new colours and orientations as you cross a
 //           boundary. Do not copy it into real art.
 //
+//   art     Proper test art: a PINWHEEL, built the same way the Circle Limit III tile is built -- one
+//           wedge of 2*pi/m, filled with a curved asymmetric blade and an off-axis dot, repeated m
+//           times by exact rotation. Symmetric to machine precision by construction, and asymmetric in
+//           every way the rule permits: no mirror, no rotation finer than 2*pi/m. Fills the tile, so
+//           gaps and misplacement show up as well as rotation.
+//
 //   fill    A flat polygon covering the whole tile, for the per-pixel ownership check. The tile outline
 //           is C_p-symmetric so this satisfies the rule automatically.
 //
@@ -132,6 +138,29 @@ function strokeGeometry(tiling, spec) {
   return out;
 }
 
+// Lighten (t > 0) or darken (t < 0) an hsl() colour, keeping the hue so the tile class stays readable.
+function shade(css, t) {
+  const m = /hsl\((\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%\)/.exec(css);
+  if (!m) return css;
+  const h = +m[1];
+  const s2 = +m[2];
+  const l = +m[3];
+  const nl = t > 0 ? l + (100 - l) * t : l * (1 + t);
+  return `hsl(${h} ${Math.max(12, s2 - (t > 0 ? 18 : 0))}% ${Math.max(6, Math.min(94, nl))}%)`;
+}
+
+// The binary cell's outline, sampled along its two horocyclic and two geodesic sides.
+function binaryCellOutline(b) {
+  const H = window.HyperbolicMap;
+  const N = 14;
+  const points = [];
+  for (let i = 0; i <= N; i++) points.push(H.halfPlaneToLocal(-b.halfWidth + (2 * b.halfWidth * i) / N, b.yLow, [0, 0]));
+  for (let i = 1; i <= N; i++) points.push(H.halfPlaneToLocal(b.halfWidth, b.yLow * Math.pow(b.yHigh / b.yLow, i / N), [0, 0]));
+  for (let i = 1; i <= N; i++) points.push(H.halfPlaneToLocal(b.halfWidth - (2 * b.halfWidth * i) / N, b.yHigh, [0, 0]));
+  for (let i = 1; i < N; i++) points.push(H.halfPlaneToLocal(-b.halfWidth, b.yHigh * Math.pow(b.yLow / b.yHigh, i / N), [0, 0]));
+  return points;
+}
+
 // Rotate tile-local coordinates about the tile centre. In local ("companion") coordinates that is an
 // ordinary Euclidean rotation, which is both exact and exactly what the library's symmetry check does --
 // so art built this way passes that check to machine precision rather than approximately.
@@ -139,6 +168,43 @@ function rotateLocal(points, angle) {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
   return points.map(([x, y]) => [x * c - y * s, x * s + y * c]);
+}
+
+// One wedge of the pinwheel: a curved blade sweeping across 2*pi/m, plus a dot placed off the wedge's
+// own axis. Neither is mirror-symmetric, so the finished motif's symmetry group is EXACTLY C_m -- which
+// is the most asymmetry the rule allows. Sized from the tiling's own inradius so it fits {3,7}'s small
+// triangles and still fills {12,3}'s dodecagons.
+function pinwheelWedge(tiling, m) {
+  const psi = tiling.metrics.inradius;
+  const rad = (f) => Math.sinh((psi * f) / 2);
+  const W = (2 * Math.PI) / m;
+  const N = 14;
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    pts.push([rad(0.20 + 0.72 * t), W * (0.07 + 0.68 * Math.pow(t, 0.75))]);
+  }
+  for (let i = N; i >= 0; i--) {
+    const t = i / N;
+    pts.push([rad(0.16 + 0.60 * t), W * (0.02 + 0.30 * Math.pow(t, 1.5))]);
+  }
+  return pts.map(([r, a]) => [r * Math.cos(a), r * Math.sin(a)]);
+}
+
+function wedgeDot(tiling, m) {
+  const psi = tiling.metrics.inradius;
+  const W = (2 * Math.PI) / m;
+  const r = Math.sinh((psi * 0.60) / 2);
+  const a = W * 0.52;
+  const cx = r * Math.cos(a);
+  const cy = r * Math.sin(a);
+  const rr = Math.sinh((psi * 0.10) / 2);
+  const out = [];
+  for (let i = 0; i < 10; i++) {
+    const th = (2 * Math.PI * i) / 10;
+    out.push([cx + rr * Math.cos(th), cy + rr * Math.sin(th)]);
+  }
+  return out;
 }
 
 export function motifFor(tiling, spec, address, opts) {
@@ -161,6 +227,40 @@ export function motifFor(tiling, spec, address, opts) {
       : legalColourFor(tiling, address);
 
   const m = spec.binary ? 1 : tiling.stabiliserOrder || tiling.m || tiling.p;
+
+  if (motif === "art") {
+    const b = tiling.boundaryLocal();
+    const base = b.kind === "binary-cell" ? binaryCellOutline(b) : b.points.map((p) => [p[0], p[1]]);
+    drawables.push({ type: "path", points: base, closed: true, fill: colour, stroke: "none" });
+    if (spec.binary) {
+      // Trivial stabiliser: no constraint at all, so the blade is drawn once and may be as asymmetric
+      // as it likes. This is exactly why the binary tiling was always the one that scrolled cleanly.
+      const H2 = window.HyperbolicMap;
+      const hw = H2.BINARY_LOCAL_HALF_WIDTH;
+      const blade = [
+        [-hw * 0.55, 1.05 / Math.SQRT2], [hw * 0.10, 1.05 / Math.SQRT2],
+        [hw * 0.62, 1.24 / Math.SQRT2], [hw * 0.05, 1.33 / Math.SQRT2],
+        [-hw * 0.30, 1.20 / Math.SQRT2],
+      ].map(([hx, hy]) => H2.halfPlaneToLocal(hx, hy, [0, 0]));
+      drawables.push({ type: "path", points: blade, closed: true, fill: shade(colour, -0.42), stroke: "none" });
+      const dot = H2.halfPlaneToLocal(hw * 0.42, 1.12 / Math.SQRT2, [0, 0]);
+      drawables.push({ type: "marker", at: dot, radius: 3.2, fill: shade(colour, 0.55) });
+      return drawables;
+    }
+    const blade = pinwheelWedge(tiling, m);
+    const dot = wedgeDot(tiling, m);
+    const dark = shade(colour, -0.42);
+    const light = shade(colour, 0.55);
+    for (let k = 0; k < m; k++) {
+      const a = (2 * Math.PI * k) / m;
+      drawables.push({ type: "path", points: rotateLocal(blade, a), closed: true, fill: dark, stroke: "none" });
+    }
+    for (let k = 0; k < m; k++) {
+      const a = (2 * Math.PI * k) / m;
+      drawables.push({ type: "path", points: rotateLocal(dot, a), closed: true, fill: light, stroke: "none" });
+    }
+    return drawables;
+  }
 
   if (motif === "fill" || motif === "over") {
     // `over` pushes every boundary point outward along its own bearing, so the art spills into the

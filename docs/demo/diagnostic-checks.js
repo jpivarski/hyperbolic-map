@@ -692,8 +692,12 @@ export async function checkSmoothness(lines, only) {
 
   const cases = [];
   for (const key of only || KEYS) {
+    cases.push({ key, opts: { motif: "art", hashColour: false }, mustJump: false });
     cases.push({ key, opts: { motif: "legal", hashColour: false }, mustJump: false });
     cases.push({ key, opts: { motif: "fill", hashColour: false }, mustJump: false });
+    // The other half of the rule on its own: legal SHAPE, illegal address-hash colour. It must still
+    // be caught, or the check is only testing shapes.
+    if (key !== "binary") cases.push({ key, opts: { motif: "art", hashColour: true }, mustJump: true });
   }
   // The negative control. Not for the binary tiling: its stabiliser is trivial and its addresses are
   // canonical, so even the "illegal" motif is perfectly legal there and correctly does NOT jump.
