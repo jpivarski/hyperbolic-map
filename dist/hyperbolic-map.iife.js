@@ -3469,7 +3469,7 @@ class HyperbolicViewport {
   //
   // Panning must not rotate. Building the pure translation alone would silently reset the screen
   // rotation to zero, which is invisible on a page that never rotates and jarring on one that does:
-  // dungeon-atlas.html opens at rotation pi (its art is drawn upside down in the cell frame), and
+  // dungeon-man.html opens at rotation pi (its art is drawn upside down in the cell frame), and
   // "jump to row" used to flip the whole dungeon over. In atlas mode the rotation is expressed in the
   // anchor tile's frame, so carrying the same angle across to the new anchor is exactly right -- the
   // camera keeps its orientation relative to the tiling, and tile art stays the way up it was.

@@ -39,7 +39,7 @@ export function imageLayer(spec) {
   // `view.rotation` is the screen rotation of the view matrix, and in ATLAS mode that matrix is
   // expressed in the anchor tile's own frame. The anchor changes as you walk, and each change is a
   // multiplication by one generator, which carries a rotation of its own -- so `view.rotation` JUMPS.
-  // Measured on dungeon-atlas.html: up to 34.2 degrees, from a pan step of 0.009 hyperbolic units,
+  // Measured on dungeon-man.html: up to 34.2 degrees, from a pan step of 0.009 hyperbolic units,
   // while the dungeon itself stays perfectly smooth across the same boundary. Feeding that straight
   // to ctx.rotate makes the shell snap while the world it is supposedly carrying does not.
   //

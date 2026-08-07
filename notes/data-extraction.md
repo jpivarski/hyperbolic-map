@@ -79,7 +79,7 @@ see `su11-core.md`.
 
   Those placements are **no longer used**. `docs/dungeon-atlas.json`'s `critters` was reworked (by Jim,
   2026-08-07) from a cell-keyed table of 399 placements into a library of **9 named pieces of art in
-  generic cell-local coordinates**, any of which can go in any cell. `dungeon-atlas.html` now places
+  generic cell-local coordinates**, any of which can go in any cell. `dungeon-man.html` now places
   them by hashing each cell's address with a per-page-load salt, so the dungeon is infinite rather than
   stopping at latitude ±20. The original placement list is a 2012 artefact and is not reproducible from
   this repository.
