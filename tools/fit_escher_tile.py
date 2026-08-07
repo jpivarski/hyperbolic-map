@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
 """Cut one {8,3} tile of Escher fish for the infinite Circle Limit III demo.
+SUPERSEDED by tools/trace_escher_tile.py. Kept for the record only.
+
+This script cut a tile out of the traced vector art in docs/escher.json. Two measurements retired it:
+its own bearing scan does not discriminate (spread 1.06x), so the octagon centre it used was a
+default rather than a fit; and the tile it produced scores INFINITY on the library's C4 symmetry
+check -- not one of its 90 shapes has a C4 partner. Even a correct cut could not have worked, because
+four independently traced fish have different vertex counts and so cannot map onto each other
+exactly. The replacement traces one 90-degree sector from the raster and repeats it by exact
+rotation, which is symmetric by construction (residual 4e-17).
+
 
 Local regeneration tool. Reads docs/escher.json and writes docs/escher-atlas.json.
 

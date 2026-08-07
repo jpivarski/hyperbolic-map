@@ -12,9 +12,16 @@
 <h1>Infinite <em>Circle Limit III</em></h1>
 
 <p>The same fish, but tiled properly. One octagon&rsquo;s worth of art is stored
-(<a href="escher-atlas.json"><code>escher-atlas.json</code></a>, 84 shapes) and the callback returns
+(<a href="escher-atlas.json"><code>escher-atlas.json</code></a>) and the callback returns
 <strong>that same tile for every tile coordinate</strong>. Scroll as far as you like: the pattern never
 runs out, which is what Escher was reaching for and could not physically carve.</p>
+
+<p>The tile is traced directly from the woodcut and made <strong>exactly C<sub>4</sub>-symmetric by
+construction</strong> &mdash; one 90&deg; sector is traced and repeated by exact rotation. That is not
+decoration: a tile&rsquo;s frame is only defined up to the stabiliser C<sub>4</sub>, so art that is not
+C<sub>4</sub>-invariant visibly rotates as you scroll across a tile boundary. See
+<a href="tiling-diagnostics.html">the tiling diagnostics</a>, where you can switch between art that
+obeys the rule and art that breaks it.</p>
 
 <div id="map"></div>
 <p class="status"><span id="status">…</span></p>
@@ -23,6 +30,7 @@ runs out, which is what Escher was reaching for and could not physically carve.<
 <div class="controls">
   <label><input type="checkbox" id="clip" checked> clip each tile to its octagon</label>
   <label><input type="checkbox" id="showTiles"> outline the tiling</label>
+  <label><input type="checkbox" id="colourByClass" checked> colour by tile class</label>
 </div>
 
 <h2>Why <code>{8,3}</code></h2>
@@ -40,12 +48,26 @@ centre and the half-turn about a shared edge midpoint are both <em>outside</em> 
 vertices &mdash; which is exactly Escher&rsquo;s own &ldquo;connect alternate vertices&rdquo;
 construction.</p>
 
-<p class="note">Honest about the seams: Escher&rsquo;s woodcut is hand-drawn and the 2012 tracing of it
-was approximate &mdash; its author wrote that &ldquo;some fish don&rsquo;t line up in orientation or
-color&rdquo; and that he gave up a few layers out. The art here is re-anchored onto an octagon centre
-and symmetrised to exact C<sub>4</sub>, but it still does not meet the octagon boundary perfectly, so
-you will see seams where tiles abut. Turning off clipping above trades the hard cuts for soft
-overlaps. The <em>tiling</em> is exact; the <em>art</em> is a documented approximation.</p>
+<h2>Why the fish are not Escher&rsquo;s four colours</h2>
+
+<p>Because they provably cannot be. Around an octagon centre Escher&rsquo;s four fish alternate
+green&ndash;orange&ndash;green&ndash;orange, so his colouring is only C<sub>2</sub> while the shape is
+C<sub>4</sub>. Painting C<sub>4</sub> shapes in four different colours fails the stabiliser rule
+outright &mdash; the library&rsquo;s own check scores it 0.36 &mdash; and the fish would change colour
+under you as you scrolled.</p>
+
+<p>So the four fish in an octagon share a colour, and the variety comes from the <strong>tile
+class</strong> instead. The <code>433</code> group admits a three-class homomorphism, which gives a
+proper 3-colouring of the octagons in which no two neighbours match. Being a homomorphism, it is the
+same whichever route the walk took to reach a tile &mdash; unlike a tile&rsquo;s word address, which is
+not canonical and would flicker.</p>
+
+<p class="note">Honest about the source: Escher&rsquo;s woodcut is hand-drawn, and the raster it is
+traced from here is 316&nbsp;px across, so the outlines are approximate and the fish are simplified.
+What <em>is</em> exact is the geometry and the symmetry: the disk radius, centre and tiling rotation
+were fitted by requiring the pattern to be invariant under the walk group&rsquo;s own generator, and
+the tile is C<sub>4</sub>-symmetric to 4&nbsp;&times;&nbsp;10<sup>&minus;17</sup>. See
+<code>tools/trace_escher_tile.py</code>.</p>
 
 <script src="lib/hyperbolic-map.iife.js"></script>
 <script type="module">
@@ -55,14 +77,26 @@ try {
   const status = document.getElementById("status");
   status.textContent = "loading tile…";
   const tile = await (await fetch("escher-atlas.json")).json();
-  status.textContent = `${tile.drawables.length} shapes in one {8,3} octagon, repeated forever`;
+  status.textContent = `${tile.drawables.length} shapes in one {8,3} octagon, repeated forever (C4-exact)`;
 
   const tiling = new HyperbolicMap.RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+
+  // One recoloured copy of the tile per CLASS, built once. The class comes from a group homomorphism,
+  // so it is the same whichever route the walk took to a tile -- which is what makes it safe to key art
+  // on, and why the tile's word address is not.
+  const BODY_IN_FILE = "#7ba05b";
+  const CLASS_COLOURS = ["#79bd68", "#e1ba62", "#cf7050"];
+  const byClass = CLASS_COLOURS.map((col) => ({
+    version: 1,
+    coordinates: "local",
+    drawables: tile.drawables.map((d) => (d.fill === BODY_IN_FILE ? Object.assign({}, d, { fill: col }) : d)),
+  }));
 
   let viewport = null;
   function build() {
     const clip = document.getElementById("clip").checked;
     const outline = document.getElementById("showTiles").checked;
+    const byTileClass = document.getElementById("colourByClass").checked;
     if (viewport) viewport.destroy();
     viewport = new HyperbolicMap.HyperbolicViewport({
       container: "#map",
@@ -74,13 +108,20 @@ try {
       interactRadius: 0.92,
       background: "#fdf9f0",
       rimFill: "#f5d6ab",
+      // The tile carries real line work, so most of what a far-out tile contributes is smaller than a
+      // pixel. Dropping it costs nothing visible and most of the frame time.
+      minFeaturePx: 1.2,
+      interactMinFeaturePx: 2.0,
+      decimateTolerancePx: 0.5,
       atlas: {
         tiling: tiling,
-        // The whole point: the same data for every key. The library rotates it into each tile's own
-        // frame; the callback never does any geometry.
-        tileData: () => tile,
+        // The whole point: the same data for every tile, apart from a class-indexed palette. The
+        // callback never does any geometry -- the library rotates the art into each tile's frame.
+        tileData: (t) => (byTileClass ? byClass[t.classIndex % byClass.length] : byClass[0]),
         clip: clip ? "always" : "never",
         maxTiles: 200,
+        // Fail loudly if the art ever stops obeying the stabiliser rule.
+        checkTileSymmetry: "throw",
       },
       onAfterDraw: outline
         ? (ctx, view) => {
@@ -111,8 +152,9 @@ try {
     window.tiling = tiling;
   }
   build();
-  document.getElementById("clip").addEventListener("change", build);
-  document.getElementById("showTiles").addEventListener("change", build);
+  for (const id of ["clip", "showTiles", "colourByClass"]) {
+    document.getElementById(id).addEventListener("change", build);
+  }
 } catch (err) {
   errorBox(err);
 }
