@@ -366,7 +366,7 @@ Pull requests are welcome!
 
 ## Alternatives
 
-As of August 2026, no other library provides this functionality: generic vector art in a hyperbolic plane. Here are some _similar_ project.
+As of August 2026, I could find no other libraries that provide this functionality: generic vector art in a hyperbolic plane. Here are some _similar_ projects.
 
 | project | what it is | how it differs |
 |---|---|---|
