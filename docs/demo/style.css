@@ -38,6 +38,19 @@ p { margin: 0.75rem 0; }
   line-height: 0;
 }
 
+/* Responsive variant: the container spans the column and the widget is told to fill it, with
+   `aspectRatio` deriving the height. The width MUST come from the container rather than from the
+   canvas, so this cannot be `inline-block` -- an inline-block shrink-wraps its content, the widget
+   would measure its own canvas, and the size would never change.
+
+   Note what is deliberately NOT done here: no `max-width: 100%` on the canvas. That would make CSS
+   scale it, so its rect would stop matching the pixel size the library thinks it has, and every
+   pointer position would be off by the ratio. The canvas is resized for real instead. */
+#map.fill {
+  display: block;
+  width: 100%;
+}
+
 #map canvas { cursor: grab; }
 #map canvas:active { cursor: grabbing; }
 

@@ -65,8 +65,30 @@ All are optional except that either a `container` or a `canvas` must be supplied
 | `container` | — | CSS selector or element; a `<canvas>` is created inside it |
 | `canvas` | — | use an existing canvas instead |
 | `width`, `height` | container size or 400 | CSS pixels |
+| `aspectRatio` | `null` | width ÷ height; derives the height from the width instead of taking `height` |
 | `autoResize` | `false` | follow the container's size with a `ResizeObserver` |
 | `devicePixelRatio` | `"auto"` | `"auto"`, or a number. |
+
+#### Filling a fluid container
+
+`aspectRatio` with `autoResize` is how you get a widget that fills its column and stays the shape you want, without the page computing pixel sizes:
+
+```html
+<div id="map" style="width: 100%"></div>
+```
+```js
+new HyperbolicMap.HyperbolicViewport({
+  container: "#map",
+  aspectRatio: 1,     // square
+  autoResize: true,   // and follow the container when the window changes
+});
+```
+
+The height is *derived* from the width, so `aspectRatio` and `height` together raise an error — pick one. Deriving in that direction is deliberate: the canvas is usually the only thing giving the container its height, so a widget that measured that height back would oscillate. Only the width is read.
+
+The container must not shrink-wrap its contents. An `inline-block` or a floated element sizes itself *to the canvas*, so the widget would measure its own output and never change. Give it `display: block` and a width.
+
+Resize the canvas rather than scaling it in CSS. A `max-width: 100%` on the canvas leaves its backing store at the old size, so its on-screen rectangle stops matching the pixel size the library thinks it has, and every pointer position is off by that ratio.
 
 ### What it draws
 

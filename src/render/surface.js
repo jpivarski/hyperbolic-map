@@ -15,10 +15,30 @@ export class Surface {
       // "auto" follows window.devicePixelRatio. A fixed number overrides it, which is what the
       // pixel-exact capture harnesses pass so that a canvas is the size they asked for.
       devicePixelRatio = "auto",
+      // width / height. When set, the HEIGHT IS DERIVED from the width and `height` is refused, so
+      // the canvas can follow a fluid container without the page having to compute pixel sizes.
+      // With `autoResize`, that makes the widget responsive: `aspectRatio: 1` in a full-width
+      // container gives a square that tracks the column.
+      //
+      // Deriving height from width, rather than fitting inside a box, is what avoids a feedback
+      // loop: the canvas is the only thing giving the container its height, so measuring that height
+      // back would oscillate. Only the width is ever read.
+      aspectRatio = null,
     } = options || {};
+
+    if (aspectRatio !== null && height !== null && height !== undefined) {
+      throw new Error(
+        "hyperbolic-map: `aspectRatio` derives the height from the width, so `height` cannot also be " +
+          "given. Drop one of them.",
+      );
+    }
+    if (aspectRatio !== null && !(aspectRatio > 0 && Number.isFinite(aspectRatio))) {
+      throw new Error(`hyperbolic-map: aspectRatio must be a positive number, got ${aspectRatio}`);
+    }
 
     this.autoResize = autoResize;
     this.dprOption = devicePixelRatio;
+    this.aspectRatio = aspectRatio;
 
     if (canvas) {
       this.canvas = canvas;
@@ -32,7 +52,9 @@ export class Surface {
     }
 
     this.cssWidth = width || (this.host ? this.host.clientWidth : this.canvas.clientWidth) || 400;
-    this.cssHeight = height || (this.host ? this.host.clientHeight : this.canvas.clientHeight) || this.cssWidth;
+    this.cssHeight = aspectRatio
+      ? this.cssWidth / aspectRatio
+      : height || (this.host ? this.host.clientHeight : this.canvas.clientHeight) || this.cssWidth;
 
     this.context = this.canvas.getContext("2d");
     this.resizeObserver = null;
@@ -66,6 +88,16 @@ export class Surface {
     const target = this.host || this.canvas;
     this.resizeObserver = new ResizeObserver(() => {
       const w = target.clientWidth;
+      if (this.aspectRatio) {
+        // Width only. The container's height comes FROM the canvas, so reading it back and resizing
+        // to it would oscillate; and because nothing here depends on the observed height, the resize
+        // this triggers cannot re-enter -- the width is unchanged by it.
+        if (w > 0 && w !== this.cssWidth) {
+          this.resize(w, w / this.aspectRatio);
+          onResize();
+        }
+        return;
+      }
       const h = target.clientHeight;
       if (w > 0 && h > 0 && (w !== this.cssWidth || h !== this.cssHeight)) {
         this.resize(w, h);

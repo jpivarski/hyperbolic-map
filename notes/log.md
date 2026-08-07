@@ -1725,3 +1725,59 @@ Verified: the old URL now 404s and the new one serves 200; every internal link o
 builds its viewport, draws 19 tiles at `drawOrder: "V>>"`, and all seven `img/` assets load with no
 console errors. All seven images were already tracked in git, so GitHub Pages will have them.
 `npm run check`, `npm test` 131/131, `dist/` rebuilt so the stale comment is gone from the bundle too.
+
+---
+
+## 2026-08-07 — `aspectRatio`, and the mobile overflow that turned out to be the same bug
+
+Jim: the widget should "fill 100% of its parent's width with aspect ratio = 1" (adding options if
+needed, documented in the README), and the page should be mobile-friendly -- "the margins scale as the
+window width narrows, but past a certain point, the text's width narrows more than the margins (some
+bug in the CSS)".
+
+**Measured before touching the CSS, and the two requests are one bug.** At a 485 px viewport the only
+elements extending past it were `#map` and its canvas: fixed at 620 px, giving a document
+`scrollWidth` of 636. The body and its text wrap to the viewport (453 px of text), but the *document*
+is 636 px wide, so relative to the scrollable page the text looks narrow with a large right margin.
+That is exactly the reported symptom, and there is no separate CSS defect -- re-checked after the fix
+at body widths 320/360/414/480, zero elements escape the content box.
+
+**New option: `aspectRatio` (width / height), on the Surface and so on the viewport.** With
+`autoResize` it makes the widget responsive. Three decisions worth keeping:
+
+* **The height is derived from the width, never the reverse, and `height` alongside it throws.** The
+  canvas is normally the only thing giving its container a height, so a widget that measured that
+  height back would oscillate. Deriving one way breaks the cycle; the observer reads width only.
+  Non-positive, non-finite and string ratios throw too.
+* **The container must not shrink-wrap.** `#map` was `display: inline-block`, which sizes to its
+  content -- the widget would have measured its own canvas and never resized. The demo stylesheet
+  grows a `#map.fill { display: block; width: 100% }` variant; plain `#map` is untouched, so the other
+  five pages keep their fixed sizes and their checkerboard shrink-wrap. Verified: all five still
+  report `inline-block` and their original canvas dimensions.
+* **No `max-width: 100%` on the canvas.** That was the tempting one-line "fix" and it is wrong: CSS
+  would scale the element while the backing store and `surface.cssWidth` stayed put, so the canvas
+  rect would stop matching the size the library thinks it has and every pointer position would be off
+  by the ratio. The canvas is resized for real. Both the CSS comment and the README say so.
+
+`dungeon-man.html` now passes `aspectRatio: 1, autoResize: true` with `<div id="map" class="fill">`.
+
+Verified in the browser: no horizontal overflow at any width; canvas square and byte-matching
+`surface.cssWidth`/`cssHeight` at every step of a 320→1024 sweep; **zero extra resize calls after the
+width settles**, which is the oscillation guard actually holding; and after a resize the pointer path
+still round-trips -- screen centre maps to the view origin exactly, and `toScreen`/`fromScreen` on
+(0.3, -0.2) closes to 2.8e-17.
+
+New `test/surface.test.mjs`, six tests: the derivation itself, container-width defaulting, the
+`height` conflict and the invalid-ratio rejections, the backing store equalling CSS size times DPR
+(the invariant whose violation is exactly the CSS-scaling trap), a regression test that a second
+resize at an unchanged width is a no-op **with a control that a real width change still takes effect**
+-- otherwise it would pass on a dead widget -- and that `radiusFor` still uses the shorter side so a
+non-square ratio does not clip the disk.
+
+Suite 131 -> 137, all passing. `npm run check`, `dist/` rebuilt, all nine browser diagnostics still
+pass. The stale bundle bit me once mid-task: the page threw `unknown option(s): aspectRatio` because
+`docs/lib/` had not been rebuilt, which is the option validator doing its job.
+
+**Still fixed-size, and still overflowing on a phone:** `escher.html`, `escher-atlas.html`,
+`dungeon.html`, `clock.html`, `relativity.html`. The instruction named one page; converting them is
+two lines each plus the `fill` class.

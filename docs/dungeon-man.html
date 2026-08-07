@@ -22,7 +22,7 @@
   </div>
 </div>
 
-<div id="map"></div>
+<div id="map" class="fill"></div>
 
 <h2>How this is drawn</h2>
 
@@ -198,8 +198,9 @@ try {
 
     viewport = new HyperbolicMap.HyperbolicViewport({
       container: "#map",
-      width: 620,
-      height: 620,
+      // Fill the column, stay square, and follow it when the window resizes.
+      aspectRatio: 1,
+      autoResize: true,
       anchor: HERO,
       // The 2012 art is upside down in the cell frame; see the note on the label anchors above.
       rotation: Math.PI,

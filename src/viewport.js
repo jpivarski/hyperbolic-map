@@ -21,6 +21,9 @@ export const DEFAULT_OPTIONS = {
   canvas: null,
   width: null,
   height: null,
+  // width / height. Derives the height from the width, so the canvas can follow a fluid container;
+  // refuses to coexist with `height`. With `autoResize` this is what makes the widget responsive.
+  aspectRatio: null,
   autoResize: false,
   devicePixelRatio: "auto",
 
