@@ -51,8 +51,8 @@ Replace `drawables` with your own vector art, and use scripts from the [tools/](
 The coordinates $(x, y)$ are projected onto the screen as $(\frac{x}{w}, \frac{y}{w})$ with $w = \sqrt{1 + x^2 + y^2}$ when the viewport is at the origin.
 
 **There are two primary drawing modes:**
-* in the above (specify `data` or `dataProvider`), drawables are expressed in a single coordinate system;
-* with an [atlas of tiles](#atlas-of-tiles) (specify `atlas`), the space is divided into regular tiles, each with its own local coordinate system. A `tiling` scheme defines the placement of tiles, such as regular polygons or a binary tree, and you write a `tileData` function that returns drawables by tile index. This makes it easier to express repeating patterns and avoids floating-point errors at large distances from the origin.
+* a single coordinate system, as above (specify `data` or `dataProvider`);
+* an [atlas of tiles](#atlas-of-tiles) (specify `atlas`), the space is divided into regular tiles, each with its own local coordinate system. A `tiling` scheme defines the placement of tiles, such as regular polygons or a binary tree, and you write a `tileData` function that returns drawables by tile index. This makes it easier to express repeating patterns and avoids floating-point errors at large distances from the origin.
 
 ## Options
 
@@ -64,7 +64,7 @@ All are optional except that either a `container` or a `canvas` must be supplied
 |---|---|---|
 | `container` | — | CSS selector or element; a `<canvas>` is created inside it |
 | `canvas` | — | use an existing canvas instead |
-| `width`, `height` | container size, or 400 | CSS pixels |
+| `width`, `height` | container size or 400 | CSS pixels |
 | `autoResize` | `false` | follow the container's size with a `ResizeObserver` |
 | `devicePixelRatio` | `"auto"` | `"auto"`, or a number. |
 | `radiusBasis` | `"min"` | `"min"` fits the disk to the smaller side; `"width"` overflows a portrait canvas |
@@ -300,7 +300,7 @@ A new tiling can be constructed in the following way:
   addressToString(address),                   // canonical string, for caching and filenames
   addressEquals(a, b),
   neighbours(address),                        // [{ address, gen }] gen indexes the table
-  generator(i),                               // Isom, CONSTANT: neighbour-local -> tile local
+  generator(i),                               // Isom, CONSTANT: neighbour-local → tile local
   inverseGenerator(i),                        // the index that undoes generator i
   generatorCount(),
   containsLocal(x, y, tol?),                  // is this tile-local point inside this tile?
