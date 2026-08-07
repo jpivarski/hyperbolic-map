@@ -125,10 +125,13 @@ Draw order:
 1. `pageBackground`
 2. layers with `z < 0`
 3. `onBeforeDraw`
-4. all drawables
-5. rim annulus
-6. layers with `z >= 0`
-7. `onAfterDraw`
+4. the disk's opaque interior, filled with `background` — or `onDrawBackground` instead, if you supply it
+5. all drawables
+6. the rim annulus — or `onDrawRim` instead, if you supply it
+7. layers with `z >= 0`
+8. `onAfterDraw`
+
+Steps 4 and 6 are *replacements*, not additions: supplying `onDrawBackground` or `onDrawRim` suppresses the default fill rather than drawing over it.
 
 The `view` object passed to a hook is read-only: `{width, height, cx, cy, radius, zoom, rotation, bearing, matrix, ctxScale, drawRadius, interactRadius, effectiveRadius, interacting, toScreen, fromScreen}`.
 
@@ -158,7 +161,9 @@ _(Documentation TBD.)_
 * `resize(w, h)`
 * `destroy()`
 
-In atlas mode (see [atlas of tiles](#atlas-of-tiles)), use `getCamera`/`setCamera`/`panToTile`. The first four take and return global coordinates, and far from the origin no global coordinate can be represented—that is the whole reason the atlas is anchored. Their meaning is unchanged and they remain correct in single-patch mode and while the camera is still anchored to the origin tile; past that they raise errors, naming `getCamera()`, rather than returning a wrong number.
+In atlas mode (see [atlas of tiles](#atlas-of-tiles)), use `getCamera`/`setCamera`/`panToTile` instead of `getView`/`getMatrix`/`setMatrix`/`panTo`. Those four take and return *global* coordinates, and far from the origin no global coordinate can be represented—that is the whole reason the atlas is anchored. Their meaning is unchanged and they remain correct in single-patch mode and while the camera is still anchored to the origin tile; past that they raise errors, naming `getCamera()`, rather than returning a wrong number.
+
+(`setZoom` and `setRotation` are unaffected: zoom and screen rotation are not global-coordinate quantities, so they work the same in either mode.)
 
 ```js
 const cam = viewport.getCamera();    // { address, matrix, zoom }; matrix is anchor-relative
@@ -221,10 +226,12 @@ Instead of one global coordinate system, give each tile of a tiling its own. Two
 To use it, pass an `atlas` instead of `data` or `dataProvider`:
 
 ```js
+const tiling = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+
 const viewport = new HyperbolicViewport({
   container: "#map",
   atlas: {
-    tiling: new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 }),
+    tiling: tiling,
     tileData: async (tile) => {
       // tile.address identifies the tile; tile.id is its string form and
       // tile.relativeFrame is its position relative to the camera, if you want it.
@@ -237,7 +244,10 @@ const viewport = new HyperbolicViewport({
     cacheSize: 512,
     lodPx: 11,        // below this on-screen tile radius, use the tile's `lod` art if any
   },
-  anchor: { lat: -1n, lon: 0n },   // optional: open on a given tile, at any distance
+  // Optional: open on a given tile rather than the origin, however far out it is. The address must
+  // be one of THIS tiling's own — a walk word for RegularTiling (usually a saved
+  // `getCamera().address`), or `{lat, lon}` BigInts for BinaryTiling.
+  anchor: tiling.originAddress(),
 });
 ```
 
@@ -270,7 +280,7 @@ viewport.atlas.tileSymmetry;   // { residual, checked, m, ok }; residual = 0 mea
 
 Use the `RegularTiling({p, q, frameSymmetry})` class.
 
-The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever `1/p + 1/q < 1/2`. Addresses are arrays of generator indices—a word describing a walk from the origin tile. Two different words can name the same tile (the group has braid relations), so the walk also deduplicates geometrically; see `notes/open-questions.md` for the measured extent of that and the Coxeter automaton that would remove it.
+The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever `1/p + 1/q < 1/2`. An address is a word over the generator indices—a walk from the origin tile. Treat it as opaque: it is stored as a linked cell (`{gen, prev, len, …}`) rather than an array, so that extending one is $\mathcal{O}(1)$ and a walk thousands of steps long stays cheap. Use `addressToString` for a printable form. Two different words can name the same tile (the group has braid relations), so the walk also deduplicates geometrically; see `notes/open-questions.md` for the measured extent of that and the Coxeter automaton that would remove it.
 
 `frameSymmetry` (a divisor of `p`, default `p`) declares the rotational symmetry your art has, and it selects the walk group so that the tile stabiliser is exactly `C_m`. If your art is not invariant under rotations of `2π/m`, polygons will appear to rotate abruptly at certain points as you scroll.
 
