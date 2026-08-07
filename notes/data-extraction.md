@@ -76,6 +76,13 @@ see `su11-core.md`.
 - **Critter placement**: `svgtools/examples/list_of_critters.txt` records 442 placements of 8 critter
   types plus `dungeonman`, across **399 distinct `(latitude, longitude)` cells**, latitude −20…20. The
   file notes that latitude and longitude are *displayed* negated.
+
+  Those placements are **no longer used**. `docs/dungeon-atlas.json`'s `critters` was reworked (by Jim,
+  2026-08-07) from a cell-keyed table of 399 placements into a library of **9 named pieces of art in
+  generic cell-local coordinates**, any of which can go in any cell. `dungeon-atlas.html` now places
+  them by hashing each cell's address with a per-page-load salt, so the dungeon is infinite rather than
+  stopping at latitude ±20. The original placement list is a 2012 artefact and is not reproducible from
+  this repository.
 - The **clock face** was generated offline by `svgtools/examples/clock.py` (720 minute ticks, 43,200
   second ticks, 12 hour numerals). Radii in local units: hour ticks 1.0→1.1, numerals at 1.2 (up-vector
   1.5); minutes 3.2→3.3, labels 3.4/3.7; seconds 25.0→27.0, labels 28.0/31.0.

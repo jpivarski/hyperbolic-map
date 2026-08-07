@@ -1484,3 +1484,62 @@ Verified: `npm test` 131/131, `npm run check`; shell hidden at the opening zoom 
 0.5 (2 images each: stars + turtle); "jump to row 12 col -5" still lands with the anchor cell at 180
 degrees, so the layers did not disturb the pan fix; stars confirmed not rotating while the turtle
 turns a quarter turn.
+
+---
+
+## 2026-08-07 — an infinite random dungeon from one salt
+
+Jim reworked `docs/dungeon-atlas.json`'s `critters` from a cell-keyed table of 399 placements into a
+library of nine named pieces of art (`octorock`, `stalfos`, `fire`, `link`, `fairy`, `mr-T`, `tektite`,
+`old-woman`, `old-man`), each in generic cell-local coordinates so any of them can go in any cell. The
+brief: `link` at (-1, 0) as before; three rooms in four empty; the rest a non-`link` critter with `mr-T`
+at 1/30 and the others uniform; and -- his own framing -- "pick a random salt at page-load and use that
+in a deterministic hash function. That way, a page-load determines an infinite, random dungeon."
+
+**The weights are exact, not rounded.** `mr-T` at 1/30 leaves 29/30 for the other seven, i.e. 29/210
+each; 7 + 7*29 = 210, so integer weights in 210ths with a BigInt `%` reproduce the distribution with no
+residue. Occupancy is `hash % 4 == 0`, and 4 divides 2^64, so that quarter is exact too.
+
+**The hash is BigInt, and that is not fussiness.** Addresses are BigInt because descending one latitude
+doubles the longitude, so a double stops being exact about fifty levels down; hashing through `Number`
+would make distant rooms alias onto each other. `& M64` on a negative BigInt yields its two's-complement
+low 64 bits, which is what is wanted -- latitudes are negative going down and longitudes run both ways.
+splitmix64's finaliser does the mixing, chosen because adjacent rooms differ by one in lat or lon and a
+weak hash would lay visible stripes of the same critter along a row of neighbours. Two separately
+tweaked hashes for the two decisions, so "is it occupied" cannot correlate with "who is it".
+
+Verified over **96,000 cells** on two different salts:
+
+| quantity | measured | target |
+|---|---|---|
+| empty | 74.85 % / 74.94 % | 75 % |
+| `mr-T`, share of occupied | 3.268 % / 3.225 % | 3.333 % |
+| the seven others, mean share | 13.818 % | 13.810 % |
+| `mr-T` relative to one common critter | 0.236 | 0.241 |
+| `link` | exactly 1 cell, at (-1, 0) | 1 |
+
+Independence, which is the property that would actually be visible if it failed: expected same-critter
+rate for two independent cells is 0.75^2 + 0.25^2 * sum(p_c^2) = **0.5709**. Measured over 32,000
+neighbour pairs each: lateral 0.5734, child 0.5762, parent 0.5743. No streaking.
+
+Exactness at depth: correct and stable at `lon = 2^180`, and `2^180` versus `2^180 + 1` give *different*
+critters, so nothing is colliding by truncation. Also checked at `lat = 1000`, `lon = -2^90`.
+
+Two behavioural requirements, both verified rather than assumed:
+
+* the salt is drawn OUTSIDE `build()`, so toggling "room numbers" or "clip each cell" rebuilds the
+  viewport without redecorating the world -- fingerprint over 480 cells identical across both toggles
+  and both together;
+* a reload really does re-roll it -- 57.5 % agreement between consecutive loads, against the 57.1 %
+  expected for independent draws.
+
+**Two of my own measurements were wrong before they were right**, both times because the harness
+mis-modelled the drawable list: the first counted room-number *text* drawables as critter shapes and so
+reported 0 % empty with everything "UNKNOWN". A result that disagrees with the target by 75 percentage
+points is a broken measurement, not a broken feature.
+
+Prose updated to match, including a claim I had to correct: I first wrote that Mr. T appears "a tenth as
+often as the others", but 7/29 is about a **quarter**. `dungeon-atlas.json`'s own `note` field and
+`notes/data-extraction.md` both said `critters` held "the finitely many cells that carry characters",
+which is no longer true; both now describe the library-plus-hash arrangement and record that the 2012
+442-placement list is no longer used.
