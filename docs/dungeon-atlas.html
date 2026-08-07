@@ -3,106 +3,85 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Infinite dungeon &mdash; hyperbolic-map-widget</title>
+<title>Dungeon Man &mdash; hyperbolic-map-widget</title>
 <link rel="stylesheet" href="demo/style.css">
 </head>
 <body>
 <nav><a href="index.html">&larr; all examples</a></nav>
 
-<h1>Infinite dungeon</h1>
+<h1>Dungeon Man</h1>
 
-<p>The same dungeon, split into an atlas. Every cell of the tiling is its own little coordinate
-system, so the numbers describing a room are always small no matter how far from the origin that room
-is. Wander as far as you like &mdash; or zoom out until the whole infinite world fits in the disk,
-where a world-turtle is carrying it.</p>
-
-<div id="map"></div>
-<p class="status"><span id="status">…</span></p>
-<p class="readout" id="readout"></p>
-
-<div class="controls">
+<div style="display: flex; align-items: center;">
   <label><input type="checkbox" id="numbers" checked> room numbers</label>
-  <label>jump to row <input id="row" type="number" value="0" style="width:5em"> col <input id="col" type="number" value="0" style="width:6em"> <button id="go">go</button></label>
+  <div style="margin-left: auto;">
+    <label>
+      row <input id="row" type="number" value="0" style="width:5em">
+      col <input id="col" type="number" value="0" style="width:6em">
+      <button id="go">go!</button>
+    </label>
+  </div>
 </div>
 
-<h2>Three sources, composed in one callback</h2>
+<div id="map"></div>
 
-<p>The callback that supplies each tile merges three things, which is the point of returning
-<em>data</em> rather than a URL:</p>
+<h2>How this is drawn</h2>
+
+<p>Using an atlas of binary (Böröczky) tiles, this map's <tt>tileData</tt> fetches data from three sources and merges them:</p>
 
 <ol>
-  <li>a <strong>prototype room</strong> &mdash; seven shapes, stored once, drawn in every cell;</li>
-  <li><strong>video-game characters</strong> &mdash; nine of them, each stored once in generic
-      cell-local coordinates, then scattered through infinitely many rooms by the hash below;</li>
-  <li><strong>room numbers</strong> &mdash; there are infinitely many, so they are computed on the fly
-      from the cell&rsquo;s own coordinates.</li>
+  <li>a <strong>prototype room</strong> that is drawn in every tile;</li>
+  <li><strong>dungeon denizens</strong> who are randomly assigned to each room;</li>
+  <li><strong>room numbers</strong> that index every room with a pair of numbers.</li>
 </ol>
 
-<p class="note"><strong>An infinite random dungeon from one random number.</strong> Three rooms in four
-are empty; the rest hold a character &mdash; Mr.&nbsp;T with probability 1/30 and the other seven
-sharing the remaining 29/30 evenly, so he turns up about a quarter as often as any of them. That
-cannot be decided in advance, because there is no end to the rooms &mdash; and it cannot be decided
-lazily and remembered, because you would be storing a growing list forever. So nothing is remembered:
-one 64-bit salt is drawn at page load, and each room&rsquo;s contents are a pure <em>function</em> of
-that salt and the room&rsquo;s own <em>(latitude, longitude)</em>. Walk away and come back and the room
-is unchanged, however deep, because it was never stored in the first place &mdash; it is recomputed.
-<strong>Reload the page for an entirely different dungeon.</strong></p>
+<p>Try to find your way out of the dungeon!</p>
 
-<p class="note">Two details that matter. The hash is BigInt arithmetic, not floating point: addresses
-are exact at any depth, and truncating them to a double would make distant rooms alias onto each other.
-And it is a real mixing function (splitmix64&rsquo;s finaliser), because neighbouring rooms have
-addresses differing by one &mdash; a weak hash puts visible stripes of the same character along a row.
-Measured over 32,000 neighbour pairs, adjacent rooms match 57.3&nbsp;% of the time against 57.1&nbsp;%
-expected for independent draws.</p>
+<h2>What it represents</h2>
 
-<p class="note">The turtle and the star field are <strong>not library features</strong>. They are two
-image layers defined in <a href="demo/layers.js"><code>demo/layers.js</code></a>: one turns with the
-disk, one does not. Turning with the disk means something slightly different here than in a
-single-patch view: the view matrix is expressed in the <em>anchor tile&rsquo;s</em> frame, and the
-anchor changes as you walk, so the raw rotation jumps by as much as 34&deg; at a cell boundary that
-the dungeon itself crosses perfectly smoothly. The layer cancels those jumps. What it cannot do is
-pin the shell rigidly to the plane &mdash; that needs the global frame this whole page exists to
-avoid.</p>
+<p>In my opinion, binary tiles are the simplest way to think about hyperbolic space and intrinsic curvature in general.</p>
 
-<p class="note"><strong>Clipping is off here, deliberately.</strong> The 2012 room art is drawn
-<em>straddling</em> cell boundaries &mdash; the floor plate spans the corner where four cells meet,
-and the doors are what <em>connect</em> adjacent rooms, so they have to cross the boundary. Confining
-each cell&rsquo;s drawing to its own cell would sever every junction and leave fragments. The
-<a href="escher-atlas.html">Escher tile</a>, whose art <em>is</em> designed to fill its tile, clips
-correctly &mdash; which is why the library makes this a per-atlas choice rather than a rule.</p>
+<p>Start by imagining a 2-dimensional room. It has four doors: north, west, east, and south.</p>
 
-<p class="note">Unclipped art makes the <strong>order the cells are drawn in</strong> matter, because
-neighbours overlap and whichever paints last wins the seam. The atlas walks outward from the camera,
-which would make that order depend on where you are standing &mdash; pan a little and a hidden seam
-surfaces as a stray stroke across a floor plate. So this page pins the order to the cell
-<em>addresses</em> instead, with <code>drawOrder:&nbsp;"V&gt;&gt;"</code>: latitude first ascending,
-then longitude ascending. All eight codes are legal geometry; only this one draws the picture the 2012
-art intends. Addresses are exact integers at any depth, so the order never wavers however far you
-walk.</p>
+<img src="img/dungeon_room.jpg" style="width: 80%; display: block; margin: 10px auto;">
 
-<p class="note">Why the numbers are always small: cell <em>(latitude, longitude)</em> is
-<code>x&nbsp;&isin;&nbsp;[lon&middot;2<sup>lat</sup>, (lon+1)&middot;2<sup>lat</sup>]</code>,
-<code>y&nbsp;&isin;&nbsp;[2<sup>lat</sup>, 2<sup>lat+1</sup>]</code> in the half-plane &mdash; but in
-its <em>own</em> frame every cell is the identical box
-<code>x&nbsp;&isin;&nbsp;&plusmn;1/(2&radic;2)</code>,
-<code>y&nbsp;&isin;&nbsp;[2<sup>&minus;&frac12;</sup>, 2<sup>&frac12;</sup>]</code>. The
-<code>2<sup>lat</sup></code> divides out. In the
-<a href="dungeon.html">single-patch version</a> the far rooms need coordinates up to 11712, where a
-disk coordinate has only about seven significant digits left.</p>
+<p>In a Euclidean, 2-dimensional world, we could make a grid of rooms in which the east door of one room is the west door of another room. That would have many familiar properties, such as the fact that an east → east → north trip takes you to the same room as an east → north → east trip and a north → east → east trip.</p>
+
+<p>Now imagine doing something strange: connect the east door of a room to the west door of the same room. A Dungeon Man living in 2-dimensional space doesn't realize that he's now on the surface of a cylinder (because he can't imagine 3 dimensions): he only knows that the east door is somehow a portal to the west of the room. It's magic, but not impossible to reason about.</p>
+
+<img src="img/circular_dungeon.jpg" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>Since we can make arbitrary portals, now consider replacing the north door with two doors: "ronth" and "ornth." They each lead to the south door of different rooms, which are connected through their east and west doors. We now have something like a grid of rooms, except that each row of the grid has twice as many rooms as the previous.</p>
+
+<img src="img/map.jpg" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>If we try to stitch this together with cloth, it buckles. Dungeon Man doesn't feel the curliness of the cloth any more than he felt the cylinder: all he can see is the way the rooms connect to each other.</p>
+
+<img src="img/curly_dungeons.jpg" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>The way the rooms connect have surprising consequences: to get from room A to room B below, he could go east → east → east → east → east → east → east (7 steps) or south → south → east → ornth → ornth (5 steps). The weird connectivity not only changes what paths get to the same room, but which are the shortest paths to get there.
+
+<img src="img/curly_dungeons2.jpg" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>So far, we've been talking about magic portals connecting the doors with ordinary space in the room. Intrinsic curvature is this weird connectivity at a small scale: instead of sewing together rooms, imagine crocheting every stitch of a surface with more stitches in every row.</p>
+
+<img src="img/crochet.png" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>Or connect every pixel the way we've been connecting rooms—pixels that are so small they can't be seen. Mathematically, the connections are infinitesimal and need to be defined using calculus.</p>
+
+<img src="img/neighboring-pixels.svg" style="width: 50%; display: block; margin: 10px auto;">
+
+<p>Although we are viewing models of 2-dimensional curvature in 3 dimensions, we don't need a higher-dimensional space to make sense of it. Intrinsic curvature is defined by how the space is connected, with large-scale observable effects like the shortest path between two points being something other than what you'd expect in Euclidean space, or the sum of angles in a triangle being more or less than 180°, or the area of a circle being more or less than 2π times the radius.</p>
+
+<p>The Poincaré disk is one way to project it onto a flat computer screen, like a projection of the spherical Earth onto a map widget, but I prefer to zoom into the individual rooms to see curvature as a matter of connectivity.</p>
 
 <script src="lib/hyperbolic-map.iife.js"></script>
 <script type="module">
-import { attachReadout, errorBox } from "./demo/common.js";
+import { errorBox } from "./demo/common.js";
 import { imageLayer } from "./demo/layers.js";
 
 try {
-  const status = document.getElementById("status");
-  status.textContent = "loading…";
   const doc = await (await fetch("dungeon-atlas.json")).json();
   const kinds = Object.keys(doc.critters).length;
-  status.textContent =
-    `${doc.room.length}-shape prototype room + ${kinds} kinds of character, scattered forever`;
-
 
   // Room-number anchors, on the cell's own vertical axis, in the cell's own local coordinates.
   //
@@ -268,7 +247,6 @@ try {
       },
     });
     if (keep) viewport.setCamera(keep);
-    attachReadout(viewport, document.getElementById("readout"));
     window.viewport = viewport;
     window.tiling = tiling;
   }
