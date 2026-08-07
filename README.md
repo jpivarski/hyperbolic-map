@@ -1,12 +1,10 @@
 # Hyperbolic Map Widget
 
-A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model). Think of it like [Google Earth](https://earth.google.com/) for a negatively curved surface, rather than positively curved one (a sphere). [This is a nice summary](https://sites.pitt.edu/~jdnorton/teaching/HPS_0410/chapters/non_Euclid_postulates/postulates.html) of Euclidean, spherical, and hyperbolic geometries.
+A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model). Think of it like [Google Earth](https://earth.google.com/) for a negatively curved surface, rather than positively curved one (a sphere). [Here is a nice summary](https://sites.pitt.edu/~jdnorton/teaching/HPS_0410/chapters/non_Euclid_postulates/postulates.html) of Euclidean, spherical, and hyperbolic geometries.
 
-See the demos here:
+See the demos: https://jpivarski.github.io/hyperbolic-map-widget/
 
-https://jpivarski.github.io/hyperbolic-map-widget/
-
-This library is pure JavaScript (ES2020) without any runtime dependencies. It has been modernized and packaged from my 2012 blog post, [Lost in Hyperbolia](http://coffeeshopphysics.com/articles/2012-12/22_lost_in_hyperbolia/) ([GitHub repo](https://github.com/jpivarski/hyperbolic-storage-space)). Scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers or dragging the outer ring with a mouse.
+This library is pure JavaScript (ES2020) without any runtime dependencies. It has been modernized and packaged from my 2012 blog post, [Lost in Hyperbolia](http://coffeeshopphysics.com/articles/2012-12/22_lost_in_hyperbolia/) (with associated [GitHub repo](https://github.com/jpivarski/hyperbolic-storage-space)). Scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers or dragging the outer ring with a mouse.
 
 ## Install
 
@@ -50,11 +48,11 @@ const viewport = new HyperbolicViewport({
 
 Replace `drawables` with your own vector art, and use scripts from the [tools/](tools/) directory to convert between JSON and SVG.
 
-The coordinates $(x, y)$ are projected onto the screen as $(x/w, y/w)$ with $w = \sqrt{1 + x^2 + y^2}$ when the viewport is at the origin.
+The coordinates $(x, y)$ are projected onto the screen as $(\frac{x}{w}, \frac{y}{w})$ with $w = \sqrt{1 + x^2 + y^2}$ when the viewport is at the origin.
 
 There are two primary drawing modes:
-* in the default, drawables are expressed in a single coordinate system (as above);
-* with an [atlas of tiles](#atlas-of-tiles), the space is divided into regular tiles, each with its own local coordinate system. You provide a `tiling` scheme, such as regular polygons or a binary tree, and a `tileData` function that returns drawables by tile index. This makes it easier to express repeating patterns and avoids floating-point errors at large distances from the origin.
+* in the above (specify `data` or `dataProvider`), drawables are expressed in a single coordinate system;
+* with an [atlas of tiles](#atlas-of-tiles) (specify `tiling` and `tileData`), the space is divided into regular tiles, each with its own local coordinate system. The `tiling` scheme defines the placement of tiles, such as regular polygons or a binary tree, and you write the `tileData` function that returns drawables by tile index. This makes it easier to express repeating patterns and avoids floating-point errors at large distances from the origin.
 
 ## Options
 
@@ -77,7 +75,7 @@ All are optional except that either a `container` or a `canvas` must be supplied
 |---|---|---|
 | `data` | `null` | drawables, as an array or a `{version, drawables}` document |
 | `dataProvider` | `null` | `async ({centre, zoom, drawRadius, visibleRadius, signal}) => data` |
-| `atlas` | `null` | see [Atlas](#atlas-of-tiles) |
+| `atlas` | `null` | see [atlas of tiles](#atlas-of-tiles) |
 | `styles` | `null` | named style classes, referenced by a drawable's `class` |
 
 ### The initial view
@@ -121,9 +119,9 @@ All are optional except that either a `container` or a `canvas` must be supplied
 
 ### Hooks
 
-`onBeforeDraw` and `onAfterDraw` receive `(ctx, view)`; `layers` is an array of `{z, draw(ctx, view), attach?, detach?}`. Everything with `z < 0` is drawn **before** the disk's opaque fill, so it shows only outside the disk.
+`onBeforeDraw` and `onAfterDraw` receive `(ctx, view)`; `layers` is an array of `{z, draw(ctx, view), attach?, detach?}`. Everything with `z < 0` is drawn before the disk's opaque fill, so it shows only outside the disk.
 
-**Draw order:**
+Draw order:
 1. `pageBackground`
 2. layers with `z < 0`
 3. `onBeforeDraw`
@@ -137,6 +135,8 @@ The `view` object passed to a hook is read-only: `{width, height, cx, cy, radius
 Also available: `onDrawBackground`, `onDrawRim`, `onViewChange`, `onGestureStart`, `onGestureEnd`, `onFrame`.
 
 ### Methods
+
+_(Documentation TBD.)_
 
 * `getView()`
 * `getMatrix()`
@@ -158,13 +158,13 @@ Also available: `onDrawBackground`, `onDrawRim`, `onViewChange`, `onGestureStart
 * `resize(w, h)`
 * `destroy()`
 
-**In atlas mode, use `getCamera`/`setCamera`/`panToTile`.** The first four take and return *global* coordinates, and far from the origin no global coordinate can be represented—that is the whole reason the atlas is anchored (see [Atlas of tiles](#atlas-of-tiles)). Their meaning is unchanged and they remain correct in single-patch mode and while the camera is still anchored to the origin tile; past that they raise errors, naming `getCamera()`, rather than returning a wrong number.
+In atlas mode (see [atlas of tiles](#atlas-of-tiles)), use `getCamera`/`setCamera`/`panToTile`. The first four take and return global coordinates, and far from the origin no global coordinate can be represented—that is the whole reason the atlas is anchored. Their meaning is unchanged and they remain correct in single-patch mode and while the camera is still anchored to the origin tile; past that they raise errors, naming `getCamera()`, rather than returning a wrong number.
 
 ```js
 const cam = viewport.getCamera();    // { address, matrix, zoom }; matrix is anchor-relative
 viewport.setCamera(cam);             // exact round trip
 viewport.panToTile(address, [0, 0]); // centre a tile, at any distance
-viewport.tileAtScreen(px, py);       // { address, id, local }; which tile is under this pixel?
+viewport.tileAtScreen(px, py);       // { address, id, local }; which tile is at px, py?
 ```
 
 `toScreen` and `fromScreen` work in whatever frame the view is expressed in: the global frame in single-patch mode, the current anchor tile's frame in atlas mode (pair them with `getCamera().address`). `tileAtScreen` is the atlas-mode picking question, and it deliberately answers with the address the *renderer* used, so it agrees with what is on screen even for tilings whose word addresses are not canonical.
@@ -226,7 +226,7 @@ const viewport = new HyperbolicViewport({
   atlas: {
     tiling: new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 }),
     tileData: async (tile) => {
-      // tile.address (also aliased as tile.key) identifies the tile; tile.id is its string form and
+      // tile.address identifies the tile; tile.id is its string form and
       // tile.relativeFrame is its position relative to the camera, if you want it.
       // Return DATA in TILE-LOCAL coordinates.
       const res = await fetch(`tiles/${tile.id}.json`);
@@ -235,7 +235,7 @@ const viewport = new HyperbolicViewport({
     clip: "auto",     // "always" | "never" | "auto" (honours a tile's `withinTile: true`)
     maxTiles: 200,
     cacheSize: 512,
-    lodPx: 11,        // below this on-screen tile radius, use the tile's `lod` art if it has any
+    lodPx: 11,        // below this on-screen tile radius, use the tile's `lod` art if any
   },
   anchor: { lat: -1n, lon: 0n },   // optional: open on a given tile, at any distance
 });
@@ -272,7 +272,7 @@ The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist 
 
 `frameSymmetry` (a divisor of `p`, default `p`) declares the rotational symmetry your art has, and it selects the walk group so that the tile stabiliser is exactly `C_m`. If your art is not invariant under rotations of `2π/m`, polygons will appear to rotate abruptly at certain points as you scroll.
 
-Lowering `m` makes the rule **easier** to satisfy (less symmetry demanded of the art) at the cost of a larger generator set. For Escher's *Circle Limit III* it must be `4`, not `8`: the pattern has 4-fold centres at the octagon centres, and the natural general-purpose generator—a half-turn about an edge midpoint—is outside that group entirely.
+Lowering `m` makes the rule easier to satisfy (less symmetry demanded of the art) at the cost of a larger generator set. For M.C. Escher's _Circle Limit III_ it must be `4`, not `8`: the pattern has 4-fold centres at the octagon centres, and the natural general-purpose generator—a half-turn about an edge midpoint—is outside that group entirely.
 
 The tiling also exposes what the rule needs:
 
@@ -287,7 +287,7 @@ tiling.tileClass(addr);   // 0 .. classModulus-1, the same by every route
 
 Use the `BinaryTiling()` class.
 
-The binary (Böröczky) tiling, addressed by `{lat, lon}` as **BigInt**. Point-to-cell is two `floor`s, which no `{p,q}` scheme can match, and the integer addresses make natural filenames and are canonical: one cell, one address, no ambiguity. BigInt because descending one latitude doubles the longitude, so about fifty levels down a plain number stops being exact—and addresses are identity only, never geometry, so it costs nothing per frame. Cells are congruent but not regular polygons—two sides are geodesics and two are horocycles—and the tiling is *not* tile-transitive, so it cannot make a seamless repeating pattern.
+The binary (Böröczky) tiling, addressed by `{lat, lon}` as BigInt arbitrary-precision integers. Point-to-cell is two `floor`s, which no `{p,q}` scheme can match, and the integer addresses make natural filenames and are canonical: one cell, one address, no ambiguity. BigInt because descending one latitude doubles the longitude, so about fifty levels down a plain number stops being exact—and addresses are identity only, never geometry, so it costs nothing per frame. Cells are congruent but not regular polygons—two sides are geodesics and two are horocycles—and the tiling is *not* tile-transitive, so it cannot make a seamless repeating pattern.
 
 ### Custom tiling
 
@@ -299,16 +299,16 @@ A new tiling can be constructed in the following way:
   originAddress(),                            // the tile containing the origin
   addressToString(address),                   // canonical string, for caching and filenames
   addressEquals(a, b),
-  neighbours(address),                        // [{ address, gen }] -- gen indexes the generator table
-  generator(i),                               // Isom, CONSTANT: neighbour-local -> this tile's local
+  neighbours(address),                        // [{ address, gen }] gen indexes the table
+  generator(i),                               // Isom, CONSTANT: neighbour-local -> tile local
   inverseGenerator(i),                        // the index that undoes generator i
   generatorCount(),
   containsLocal(x, y, tol?),                  // is this tile-local point inside this tile?
   boundaryLocal(),                            // for clipping, in tile-local coordinates
   addressesAreCanonical,                      // true if one tile has exactly one address
-  stabiliserOrder,                            // m -- THE RULE: art must be invariant under 2*pi/m
-  selfRotation,                               // that rotation as an Isom (identity when m = 1)
-  classModulus,                               // number of tile classes (1 = every tile must match)
+  stabiliserOrder,                            // m: art must be invariant under 2*pi/m
+  selfRotation,                               // rotation as an Isom (identity when m = 1)
+  classModulus,                               // number of tile classes (1 = all must match)
   tileClass(address),                         // 0 .. classModulus-1, path-independent
 }
 ```
