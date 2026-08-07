@@ -1781,3 +1781,39 @@ pass. The stale bundle bit me once mid-task: the page threw `unknown option(s): 
 **Still fixed-size, and still overflowing on a phone:** `escher.html`, `escher-atlas.html`,
 `dungeon.html`, `clock.html`, `relativity.html`. The instruction named one page; converting them is
 two lines each plus the `fill` class.
+
+---
+
+## 2026-08-07 — relativity.html renamed to jumping-man.html, compass mode made unconditional
+
+Jim: "Rename relativity.html to jumping-man.html and remove the 'compass' vs 'parallel transport'
+buttons; it should always be in 'compass' mode."
+
+`git mv`, then exactly one link to update: `docs/index.html`. Every other `relativity` reference in the
+tree is to the **dataset** -- `relativity.json`, the 2011 database, the row in
+`data-extraction.md`'s tables, the timings in `performance.md` -- and those are unchanged, the same
+way `dungeon-atlas.json` kept its name when its page was renamed. `notes/log.md` still says
+`relativity.html` in two places and stays that way, being append-only.
+
+The radio pair and the whole `.controls` div are gone, `rotationMode: "compass"` is hard-coded, and the
+`build(mode)` wrapper with its rebuild-on-change listener collapses to a single construction -- it only
+existed to swap modes.
+
+**One prose edit was forced by the removal**, not optional: the first note ended "Switch between the two
+above and drag in a circle to feel the difference", pointing at a control that no longer exists. It now
+explains `parallel-transport` as the library default that every other example uses, with this page as
+the exception. The second note (compass mode cannot pin the grabbed point and the bearing at once) was
+already independent of the control and stands.
+
+Verified: the old URL 404s, the new one serves 200, and all eight internal links on `index.html`
+resolve. The radios and `.controls` are gone from the DOM, `rotationMode` reads "compass", and
+`view.rotationMode === ROTATION_COMPASS` -- and it demonstrably WORKS rather than merely being set:
+dragging a full circle drifts the bearing by **8.9e-14 degrees**, which is the property the page exists
+to show. 137 tests, `npm run check` ok. No `src/` change, so no rebuild needed.
+
+**Left for Jim.** The page is still headed "Compass mode", and the index still links it under that
+name, which is the feature rather than the content -- the art is a Mario-like figure jumping along a
+worldline on altitude/time axes, which is presumably where "jumping man" comes from. Retitling is his
+prose to write, so I did not presume; the mechanical rename is complete either way. This page is also
+still fixed at 620x620 and so still overflows on a phone, along with escher, escher-atlas, dungeon and
+clock.
