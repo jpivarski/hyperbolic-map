@@ -1019,7 +1019,7 @@ test("two routes to one tile give the same colors, and out-and-back returns the 
   const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4, colorSymmetry: ESCHER() });
   const origin = t.originAddress();
   // Reach tiles by long random walks and check that a tile's element depends only on the tile. This is
-  // the same claim as `addressesAreCanonical`, but for the color, which is the part that would show.
+  // the same claim canonical addresses make, but for the color, which is the part that would show.
   let rng = 12345;
   const next = () => ((rng = (rng * 1103515245 + 12345) & 0x7fffffff) >>> 8) % 8;
   const byId = new Map();

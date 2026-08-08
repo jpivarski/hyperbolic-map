@@ -79,7 +79,7 @@ code {
   border-radius: 3px;
 }
 
-/* A code block is one grey slab. The `code` inside it must drop the inline pill styling, or every
+/* A code block is one gray slab. The `code` inside it must drop the inline pill styling, or every
    block would be a box inside a box. Long lines scroll rather than wrap: these are lines of
    JavaScript and JSON meant to be copied, and a soft wrap makes them harder to read and to trust. */
 pre {

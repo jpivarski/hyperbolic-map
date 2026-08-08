@@ -398,7 +398,9 @@ hyperbolic distance ≈ 37 one ulp of such an entry exceeds the spacing between 
 no float test can still tell two tiles apart out there — and identity decided by proximity fails at
 *some* distance however the threshold is tuned. So the representation is integral:
 
-- the ring is `ℤ[μ]`, `μ = 2cos(π/N)`, with `BigInt` coefficients reduced modulo the minimal polynomial
+- the ring is `ℤ[μ]`, `μ = 2cos(π/N)`, with exact integer coefficients reduced modulo the minimal
+  polynomial (held as doubles while they fit that range exactly, as `BigInt` beyond it; see
+  `notes/math-audit.md` for why the switch cannot lose a value)
   of `μ` (monic, so no division ever appears);
 - the group is `[p,q] = Δ(2,p,q)` in its **Coxeter geometric representation** — mirrors `a`, `b`, `c`
   with `m(a,b) = p`, `m(b,c) = q`, `m(a,c) = 2`, and reflections `S_i = I − e_i·(row i of 2B)`;

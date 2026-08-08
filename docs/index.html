@@ -584,7 +584,7 @@ viewport.atlas.tileSymmetry;   // { residual, checked, m, ok }; residual = 0 mea
 
 <h3 id="regular-tiling">Regular tiling</h3>
 <p>Use the <code>RegularTiling({p, q, frameSymmetry})</code> class.</p>
-<p>The <code>{p, q}</code> tilings: regular <code>p</code>-gons, <code>q</code> meeting at each vertex, which exist whenever <code>1/p + 1/q &lt; 1/2</code>. An address is a canonical id: one tile, one address, whatever route the walk took to reach it. Treat it as opaque and use <code>addressToString</code> (or <code>addressKey</code>) for a printable form, which is stable and safe to use as a persistent key. Underneath it is the tile's center in the Coxeter reflection representation of <code>[p,q]</code>, held exactly in <code>ℤ[2cos(π/N)]</code> with BigInt coefficients — identity is decided by integer equality, so it has no distance ceiling. The string is a name, not a coordinate: there is no way back from it to an address, so keep the object (<code>getCamera().address</code>) if you need to return to a tile.</p>
+<p>The <code>{p, q}</code> tilings: regular <code>p</code>-gons, <code>q</code> meeting at each vertex, which exist whenever <code>1/p + 1/q &lt; 1/2</code>. An address is a canonical id: one tile, one address, whatever route the walk took to reach it. Treat it as opaque and use <code>addressToString</code> (or <code>addressKey</code>) for a printable form, which is stable and safe to use as a persistent key. Underneath it is the tile's center in the Coxeter reflection representation of <code>[p,q]</code>, held exactly in <code>ℤ[2cos(π/N)]</code> with integer coefficients — identity is decided by integer equality, so it has no distance ceiling. (Those coefficients are ordinary numbers while they fit a double exactly and BigInt beyond that, which is a speed optimization and not a limit: the arithmetic is exact either way, and the id text is identical.) The string is a name, not a coordinate: there is no way back from it to an address, so keep the object (<code>getCamera().address</code>) if you need to return to a tile.</p>
 <p>One consequence worth knowing: an id's length grows linearly with distance from the origin, about 12 characters per tile crossed. Naming a tile is exact integer arithmetic and happens once per tile ever, never per frame, but a walk of thousands of tiles is no longer free — see the performance notes.</p>
 <p><code>frameSymmetry</code> (<code>m</code>) selects the walk group, so that the tile stabilizer is exactly <code>C_m</code>. It decides which group the tiling is built from and hence what pattern it makes: for M.C. Escher's <em>Circle Limit III</em> it must be <code>4</code>, not <code>8</code>. It is not a constraint on your art — each tile has a canonical frame, the lexicographically least element of its coset, so your art may be fully asymmetric and may depend on the address.</p>
 <p>Only <code>m = p</code> and <code>m = p/2</code> are accepted, and anything else throws. <code>m = p</code> steps by half-turns about edge midpoints, one generator per edge; <code>m = p/2</code> steps by rotations about alternate vertices, two per vertex. A smaller <code>m</code> would reach only <code>2m</code> of the <code>p</code> neighbors and could not cover the plane.</p>
@@ -601,27 +601,58 @@ tiling.tileClass(addr);   // 0 .. classModulus-1, the same by every route
 <p>The binary (Böröczky) tiling, addressed by <code>{lat, lon}</code> as BigInt arbitrary-precision integers. Point-to-cell is two <code>floor</code>s, which no <code>{p,q}</code> scheme can match, and the integer addresses make natural filenames and are canonical: one cell, one address, no ambiguity. BigInt because descending one latitude doubles the longitude, so about fifty levels down a plain number stops being exact—and addresses are identity only, never geometry, so it costs nothing per frame. Cells are congruent but not regular polygons—two sides are geodesics and two are horocycles—and the tiling is <em>not</em> tile-transitive, so it cannot make a seamless repeating pattern.</p>
 
 <h3 id="custom-tiling">Custom tiling</h3>
-<p>A new tiling can be constructed in the following way:</p>
+<p>A new tiling is any object with these members. Everything in the first group is called without a
+guard, so leaving one out is a crash on the first frame rather than a degraded picture.</p>
 <pre><code class="language-js">{
-  metrics: { circumradius, centerSpacing },   // sizes the walk
-  originAddress(),                            // the tile containing the origin
-  addressToString(address),                   // canonical string, for caching and filenames
+  // ---- required ----
+  metrics: { circumradius, centerSpacing },  // sizes the walk
+  originAddress(),                           // the tile containing the origin
+  addressToString(address),                  // canonical string, for filenames and display
+  addressKey(address),                       // the CACHE key; may be the same string, and is
+                                             //   asked for once per visible tile per frame
   addressEquals(a, b),
   neighbors(address),                        // [{ address, gen }] gen indexes the table
-  generator(i),                               // Isom, CONSTANT: neighbor-local → tile local
-  inverseGenerator(i),                        // the index whose isometry undoes generator i
-  reverseGenerator(address, i),               // the index that steps BACK -- not the same thing
-  generatorCount(),
-  containsLocal(x, y, tol?),                  // is this tile-local point inside this tile?
-  boundaryLocal(),                            // for clipping, in tile-local coordinates
-  addressesAreCanonical,                      // true if one tile has exactly one address
-  stabilizerOrder,                            // m: the tile stabilizer is C_m
-  selfRotation,                               // rotation as an Isom (identity when m = 1)
-  classModulus,                               // number of tile classes (1 = all must match)
-  tileClass(address),                         // 0 .. classModulus-1, path-independent
+  neighborGens(address),                     // just the gen indices, WITHOUT building neighbors
+  extendAddress(address, gen),               // the address one step along gen
+  stepFrame(address, gen),                   // Isom for that step, into the neighbor's own frame
+  stepToward(x, y),                          // index INTO neighbors(address) -- not a gen index --
+                                             //   for the step toward this tile-local point, or -1
+                                             //   when the point is already inside. Each step must
+                                             //   strictly decrease the distance, or re-anchoring
+                                             //   will not terminate
+  generator(i),                              // Isom, CONSTANT: neighbor-local → tile local
+  containsLocal(x, y, tol?),                 // is this tile-local point inside this tile?
+  boundaryLocal(),                           // for clipping, in tile-local coordinates
+  stabilizerOrder,                           // m: the tile stabilizer is C_m
+  classModulus,                              // number of tile classes (1 = all must match)
+  tileClass(address),                        // 0 .. classModulus-1, path-independent
+
+  // ---- optional; omit them and the library uses a sensible default ----
+  compareForDrawing(a, b),                   // painter's order; omitted means walk order
+  colorCount,                                // 1 when omitted
+  colorPermutation(address),                 // null when omitted
+  colorIndex(address),                       // 0 when omitted
 }
 </code></pre>
+<p><code>RegularTiling</code> and <code>BinaryTiling</code> additionally carry
+<code>selfRotation</code>, <code>inverseGenerator(i)</code>, <code>reverseGenerator(address, i)</code>
+and <code>generatorCount()</code>, which are there for callers rather than for the renderer: nothing
+inside the library calls them, so a tiling of your own does not have to provide them.</p>
+<p><code>stepFrame</code> and <code>generator</code> are not the same thing when the tile stabilizer is
+non-trivial. <code>generator(i)</code> is the bare step; <code>stepFrame</code> is that step composed
+with whatever rotation lands in the neighbor's <em>canonical</em> frame. Returning the bare generator
+from both is correct only when <code>stabilizerOrder</code> is 1.</p>
 <p>The generators must be constant matrices—independent of which tile you are in. That is what makes a walk a product of small factors, and it is the whole trick. In SU(1,1) an edge half-turn squares to <code>−I</code> rather than <code>+I</code> (the spin double cover), so <code>inverseGenerator</code> may return the index of a matrix equal to the negation of the inverse; any comparison of frames must work up to sign.</p>
+
+<h3 id="checking-a-tiling">Checking a tiling</h3>
+<p><a href="tiling-diagnostics.html">The diagnostics page</a> is where the claims on this page are
+demonstrated rather than asserted. It draws nine tilings with a choice of motif, colors each tile by a
+hash of its own id so that nothing can hide a tile that has been turned or renamed, and lets you jump
+5,000 tiles out and compare. Its ten built-in checks measure the same properties numerically —
+translation invariance byte-for-byte, tile ownership pixel-by-pixel, address round-trips, boundedness
+of the view matrix, picking, and smoothness across a tile boundary to a hundredth of a pixel.</p>
+<p>It is a verification page rather than a demo, and it is the fastest way to see whether a
+<em>custom</em> tiling of your own satisfies the contract above.</p>
 
 </body>
 </html>

@@ -2653,3 +2653,85 @@ the order Jim asked for.
 The example pair runs in Chrome: 500x500 canvas, 154,512 non-white pixels, no console output. The
 documentation page renders both fences, and its `#the-drawable-format` cross-reference resolves. All
 four demo pages load with the new nav and still draw.
+
+
+## 2026-08-08-n — Release prep 10: the documentation sweep, and what it found
+
+Issue #4, two boxes: link every unlinked documentation file or delete it, and check the documentation
+for things that are simply not true. Both done by script rather than by reading, because reading is
+how the errors below survived this long.
+
+### Unlinked files
+
+A reachability pass over every real link (`href`, `src`, markdown `[]()`, `import`, `fetch`) found
+exactly two documentation files that nothing pointed at. Both were linked rather than deleted:
+
+* **`docs/tiling-diagnostics.html`** — nine tilings, four motifs, and the ten self-checks that are the
+  acceptance test for the whole anchored-atlas design. Far too valuable to drop for being unlinked. It
+  now has its own subsection at the end of the atlas chapter, described as what it is: a verification
+  page, and the fastest way to find out whether a *custom* tiling satisfies the contract.
+* **`docs/escher-atlas-drawables.svg`** — the committed output of the `tools/` workflow's first
+  command, and the file the round-trip measurements in `tools/README.md` were taken on. Linked from
+  that workflow section as the worked example.
+
+Everything else the pass flagged is a false positive of the same kind: `clock.json` and
+`relativity.json` arrive through `loadDrawables("...")`, and `stars.jpg`/`turtle.png` through
+`imageLayer({src})`, neither of which is a link syntax. `bench/frames.html` and `bench/stress.html`
+are unlinked on purpose — hand-driven harnesses, described in `notes/performance.md` and
+`notes/canvas-testing.md`.
+
+### Broken links, all in `tools/README.md`
+
+Five. Four were collateral from moving the reference out of the README — `../README.md#path`,
+`#the-drawable-format`, `#regular-tiling`, `#atlas-of-tiles` all now point into `docs/index.html`. The
+fifth, `../notes/tilings.md#the-stabiliser-rule-2026-08-06`, **never matched a heading**; checked
+against `git show 4fb37a1` to be sure the spelling sweep had not caused it. Now points at the section
+that actually exists.
+
+### The real find: the custom-tiling interface was wrong in both directions
+
+A script drove a real atlas over a Proxy that reported every member the library touched, then over an
+object built with `Object.create(null)` carrying *only* the documented members.
+
+* It listed **`addressesAreCanonical`**, which exists nowhere — not on `RegularTiling`, not on
+  `BinaryTiling`, not read anywhere in `src/`. Pure fiction.
+* It omitted **five members the library calls without any guard**: `addressKey`, `neighborGens`,
+  `extendAddress`, `stepFrame` and `stepToward`. A tiling written to the documented interface crashes
+  on the first frame. Not a subtlety — the doc was unusable for its stated purpose.
+* It listed `inverseGenerator`, `reverseGenerator`, `generatorCount` and `selfRotation` as required.
+  They exist on the library's tilings but nothing inside the library calls them, so requiring them of
+  someone else's tiling is over-strict. Now noted as "for callers, not for the renderer".
+* It said nothing about the four **optional** members (`compareForDrawing`, `colorCount`,
+  `colorPermutation`, `colorIndex`), which are guarded and have documented defaults.
+
+Two traps are now written down, because both are silent if you get them wrong: `stepToward` returns an
+index into `neighbors(address)` and **not** a generator index (the two coincide for `{p,q}` and do not
+for the binary tiling's parent step), and `stepFrame` is not `generator` unless `stabilizerOrder` is 1.
+
+**Verified, not asserted:** a tiling object with exactly the new "required" list and no prototype
+drives 60 frames, 3,594 tile passes and 10 re-anchors without the library reaching for anything else.
+
+### Other corrections
+
+* `dungeon-man.html` said intrinsic curvature shows up as "the **area** of a circle being more or less
+  than 2π times the radius". 2πr is the circumference; the area is πr². The hyperbolic statement that
+  is true is the circumference one (2π sinh r), so that is what it says now.
+* `jumping-man.html` had "where there there is less time to traverse".
+* Three places still said the tile ids hold **BigInt** coefficients. Since 2026-08-08-j they hold
+  ordinary numbers while those fit exactly and BigInt beyond, so `docs/index.html`, `docs/MATH.md` and
+  `notes/tilings.md` now say "exact integer coefficients" and explain the split. My own change had
+  made the documentation wrong; this is the sweep catching it.
+* `AGENTS.md` still called `tools/` "a future directory" and did not know about `dev/md_to_html.py`. It
+  also now states that `docs/index.html` is hand-edited and that reference material must not migrate
+  back into the README.
+* Two stragglers from the spelling sweep: a "grey" in a CSS comment and a stale
+  `addressesAreCanonical` mention in a test comment.
+
+An automated pass over every option table also confirmed all 49 options exist with the documented
+defaults, every documented method is on `HyperbolicViewport`, and every hook is a real option.
+
+### Verified
+
+`npm run check`; `npm test` **184/184**; `npm run build`. Every link and anchor in every `.md` and
+`.html` resolves. All six pages load with every link, anchor and image returning 200. Diagnostics
+checks 1 and 2 unchanged.

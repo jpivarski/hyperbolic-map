@@ -68,7 +68,7 @@ Requirement: keys that are stable across sessions, usable as cache keys and file
 duplicate-free, and supporting point→tile lookup.
 
 Chosen: **the tile's center in the Coxeter geometric representation of `[p,q]`, held exactly over
-`ℤ[2cos(π/N)]` with BigInt coefficients.**
+`ℤ[2cos(π/N)]` with exact integer coefficients — doubles while they fit, BigInt beyond.**
 
 A tile is a coset `F · C_m` of the stabilizer, and the canonical representative is the
 lexicographically least matrix in it. Two routes give `M` and `M · P^j`, whose candidate sets

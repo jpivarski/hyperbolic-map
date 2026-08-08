@@ -40,10 +40,14 @@ anything mathematical.
   `npm run check` after touching module structure.
 - **`dev/` is maintenance scripting, not shipped code**: the bundler and its style checker, the two
   mathematical audits (`audit_atlas_math.py` needs `sympy`; `audit_atlas_numeric.py` needs `mpmath`
-  and is fed by `node dev/emit_atlas_samples.mjs > build/atlas-samples.json`), and
-  `capture_server.py` for exact canvas-pixel diffs. Re-run both audits after changing anything in
-  `src/core/` or `src/data/atlas/`. A future `tools/` directory is reserved for USER-facing scripts
-  (SVG conversion, tile-art guides) and is not the same thing.
+  and is fed by `node dev/emit_atlas_samples.mjs > build/atlas-samples.json`), `capture_server.py`
+  for exact canvas-pixel diffs, and `md_to_html.py` (needs `mistune`), which made `docs/index.html`
+  out of the README once and is **not** part of any build — that HTML is the main copy now. Re-run
+  both audits after changing anything in `src/core/` or `src/data/atlas/`. [`tools/`](tools/) is the
+  separate, USER-facing directory: the SVG conversion pair, which has no dependencies at all.
+- **`docs/index.html` is the documentation**, hand-edited HTML rather than generated from anything.
+  `README.md` is the landing page and links to it. Do not move reference material back into the
+  README: there is one copy of each fact, deliberately.
 
 ## Notes index
 

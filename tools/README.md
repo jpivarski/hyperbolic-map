@@ -2,7 +2,7 @@
 
 Two scripts for drawing and editing hyperbolic-map artwork by hand in
 [Inkscape](https://inkscape.org/) instead of writing [the drawable
-format](../README.md#the-drawable-format) by hand.
+format](../docs/index.html#the-drawable-format) by hand.
 
 ```
 python3 tools/drawables_to_svg.py  FROM-FILE  TO-FILE  JSON-PATH  [--coords ...] [--guidelines ...]
@@ -28,6 +28,12 @@ python3 tools/svg_to_drawables.py art.svg my-atlas.json drawables
 
 The second step's `--coords`/`--guidelines` are recorded **inside the SVG**, so the last step needs no
 options: it reads them back and inverts the projection itself.
+
+[`docs/escher-atlas-drawables.svg`](../docs/escher-atlas-drawables.svg) is the result of exactly that
+first command, kept in the repository as the worked example: it is the Circle Limit III octagon with
+its `{8,3}` guidelines, and it is the file the round-trip measurements below were taken on. Open it in
+Inkscape to see what an editable tile looks like, or read its `<hmw:params>` to see what the scripts
+record.
 
 ## `JSON-PATH`
 
@@ -74,7 +80,7 @@ per letter stroke — because tile edges bow in every one of the three coordinat
 page; the sampled borders are within 0.003 px.
 
 **`"RegularTiling(p, q, frameSymmetry)"`** — `frameSymmetry` is optional and defaults to `p`, as in
-[`RegularTiling`](../README.md#regular-tiling). You get:
+[`RegularTiling`](../docs/index.html#regular-tiling). You get:
 
 - the base tile's border, in `#bbbbbb`;
 - one ring of neighbors, in `#dddddd`;
@@ -82,7 +88,7 @@ page; the sampled borders are within 0.003 px.
   There is no R in the center tile, where it is implied upright and unflipped. This is the thing worth
   looking at: the walk group's generators rotate each neighbor, and if your art is not invariant under
   rotation by `2π/frameSymmetry` the pattern will tear along exactly these seams — see
-  [THE STABILIZER RULE](../notes/tilings.md#the-stabilizer-rule-2026-08-06).
+  [THE STABILIZER RULE](../notes/tilings.md#the-stabilizer-and-what-it-does-and-does-not-constrain).
 
 > The neighbors drawn are the ones the tiling's own generators reach. For `frameSymmetry = p` that is
 > all `p` of them; for `frameSymmetry < p` there are `2 × frameSymmetry` generators, so when
@@ -150,7 +156,7 @@ canvas context — so any CSS color works. `fill-opacity`/`stroke-opacity` are f
 directions, because SVG closes a *fill* implicitly too, exactly as the drawable format does — `closed`
 only ever affected the stroke.
 
-Per-point [stroke flags](../README.md#path) are stored in `hmw:flags`, always — including when every
+Per-point [stroke flags](../docs/index.html#path) are stored in `hmw:flags`, always — including when every
 one is empty, since a path with no `"L"` anywhere strokes nothing however its `stroke` is set. If the
 attribute is absent (a shape you drew in Inkscape) or no longer matches the point count (you added or
 removed nodes), the flags are re-inferred: every edge is stroked when the shape has a stroke and none
@@ -230,7 +236,7 @@ release along with the pages that used them. Their rows stay because they are th
 measurements in the set and the point of the table is the trend, not the files.
 
 The bold cells get a warning. If you see one: use `--coords local`, which is the best conditioned of
-the three, or split the data into an [atlas of tiles](../README.md#atlas-of-tiles) and convert one tile
+the three, or split the data into an [atlas of tiles](../docs/index.html#atlas-of-tiles) and convert one tile
 at a time. Tile-local art — what these scripts are really for — is small by construction and lands in
 the top two rows.
 
