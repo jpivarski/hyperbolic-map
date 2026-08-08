@@ -438,8 +438,8 @@ export class HyperbolicViewport {
   //
   // Panning must not rotate. Building the pure translation alone would silently reset the screen
   // rotation to zero, which is invisible on a page that never rotates and jarring on one that does:
-  // dungeon-man.html opens at rotation pi (its art is drawn upside down in the cell frame), and
-  // "jump to row" used to flip the whole dungeon over. In atlas mode the rotation is expressed in the
+  // dungeon-man.html opens at rotation pi (its art is drawn upside down in the cell frame), so a pan
+  // that reset the angle would flip the whole dungeon over. In atlas mode the rotation is expressed in the
   // anchor tile's frame, so carrying the same angle across to the new anchor is exactly right -- the
   // camera keeps its orientation relative to the tiling, and tile art stays the way up it was.
   panMatrix(x, y) {
@@ -539,12 +539,11 @@ export class HyperbolicViewport {
 
     // Answer with the tile the RENDERER just used, whenever the point is on one of them.
     //
-    // Not a shortcut -- a correctness requirement for word-addressed tilings. Descending independently
-    // finds the right tile geometrically but can name it with a DIFFERENT WORD than the renderer used,
-    // because {p,q} words are not canonical: for {5,4}, "2.3" and "1.0" are the same tile, their centres
-    // agreeing to 2.8e-17. A caller picking a tile wants the address that matches what is on screen --
-    // to look up their own per-tile data, or to correlate with `atlas.lastTiles` -- so resolving against
-    // the drawn set makes picking and rendering agree by construction.
+    // Resolving against the drawn set rather than descending independently. Both name the same tile --
+    // addresses are canonical, so there is only one name to give -- but this way the answer comes with
+    // the very `local` coordinates and the very frame the renderer used, so a caller correlating a pick
+    // with `atlas.lastTiles` gets an exact match, and a point within rounding of a boundary is resolved
+    // by the exact containment test rather than by the descent's oscillation tolerance.
     for (const t of this.atlas.lastTiles) {
       const q = t.net.inverse().applyToDisk(
         (sx - view.cx) / view.radius,

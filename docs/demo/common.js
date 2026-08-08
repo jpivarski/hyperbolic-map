@@ -45,8 +45,8 @@ export function attachReadout(viewport, el) {
       `${viewport.stats.frameMs ? viewport.stats.frameMs.toFixed(1) + " ms" : ""}`;
   }
 
-  // A word address grows one symbol per tile crossed, so it can be hundreds of characters after a
-  // minute of dragging. Show the ends and the length rather than wrapping the page.
+  // A tile id is an exact integer name, so its text grows with distance from the origin -- hundreds of
+  // characters after a minute of dragging. Show the ends and the length rather than wrapping the page.
   function abbreviate(s) {
     return s.length <= 28 ? s : `${s.slice(0, 12)}…${s.slice(-12)} (${s.length} chars)`;
   }

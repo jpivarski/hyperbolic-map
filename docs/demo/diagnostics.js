@@ -1,49 +1,39 @@
 // Diagnostic artwork for the tiling test page. NOT part of the library.
 //
 // ---------------------------------------------------------------------------------------------
-// THE RULE THIS ART HAS TO OBEY
+// WHAT THIS ART IS FOR
 // ---------------------------------------------------------------------------------------------
 //
-// On a {p,q} tiling a tile's frame is defined only UP TO the tile stabiliser C_m (m = frameSymmetry,
-// default p). The renderer reaches each tile by the shortest route from the CAMERA, so when the camera
-// crosses into a new tile the routes change and every tile's frame can change by a rotation of 2*pi*k/m
-// about its own centre. That is a property of the group, not a bug to be fixed, so:
+// A tile's frame and its id are functions of the TILE: the frame is the lexicographically least
+// element of the coset F.C_m, computed exactly in the Coxeter representation over Z[mu], and the id is
+// that frame's tile centre. Neither depends on the route the walk took, so tile art may be fully
+// asymmetric and may depend on its own id.
 //
-//     TILE ART MUST BE INVARIANT UNDER ROTATION BY 2*pi/m ABOUT THE TILE CENTRE,
-//     AND MUST NOT DEPEND ON THE TILE'S WORD ADDRESS.
-//
-// Art that breaks either half looks fine standing still and JUMPS as you scroll. Both halves matter:
-//
-//   * shape -- an asymmetric stroke rotates by a multiple of 2*pi/m at a re-anchor;
-//   * colour -- a word address is not canonical, so hash(address) changes at a re-anchor even though
-//     the tile has not moved. Colour must come from `tiling.tileClass(address)`, which is derived from
-//     a group homomorphism and so is the same whichever route the walk took.
-//
-// The binary tiling is exempt from both: its stabiliser is trivial and its (lat, lon) addresses are
-// canonical, which is why it was the one tiling that always scrolled cleanly.
+// That is a claim about something invisible when the picture is standing still, and it is only
+// falsifiable while SCROLLING. So the motifs are built to make any frame rotation or any renaming of a
+// tile as loud as possible: one asymmetric stroke, one colour per id, and nothing symmetric to hide
+// behind.
 //
 // ---------------------------------------------------------------------------------------------
 // The motifs
 // ---------------------------------------------------------------------------------------------
 //
-//   legal   THE DEFAULT. An asymmetric hook repeated under C_m -- the most asymmetric thing the rule
-//           permits. Reveals position, orientation and handedness, so a mirrored or misplaced tile is
-//           obvious, while a 2*pi/m rotation (which the renderer is entitled to apply) is invisible.
-//           Coloured by tile class.
+//   sym     An asymmetric hook repeated under C_m. Reveals position, orientation and handedness, so a
+//           mirrored or misplaced tile is obvious, while a 2*pi/m rotation is invisible -- which makes
+//           it the motif that CANNOT detect a frame rotation, and so the control. Coloured by tile
+//           class.
 //
-//   illegal The same hook drawn ONCE, coloured by hash(address). Violates both halves of the rule on
-//           purpose. Kept because it is the sharpest demonstration of what the rule is for: scroll with
-//           this selected and tiles visibly snap to new colours and orientations as you cross a
-//           boundary. Do not copy it into real art.
+//   asym    The same hook drawn ONCE, coloured by hash(id). Nothing hides a frame rotation or a
+//           renamed tile: this is the acceptance test. Scroll with it selected and nothing may change
+//           discontinuously.
 //
-//   art     Proper test art: a PINWHEEL, built the same way the Circle Limit III tile is built -- one
-//           wedge of 2*pi/m, filled with a curved asymmetric blade and an off-axis dot, repeated m
-//           times by exact rotation. Symmetric to machine precision by construction, and asymmetric in
-//           every way the rule permits: no mirror, no rotation finer than 2*pi/m. Fills the tile, so
-//           gaps and misplacement show up as well as rotation.
+//   art     THE DEFAULT. A PINWHEEL, built the same way the Circle Limit III tile is built -- one wedge
+//           of 2*pi/m, filled with a curved asymmetric blade and an off-axis dot, repeated m times by
+//           exact rotation. Symmetric to machine precision by construction, and asymmetric in every
+//           other way: no mirror, no rotation finer than 2*pi/m. Fills the tile, so gaps and
+//           misplacement show up as well as rotation.
 //
-//   fill    A flat polygon covering the whole tile, for the per-pixel ownership check. The tile outline
-//           is C_p-symmetric so this satisfies the rule automatically.
+//   fill    A flat polygon covering the whole tile, for the per-pixel ownership check.
 //
 //   over    The same fill, deliberately SCALED PAST the tile boundary, so clipping has something to do.
 //           With clipping on, the result must be pixel-for-pixel `fill`. Filling exactly to the boundary
@@ -70,11 +60,11 @@ export function makeTiling(key) {
   return spec.binary ? new H.BinaryTiling() : new H.RegularTiling(spec);
 }
 
-// A stable, well-spread colour from a string. Neighbouring addresses differ in their last symbol, so
+// A stable, well-spread colour from a string. Neighbouring ids differ in only part of their text, so
 // the hash must mix hard or adjacent tiles come out nearly the same colour.
 //
-// LEGAL ONLY where addresses are canonical -- that is, the binary tiling. On a {p,q} tiling this is the
-// colour that jumps, and the `illegal` motif exists to show it doing so.
+// Keying a colour on the id is meaningful precisely because the id is canonical: the same tile gets
+// the same colour from every direction the camera approaches it.
 export function colourFor(addressString) {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < addressString.length; i++) {
@@ -90,21 +80,15 @@ export function colourFor(addressString) {
   return `hsl(${hue} ${sat}% ${light}%)`;
 }
 
-// The legal per-tile colour: one hue per tile CLASS. Classes come from a group homomorphism, so they are
-// the same whichever route the walk took -- and adjacent tiles always differ, so the tiling still reads
-// as a proper colouring rather than a flat wash.
+// One hue per tile CLASS. Adjacent tiles always differ, so the tiling reads as a proper colouring
+// rather than as noise -- which is what makes this the informative default, with the id hash reserved
+// for the case where every tile should look different.
 const CLASS_HUES = [210, 25, 140, 300, 60, 180];
 
 export function colourForClass(classIndex, classCount) {
   if (classCount <= 1) return "hsl(210 58% 47%)";
   const hue = CLASS_HUES[classIndex % CLASS_HUES.length];
   return `hsl(${hue} ${58 + ((classIndex * 7) % 18)}% ${44 + ((classIndex * 5) % 14)}%)`;
-}
-
-// The colour a tile is allowed to have, given what its tiling can canonically distinguish.
-export function legalColourFor(tiling, address) {
-  if (tiling.addressesAreCanonical) return colourFor(tiling.addressToString(address));
-  return colourForClass(tiling.tileClass(address), tiling.classModulus || 1);
 }
 
 // The tile-local geometry of the asymmetric stroke, per tiling. Built from the tiling's own metrics so
@@ -171,9 +155,9 @@ function rotateLocal(points, angle) {
 }
 
 // One wedge of the pinwheel: a curved blade sweeping across 2*pi/m, plus a dot placed off the wedge's
-// own axis. Neither is mirror-symmetric, so the finished motif's symmetry group is EXACTLY C_m -- which
-// is the most asymmetry the rule allows. Sized from the tiling's own inradius so it fits {3,7}'s small
-// triangles and still fills {12,3}'s dodecagons.
+// own axis. Neither is mirror-symmetric, so the finished motif's symmetry group is EXACTLY C_m, which
+// is what makes it blind to the one thing C_m art cannot show. Sized from the tiling's own inradius so
+// it fits {3,7}'s small triangles and still fills {12,3}'s dodecagons.
 function pinwheelWedge(tiling, m) {
   const psi = tiling.metrics.inradius;
   const rad = (f) => Math.sinh((psi * f) / 2);
@@ -209,22 +193,23 @@ function wedgeDot(tiling, m) {
 
 export function motifFor(tiling, spec, address, opts) {
   const H = window.HyperbolicMap;
-  const motif = opts.motif === "sym" ? "legal" : opts.motif === "asym" ? "illegal" : opts.motif;
+  const motif = opts.motif;
   const drawables = [];
 
   // Colour, in three flavours:
   //
   //   uniform     every tile the same. Needed by the translation-invariance check, which asks whether
-  //               the picture at 5000 tiles out is byte-identical to the picture at the origin. Class
+  //               the picture 2000 tiles out is byte-identical to the picture at the origin. Class
   //               colours legitimately fail that: a 3-colouring is invariant under the class-preserving
   //               subgroup, not under every translation, so moving one tile shifts the colours.
-  //   class       the legal per-tile colour (default on the page, because it is informative).
-  //   hashColour  the ILLEGAL address hash, kept so the two halves of the rule can be shown separately.
+  //   class       one hue per tile class (the page default, because it is informative).
+  //   hashColour  hash of the tile id, so every tile is its own colour. The sharpest test that ids are
+  //               canonical: a tile renamed by the walk would change colour under the cursor.
   const colour = opts.uniform
     ? "#1a5fb4"
     : opts.hashColour
       ? colourFor(tiling.addressToString(address))
-      : legalColourFor(tiling, address);
+      : colourForClass(tiling.tileClass(address), tiling.classModulus || 1);
 
   const m = spec.binary ? 1 : tiling.stabiliserOrder || tiling.m || tiling.p;
 
@@ -293,10 +278,10 @@ export function motifFor(tiling, spec, address, opts) {
   }
 
   const base = strokeGeometry(tiling, spec);
-  // `legal` repeats the stroke under C_m, which is exactly what makes it invariant. `illegal` draws it
-  // once, which is exactly what makes it jump.
+  // `sym` repeats the stroke under C_m, so a 2*pi/m rotation of the frame is invisible. `asym` draws it
+  // once, so any rotation of the frame is plainly visible -- which is what makes it the test.
   const copies = [];
-  if (motif === "illegal" || m <= 1) {
+  if (motif === "asym" || m <= 1) {
     copies.push(base);
   } else {
     for (let k = 0; k < m; k++) copies.push(rotateLocal(base, (2 * Math.PI * k) / m));

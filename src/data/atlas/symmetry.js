@@ -1,15 +1,14 @@
-// Does a tile's artwork satisfy the symmetry the tiling requires of it?
+// Does a tile's artwork have C_m rotational symmetry? An OPT-IN LINT, for art that is meant to.
 //
-// THE RULE. In a {p,q} atlas a tile's frame is defined only UP TO the tile stabiliser C_m (m =
-// `frameSymmetry`, default p). The walk reaches each tile by the shortest route from the CAMERA, so
-// when the camera crosses into a new tile the routes change and every tile's frame can change by a
-// rotation of 2*pi*k/m about its own centre. Nothing can prevent that -- it is a property of the group,
-// not of the implementation -- so the art must be invariant under it. Art that is not simply rotates on
-// screen as you scroll: measured on {8,3} m=4, 16 of 30 on-screen tiles jumped by a multiple of 90
-// degrees at a single re-anchor.
+// This measures; it does not enforce. Tile frames are canonical -- a tile's frame is a function of the
+// tile and not of the route the walk took to it -- so asymmetric art draws identically however you
+// scroll, and there is no correctness requirement here for it to check.
 //
-// This is very easy to get wrong and completely invisible until you scroll, so the library checks it
-// rather than only documenting it. See notes/tilings.md and docs/MATH.md section 6.
+// What it is FOR is art whose symmetry is part of its meaning. The Escher atlas traces one 90-degree
+// sector of a fish and repeats it four times by exact rotation: that C_4 symmetry is what makes the
+// result Escher's pattern rather than a different one, and if an edit ever breaks it the picture is
+// wrong in a way no other check would notice. Switch this on for such art and leave it off otherwise.
+// See notes/tilings.md and docs/MATH.md section 6.
 //
 // The check is deliberately on the RAW drawables in tile-local coordinates: a rotation about the tile
 // centre is an ordinary Euclidean rotation there, so this is exact and needs no geometry.
@@ -37,10 +36,10 @@ function pointsOf(d) {
 // The largest distance by which any point of the artwork fails to land on the artwork after rotating by
 // 2*pi/m about the tile centre. Zero means exactly invariant.
 //
-// Matching is per-drawable and style-aware: a rotated shape must map onto a shape of the SAME colour and
+// Matching is per-drawable and style-aware: a rotated shape must map onto a shape of the SAME color and
 // kind. Matching only the union of points would let a green fish land on a blue one and call the picture
 // symmetric, which is precisely the failure that matters -- the shapes can be symmetric while the
-// colouring is not, and the colouring is what you see.
+// coloring is not, and the coloring is what you see.
 export function tileSymmetryResidual(drawables, m) {
   if (!drawables || !drawables.length || !(m > 1)) return { residual: 0, checked: 0, offender: null };
   const angle = (2 * Math.PI) / m;
@@ -106,20 +105,43 @@ export function tileSymmetryResidual(drawables, m) {
   return { residual: Number.isFinite(residual) ? residual : Infinity, checked: items.length, offender };
 }
 
-// The message the library prints when art violates the rule. Written out in full because the symptom
-// ("some tiles flip as I scroll") gives no hint at all about the cause.
-export function tileSymmetryMessage(residual, m, tilingName) {
+// What the lint reports. Written out in full because the symptom ("some tiles flip as I scroll")
+// gives no hint at all about the cause.
+//
+// An INFINITE residual is a different finding from a large one, and saying "worst mismatch Infinity"
+// on its own sends people looking for a coordinate that blew up. It means the search found no
+// candidate at all: some shape has no counterpart of the same style and the same number of points
+// anywhere near where the rotation sends it. In practice that is a COLOURING that is less symmetric
+// than the outlines -- four fish rotate onto each other but are painted four different colors, so a
+// green one is asked to land on a blue one -- or a shape hand-drawn a second time with a different
+// number of nodes instead of being rotated.
+export function tileSymmetryMessage(residual, m, tilingName, offender) {
+  const where = offender == null ? "" : ` (drawable ${offender})`;
+  const finding = Number.isFinite(residual)
+    ? `worst mismatch ${residual.toExponential(2)} in tile-local units${where}`
+    : `one or more shapes have no counterpart at all${where}: nothing of the same color, kind and ` +
+      `point count lies where the rotation sends them`;
   return (
     `hyperbolic-map: this tile's artwork is not invariant under rotation by 360/${m} degrees about the ` +
-    `tile centre (worst mismatch ${residual.toExponential(2)} in tile-local units).\n` +
-    `  ${tilingName} has tile stabiliser C_${m}, which means a tile's frame is only defined UP TO that ` +
-    `rotation.\n` +
-    `  The walk reaches each tile by the shortest route from the camera, so the route -- and with it the ` +
-    `rotation -- changes\n` +
-    `  as you scroll. Art that is not C_${m}-invariant will visibly JUMP when the camera crosses a tile ` +
-    `boundary.\n` +
-    `  Fix the art (build it from one wedge repeated ${m} times), or choose a tiling whose stabiliser is ` +
-    `trivial.\n` +
-    `  Set atlas.checkTileSymmetry to "off" to silence this, or "throw" to make it fatal.`
+    `tile centre -- ${finding}.\n` +
+    `  ${tilingName} has tile stabiliser C_${m}. This is a LINT, not an error: tile frames are canonical, ` +
+    `so asymmetric art\n` +
+    `  is stable as you scroll, and you only asked to be told because this art is meant to be ` +
+    `C_${m}-symmetric.\n` +
+    `  Build it from one wedge repeated ${m} times, or set atlas.checkTileSymmetry to "warn" or "off".`
   );
+}
+
+// The lint's failure, when it is set to "throw".
+//
+// A distinct type because the atlas has to tell it apart from a TILE failing. A tile whose data will
+// not load is one tile among hundreds: it is reported and skipped, and the map carries on. A lint the
+// caller deliberately set to "throw" is a statement about the ARTWORK, and downgrading it to a skipped
+// tile turns the loudest setting into the quietest one -- a single tile silently missing, which is
+// exactly the sort of thing nobody notices until it is the tile under the cursor.
+export class TileSymmetryError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "TileSymmetryError";
+  }
 }

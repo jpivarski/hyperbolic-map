@@ -216,7 +216,7 @@ viewport.panToTile(address, [0, 0]); // centre a tile, at any distance
 viewport.tileAtScreen(px, py);       // { address, id, local }; which tile is at px, py?
 ```
 
-`toScreen` and `fromScreen` work in whatever frame the view is expressed in: the global frame in single-patch mode, the current anchor tile's frame in atlas mode (pair them with `getCamera().address`). `tileAtScreen` is the atlas-mode picking question, and it deliberately answers with the address the *renderer* used, so it agrees with what is on screen even for tilings whose word addresses are not canonical.
+`toScreen` and `fromScreen` work in whatever frame the view is expressed in: the global frame in single-patch mode, the current anchor tile's frame in atlas mode (pair them with `getCamera().address`). `tileAtScreen` is the atlas-mode picking question, and it answers with the address and the tile-local coordinates the *renderer* used, so a pick correlates exactly with `atlas.lastTiles`.
 
 `setSourceTransform` applies an extra isometry to one named source without recompiling its drawables. The clock example rotates its hands with it once a second, which is an $\mathcal{O}(1)$ matrix change rather than rebuilding every hand.
 
@@ -289,32 +289,59 @@ const viewport = new HyperbolicViewport({
     lodPx: 11,        // below this on-screen tile radius, use the tile's `lod` art if any
   },
   // Optional: open on a given tile rather than the origin, however far out it is.
-  // The address must be one of THIS tiling's own—a walk word for RegularTiling (usually
+  // The address must be one of THIS tiling's own—a node object for RegularTiling (usually
   // a saved `getCamera().address`), or `{lat, lon}` BigInts for BinaryTiling.
   anchor: tiling.originAddress(),
 });
 ```
 
-The `tile` index is a route from the origin to the tile, which is not unique for a given tile. It is a description of a path, such as "2 steps right, 1 step up," as opposed to "1 step up, 2 steps right." If the art returned by `tileData` does not take these congruences into account, its appearance may abruptly change as the user scrolls.
+The `tile` index names the tile, not a route to it: reaching a tile from any direction gives the same `tile.id`, and the library draws it in the same frame every time. So `tileData` may return whatever it likes per tile — fully asymmetric art, art keyed on `tile.id`, a different picture in every tile — and it will not shift or turn as the user scrolls.
 
-The `tile.classIndex` is a safe key for coloring art, but not for determining its orientation.
+`tile.classIndex` is the *structured* alternative to `tile.id`: it runs over `0 .. classCount-1` and adjacent tiles never share a value, so it colours the tiling the way a map colours countries rather than at random.
 
-To draw a regular tiling of the hyperbolic plane, such as M.C. Escher's _Circle Limit_ series, make sure that
-* the tile art is invariant under a rotation of `2π/m` around the polygon's center, where `m` is the `frameSymmetry`;
-* the return value of `tileData` does not depend on the `tile` index.
+### Color symmetry
 
-The library can check this automatically:
+A tile class is one integer per tile, and it cannot describe a pattern whose colours *move*. In M.C. Escher's _Circle Limit III_ every motion of the tiling permutes the four fish colours, so the colour of a fish is not a property of the fish or of the tile — it is a group element applied to a base colour. That needs a homomorphism into a permutation group, and for `{8,3}` that group is `A₄`: twelve elements, not abelian, and it does *not* kill the tile stabiliser.
+
+Declare one and every tile is handed its element:
+
+```js
+const tiling = new RegularTiling({
+  p: 8, q: 3, frameSymmetry: 4,
+  colorSymmetry: {
+    colors: 4,
+    generators: [[2,0,1,3], /* ...one permutation per walk generator... */],
+    stabiliser: [1,0,3,2],   // the image of the 2π/m rotation about a tile centre
+  },
+});
+
+tileData: (tile) => {
+  tile.colorPermutation;   // e.g. [2,0,1,3] — this tile's permutation of your colors
+  tile.colorIndex;         // the same thing as 0 .. colorCount-1, for caching
+  tile.colorCount;         // 12 here; 1 when no color symmetry was declared
+}
+```
+
+Then a shape's fill in the file is a **role**, and what you draw is `palette[tile.colorPermutation[role]]`. Build one recoloured copy of your art per `colorIndex` and return it by index: there are only `colorCount` of them for the whole infinite plane, so the compile memo keeps hitting.
+
+Your permutations are **verified, not trusted**. Assigning one to each generator does not make a homomorphism — the group's relations have to hold too — and if they do not, a tile's colour would depend on the route the walk took to it and the pattern would change as you scrolled. So the library checks the cheap conditions individually (each with its own message) and then walks the tile graph and requires every pair of routes to one tile to agree, throwing if they do not. Of the 24 candidates for one generator's image in the `{8,3}` case, 16 satisfy every cheap condition and are still rejected by the walk.
+
+Note that unlike a tile class, a color symmetry is *not* required to kill the stabiliser: `stabiliser` is usually a real permutation, and in Escher's case it is what makes an octagon show two colours rather than four. This is only well defined because tile frames are canonical. Choosing a different representative of the tile's frame rotates the art by `2π/m` and permutes the colours by `stabiliser`, and the two cancel exactly, so the drawn result is the same either way.
+
+To draw a repeating pattern such as M.C. Escher's _Circle Limit_ series, the art does have to be invariant under a rotation of `2π/m` about the polygon's centre (`m` = `frameSymmetry`) — not because the library requires it, but because that is what makes every tile show the same motif in the same relative orientation. If your art is meant to be symmetric in that way, the library can watch for it drifting:
 
 ```js
 atlas: {
-  checkTileSymmetry: "warn",   // "warn" (default) | "throw" | "off"
+  checkTileSymmetry: "off",    // "off" (default) | "warn" | "throw"
 }
 viewport.atlas.tileSymmetry;   // { residual, checked, m, ok }; residual = 0 means ok
 ```
 
+The art is measured once, on the first tile that carries any, and `"throw"` really does throw — out of the viewport constructor, and out of every later frame. It is a statement about the artwork rather than about one tile, so unlike a tile whose data fails to load it is not caught and skipped. An infinite `residual` is the distinct case where a shape has no counterpart of the same colour, kind and point count at all, which usually means the colouring is less symmetric than the outlines.
+
 ### Performance hints
 
-**Return data synchronously when you can.** A callback that returns a plain object (rather than a promise) is compiled and drawn in the *same* frame. That matters more than it sounds: `{p,q}` addresses are not canonical, so when the camera re-anchors the walk renames many tiles at once and they all miss the cache together. Measured on `{7,3}`, going through a promise made 26 tiles vanish for exactly one frame on every tile crossing—a visible flicker. Asynchronous providers still work exactly as before; they just cannot avoid the first frame.
+**Return data synchronously when you can.** A callback that returns a plain object (rather than a promise) is compiled and drawn in the *same* frame. A tile that is not drawn for one frame visibly blinks, and tiles enter at the rim continuously while panning, so this is the difference between a clean edge and a shimmering one. Asynchronous providers work fine; they just cannot avoid that first frame.
 
 **Return the same object for tiles that look the same.** Compiled art is memoised on the identity of the object you return, so a provider that hands back one of a few shared objects never pays to recompile.
 
@@ -324,16 +351,20 @@ viewport.atlas.tileSymmetry;   // { residual, checked, m, ok }; residual = 0 mea
 
 Use the `RegularTiling({p, q, frameSymmetry})` class.
 
-The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever `1/p + 1/q < 1/2`. An address is a word over the generator indices—a walk from the origin tile. Treat it as opaque: it is stored as a linked cell (`{gen, prev, len, …}`) rather than an array, so that extending one is $\mathcal{O}(1)$ and a walk thousands of steps long stays cheap. Use `addressToString` for a printable form. Two different words can name the same tile (the group has braid relations), so the walk also deduplicates geometrically; see `notes/open-questions.md` for the measured extent of that and the Coxeter automaton that would remove it.
+The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever `1/p + 1/q < 1/2`. An address is a **canonical id**: one tile, one address, whatever route the walk took to reach it. Treat it as opaque and use `addressToString` (or `addressKey`) for a printable form, which is stable and safe to use as a persistent key. Underneath it is the tile's centre in the Coxeter reflection representation of `[p,q]`, held exactly in `ℤ[2cos(π/N)]` with BigInt coefficients — identity is decided by integer equality, so it has no distance ceiling. The string is a name, not a coordinate: there is no way back from it to an address, so keep the object (`getCamera().address`) if you need to return to a tile.
 
-`frameSymmetry` (a divisor of `p`, default `p`) declares the rotational symmetry your art has, and it selects the walk group so that the tile stabiliser is exactly `C_m`. If your art is not invariant under rotations of `2π/m`, polygons will appear to rotate abruptly at certain points as you scroll.
+One consequence worth knowing: an id's length grows linearly with distance from the origin, about 12 characters per tile crossed. Naming a tile is exact integer arithmetic and happens once per tile ever, never per frame, but a walk of thousands of tiles is no longer free — see the performance notes.
 
-Lowering `m` makes the rule easier to satisfy (less symmetry demanded of the art) at the cost of a larger generator set. For M.C. Escher's _Circle Limit III_ it must be `4`, not `8`: the pattern has 4-fold centres at the octagon centres, and the natural general-purpose generator—a half-turn about an edge midpoint—is outside that group entirely.
+`frameSymmetry` (`m`) selects the walk group, so that the tile stabiliser is exactly `C_m`. It decides which group the tiling is built from and hence what pattern it makes: for M.C. Escher's *Circle Limit III* it must be `4`, not `8`. It is **not** a constraint on your art — each tile has a canonical frame, the lexicographically least element of its coset, so **your art may be fully asymmetric and may depend on the address**.
 
-The tiling also exposes what the rule needs:
+Only `m = p` and `m = p/2` are accepted, and anything else throws. `m = p` steps by half-turns about edge midpoints, one generator per edge; `m = p/2` steps by rotations about alternate vertices, two per vertex. A smaller `m` would reach only `2m` of the `p` neighbours and could not cover the plane.
+
+*Circle Limit III* needs `m = 4` because the pattern has 4-fold centres at the octagon centres, and the natural general-purpose generator—a half-turn about an edge midpoint—is outside that group entirely.
+
+The tiling also exposes:
 
 ```js
-tiling.stabiliserOrder;   // m: art must be invariant under rotation by 2*pi/m
+tiling.stabiliserOrder;   // m: the tile stabiliser is C_m
 tiling.selfRotation;      // that rotation, as an Isom
 tiling.classModulus;      // how many distinct tile classes exist (1 = every tile identical)
 tiling.tileClass(addr);   // 0 .. classModulus-1, the same by every route
@@ -357,12 +388,13 @@ A new tiling can be constructed in the following way:
   addressEquals(a, b),
   neighbours(address),                        // [{ address, gen }] gen indexes the table
   generator(i),                               // Isom, CONSTANT: neighbour-local → tile local
-  inverseGenerator(i),                        // the index that undoes generator i
+  inverseGenerator(i),                        // the index whose isometry undoes generator i
+  reverseGenerator(address, i),               // the index that steps BACK -- not the same thing
   generatorCount(),
   containsLocal(x, y, tol?),                  // is this tile-local point inside this tile?
   boundaryLocal(),                            // for clipping, in tile-local coordinates
   addressesAreCanonical,                      // true if one tile has exactly one address
-  stabiliserOrder,                            // m: art must be invariant under 2*pi/m
+  stabiliserOrder,                            // m: the tile stabiliser is C_m
   selfRotation,                               // rotation as an Isom (identity when m = 1)
   classModulus,                               // number of tile classes (1 = all must match)
   tileClass(address),                         // 0 .. classModulus-1, path-independent

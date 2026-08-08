@@ -1860,3 +1860,314 @@ that resizing; and the four fixed-size pages plus dungeon-man render at their or
 spurious warning.
 
 README updated -- the shrink-wrap paragraph now names the 300 px symptom and says the widget warns.
+
+---
+
+## 2026-08-08-a — Canonical tile identity: exact ids over Z[2cos(pi/N)]
+
+**What.** A `{p,q}` tile now has a canonical id and a canonical frame, both functions of the tile
+rather than of the route the camera took to reach it. Tile art may be fully asymmetric and may depend
+on its own address. Three new dependency-free modules -- `exactring.js`, `exactcoxeter.js`,
+`exactcalib.js` -- plus a node store in `RegularTiling`.
+
+**Why.** A tile is a coset `F . C_m` of its stabiliser, and the renderer previously named it by the
+route it happened to take, so the same tile got different names and different orientations depending on
+where the camera was. Asymmetric art rotated at every tile crossing: measured on `{8,3}` m=4, 16 of 30
+on-screen tiles turned by a multiple of 90 degrees at a single re-anchor. The fix is to choose the
+lexicographically least element of the coset once and for all. Two routes give `M` and `M . P^j`, whose
+candidate sets `{M . P^k}` coincide, so the minimum is route-independent -- the whole proof, with no
+automaton and no normal form.
+
+**Exact, because float identity has a ceiling.** Frame entries grow like `cosh(d/2)`, so past `d ~ 37`
+one ulp exceeds the spacing between tile centres and no float test can separate two tiles. Integers
+have no ceiling. The representation is the Coxeter geometric one over `Z[mu]`, `mu = 2cos(pi/N)`, with
+BigInt coefficients; faithfulness (Tits) is what makes matrix equality a *definition* of group equality.
+The published id is the serialized centre `F . v_O` -- three ring elements, not nine, and canonical
+automatically because `P` fixes `v_O`.
+
+**One error found in the design document before coding.** It gave `lambda_n = D_{N/n}(mu)` alongside
+the `n = 3` shortcut (`N = p` when `q = 3`). The Dickson identity needs `n | N`; with `N = 8, n = 3` the
+division truncates and silently yields `sqrt(2)` instead of `1`. The Coxeter relations failed for
+`{8,3}`, `{7,3}` and `{3,7}` until `lambdaFor` special-cased it. It is now an assert with a regression
+test.
+
+**Two simplifications the design missed.** Conjugation by `P` is a pure permutation of generator
+indices with no residual angle, so the transport table is `m x |gens|` small integers; and folding
+`P^k` into each walk step keeps every frame canonical, so the walk forward never needs the table at all.
+Stepping BACK does -- hence `reverseGenerator(address, gen)`, which is NOT `inverseGenerator(gen)`.
+Using the plain inverse index lands on a real but wrong neighbour.
+
+**A pre-existing bug found by sweeping `frameSymmetry`.** Any divisor of `p` was accepted, but for
+`m < p` the generators are vertex rotations reaching `2m` of the `p` edges, so only `m = p` and
+`m = p/2` can cover the plane. `{8,3}` with `m = 2` constructed happily, reached edges 0, 1, 4 and 5,
+and returned 5 tiles for a view holding 17. Now throws.
+
+**Measured.**
+
+| | |
+|---|---|
+| steady-state frame, Escher atlas | 16.4 ms median; 197 frames in 200 do zero ring multiplies |
+| first frame; first frame into unexplored ground | 250 ms; ~130 ms |
+| id length | ~12 characters per tile crossed |
+| escher-atlas pixels | identical inside `r < 0.8`; 1,070 of 313,600 differ at the rim, from `minFeaturePx` threshold flips |
+| binary tiling | byte-identical, 0 of 691,200 channels |
+| browser checks | 1-10 pass, including the new check 10 |
+
+**What it cost.** Naming tiles globally needs `Omega(d)` bits, so a long excursion is no longer free:
+the extreme-distance tests dropped from 100,000 tiles to 1,000, and check 2's translation-invariance
+distance from 5,000 to 2,000. `{3,7}` is no longer byte-identical under translation -- 1 to 4 channels
+of 409,600 differ by one level of 255, because canonicalisation is not equivariant under translation and
+a tile turned by 120 degrees rasterises its last bit differently. The node store is bounded so memory is
+linear in distance rather than quadratic.
+
+**Left.** Performance, deliberately deferred to a later pass; `notes/open-questions.md` records the
+three routes (cheaper canonicalisation, amortising the burst, a shortlex normal form).
+
+## 2026-08-08-b — `tools/`: drawables <-> SVG, so artwork can be drawn in Inkscape
+
+**What.** The two user-facing scripts `AGENTS.md` has been reserving `tools/` for, plus
+`tools/README.md`. `README.md:49` already promised them.
+
+```
+python3 tools/drawables_to_svg.py FROM.json TO.svg  JSON-PATH [--coords ...] [--guidelines ...]
+python3 tools/svg_to_drawables.py FROM.svg  TO.json JSON-PATH
+```
+
+`JSON-PATH` is dotted, with integer steps for arrays, because drawables are always a *part* of a file:
+`drawables` in `escher-atlas.json`, `critters.fairy` in `dungeon-atlas.json`. The reader **overwrites**
+that array in place; copying is the user's job, deliberately.
+
+**Constraints, from Jim.** Standard library only and each file individually self-contained, because the
+audience is JavaScript developers who can run `python3` but have no Python environment to manage —
+"or more likely, everyone has a *different* setup". So `resolve_json_path` is duplicated **verbatim**
+in both files between `KEEP IN SYNC` banners, with a one-line check in `tools/README.md` that asserts
+the two copies are character-for-character identical. It returns `(parent, key, value)` so that one
+identical function serves the reader (which assigns through `parent[key]`) and the writer (which only
+wants `value`).
+
+**Rejected: exact geodesic arcs for drawable edges.** In `disk` and `halfplane` coordinates a geodesic
+*is* a circular arc, so SVG `A` commands would match the viewer pixel-for-pixel. Jim chose straight
+`L` segments instead, and it is the right call for a hand-editing tool: one SVG node per JSON point
+means dragging a node moves exactly that point. The cost is measured — at a 500 px disk radius 99 % of
+`escher-atlas.json` edges bow under 0.35 px, worst 6 px — and documented. Guidelines, which are display
+only and never read back, *are* sampled as true curves.
+
+**Guidelines.** One `<g class="hyperbolic-map-widget-guidelines">`, which the reader skips, under the
+art. `RegularTiling(p,q,m)` draws the base border, one ring of neighbours, and a large **R** in each
+neighbour showing the rotation that neighbour is placed in — which makes THE STABILISER RULE visible
+at the seams where violating it actually tears. `BinaryTiling()` draws six neighbours, not five: a
+prototype cell has no longitude, so it does not know which parent parity applies, and both are shown.
+Only the writer computes any of this.
+
+**Measured, guidelines.** `{8,3}` `chi`/`psi` agree with `notes/tilings.md` and with
+`escher-atlas.json`'s own `meta` to 1e-12; the sampled border passes through all 8 vertices to 1e-14;
+its minimum and maximum hyperbolic radius are exactly the inradius and circumradius; the 8 neighbour
+centres are all distinct and at `2*psi` to 1.1e-15; the binary cell reproduces the documented box to
+1e-12 and has hyperbolic area exactly 0.5. Sampling error 0.003 px for borders and 0.045 px for the R,
+against **5.5 px** for the vertex-to-vertex straight lines the sampling replaces — which is the whole
+reason it is there.
+
+**Measured, round trip.** `escher-atlas.json` `drawables` and `dungeon-atlas.json` `critters.fairy` and
+`room` come back **bit-for-bit identical** in all three coordinate systems, including after Inkscape
+1.1.2 re-saves the file in between. Getting there needed `hmw:source` + `hmw:keys`, which carry the
+original field values and their order: without them an untouched shape came back subtly rewritten
+(`"stroke": "#000000"` dropped as a default, `lineWidth: 2` inflated to `2.0`). Compiling the results
+with the library's own `compileDrawables` gives identical point arrays, identical flags and
+**identity-identical interned style objects** for those three and for `relativity.json`, `clock.json`
+and `escher.json` — the interning makes that a real test of the resolved appearance, not just of the
+JSON.
+
+**The single-patch datasets do not round-trip, and cannot.** An SVG's precision is absolute while local
+coordinates grow like `sinh(d/2)`, so `dungeon.json`'s full 5270 drawables — extent 11710, hyperbolic
+distance ~20 — lose 0.13 local units in `disk` and **199** in `halfplane`. This is §6 of `docs/MATH.md`,
+not a fixable bug. So the writer *measures* it: every point goes through the exact text the file will
+carry and back, and it prints the worst error and warns when it exceeds `1e-6` of the local extent.
+`--coords local` is the best conditioned of the three (6e-8 on the same data) and the warning says so.
+
+**Metadata.** `hmw:params` JSON written twice — an attribute on the root `<svg>` and an element inside
+`<metadata>` — after checking that Inkscape 1.1.2 preserves both. Two channels so that a future
+Inkscape dropping one is a warning, not a broken round trip. This is what lets the reader have no
+`--coords`.
+
+**Also checked.** `npm run check` passes (no module structure was touched). The reader survives a
+hand-built SVG exercising a group `transform`, `style=""` overriding presentation attributes,
+`fill-opacity`, a cubic curve, `rect`/`circle`/`polyline`/`polygon`/`text`, a multi-subpath `d`, a
+`display:none` layer and `sodipodi:namedview`. Every error path prints `error: <message>` naming the
+user's data, not a traceback.
+
+**Left.** `--coords halfplane` on data reaching the basepoint region is the least tested path. Text
+size and rotation are display-only in the SVG: `up` rides along with an Inkscape move or rotation via
+`hmw:upLength`, but editing the font size does not change it. `class`-based styles cannot be previewed,
+since the stylesheet lives in the viewport options the scripts never see.
+
+## 2026-08-08-c — The blank centre octagon: a lint set to "throw" was throwing into the tile-failure handler
+
+**Symptom.** After the new hand-drawn `escher-atlas.json` landed, `escher-atlas.html` drew a perfect
+Circle Limit III with exactly one octagon missing — the one in the middle, under the camera.
+
+**Cause, and it is the interesting part.** The new tile is not C4-symmetric in the lint's sense, so
+`checkTileSymmetry: "throw"` fired as designed. But the throw was raised inside `Atlas.acceptTile`,
+which `request()` wraps in the try/catch that turns *a tile failing to load* into *a tile quietly
+skipped*. So the lint's exception was caught by the wrong handler and downgraded: the tile was cached
+empty, `_symmetryChecked` had already been set to `true` before the throw so every later tile skipped
+the check and drew fine, and the only trace was one `console.error`.
+
+The strictest setting therefore produced the mildest symptom. That is the whole bug: **a lint and a
+broken tile are different kinds of failure and must not share a handler.** One bad tile out of two
+hundred should never take the map down; a statement about the artwork should never be reduced to one
+missing tile.
+
+**Fix.** `TileSymmetryError` in `symmetry.js`, a distinct type the two catch clauses re-throw. The
+verdict is measured once and then re-thrown on every later frame, because a page that threw once and
+rendered thereafter would be neither working nor visibly broken. Asynchronous providers cannot be
+handed a synchronous throw, so there it surfaces as an unhandled rejection — loud, which is what
+"throw" asked for.
+
+**Also fixed: `Infinity` is a finding, not a number that blew up.** The residual is infinite when the
+search found no candidate at all — nothing of the same style *and* the same point count lies where the
+rotation sends a shape. "worst mismatch Infinity in tile-local units" sent the reader looking for a
+coordinate overflow. It now says so in words and names the offending drawable, which is directly
+actionable: the usual cause is a colouring less symmetric than the outlines.
+
+**Measured, on the new tile.** 96 drawables. The *layout* is C4 — three families at radii 0.19, 0.355
+and 0.378, each with four members 90 degrees apart to within a degree — but nothing is an exact
+rotation of anything: median mismatch 6.9e-3, and the four fish are painted four different colours, so
+a green one is asked to land on a blue one. Four more shapes (the greys) have different node counts
+from each other, so they do not match even ignoring colour. This is a traced tile, not a generated one,
+and `1e-6` was never going to be met; `escher-atlas.html` now asks for `"warn"`.
+
+**Tests.** Two in `test/anchor.test.mjs`. The first asserts the throw escapes `passes()`, escapes it
+again on the second frame, caches nothing, and that `"warn"` draws every tile and warns exactly once —
+and, as a control, that a `tileData` that throws an ordinary error is still reported and skipped rather
+than made fatal along with the lint. It fails against the old code with the original symptom. The
+second pins the three findings apart: exact rotation, a small finite residual, and no counterpart at
+all.
+
+**Verified.** `npm test` 168/168. All ten browser diagnostics pass, including 2 (byte-identical
+translation invariance, 45/45) and 10 (the hundred-step scroll, 9/9).
+
+**Not touched, deliberately.** The page's prose, its `(C4-exact)` status line, and `BODY_IN_FILE`,
+which no longer matches any fill in the file so "colour by tile class" now only recolours the `lod`
+stand-in. All three are about the colouring, which Jim is working on next.
+
+## 2026-08-08-d — Escher's four colours, and a colour symmetry for {p,q} atlases
+
+Jim redrew `escher-atlas.json` by hand in Inkscape with **four fish in four colours**. A repeating atlas
+returns the same data for every tile, so four colours in the file means the same four colours in every
+octagon — which is not Escher's picture. In *Circle Limit III* the colours MOVE: every motion of the
+tiling permutes them.
+
+**What the library gained: `colorSymmetry`.** A homomorphism from the walk group into a permutation
+group, declared by the caller, with the tile's element handed to `tileData` as `colorPermutation` /
+`colorIndex` / `colorCount`. A tile CLASS is the special case the library can discover on its own (the
+abelianisation is forced by `{p,q,m}`); this is the general case and has to be declared, because nothing
+about the tiling picks it — it is a property of the picture.
+
+Two things make it a different mechanism and not a wider integer:
+
+* **It does not kill the stabiliser.** `phi(P)` is a real permutation — for Escher it is the swap of the
+  two colours an octagon shows. So the accumulation carries the canonical fold's `P^k`, which the cyclic
+  case is free to drop: `phi_child = phi_parent . phi(G_g) . phi(P)^k`.
+* **It is therefore only well defined because frames are canonical.** Choosing the coset representative
+  `F.P` rotates the art by `2*pi/m` AND multiplies the label by `phi(P)`, and the two cancel exactly. The
+  requirement is that the same `F` decide both, which is what the canonical-identity work bought. This
+  could not have been made to work before it.
+
+Elements are interned as dense indices with a Cayley table, so a walk step is two array lookups and
+allocates nothing — the same cost as the tile class's integer add. Construction costs 146 ms for the
+verification walk, cached per `{p,q,m}` + permutation signature; the second construction is 1 ms.
+
+**Verification throws rather than degrading.** A class is the library's guess, so falling back to one
+class is honest; a colour symmetry is the caller's assertion, and ignoring it would paint the picture
+wrong. The cheap algebraic conditions are checked individually with their own messages, and then the
+tile graph is walked and every pair of routes to one tile must agree. That last step is not decoration:
+of the 24 candidates for `phi(G_0)` in the `{8,3}` case, **16 satisfy every cheap check and are caught
+only by the walk** — including the most innocent-looking one, every generator fixing every colour.
+
+### Picking Escher's homomorphism, and two wrong turns worth recording
+
+`phi(G_0)` is the only free parameter (`inverseIndex` and conjugation by `P` fix the rest). The funnel:
+24 candidates -> **8** homomorphisms -> **6** after Escher's rule that the three fish at a three-fold
+vertex all differ -> **1** by measurement against the woodcut.
+
+**Wrong turn 1: a coordinate-system bug made the shortlist wrong.** The planning-stage check of the
+three-fold rule compared vertices computed in LOCAL coordinates (`sinh(chi/2)`) against fish positions in
+DISK coordinates (`applyToLocal` returns disk). It reported that 4 of 8 survive. With the metric fixed —
+disk coordinates throughout, and hyperbolic distance, since the three octagons around a vertex are
+equidistant hyperbolically and up to 1.4x apart Euclidean — **6 survive, not 4**. The first shortlist was
+missing the right answer's competitors.
+
+Also learned: {8,3}'s two vertex classes are not alike for this test. At the odd ones a single fish of
+each octagon runs into the corner (reach 0.01, next 0.46). At the even ones the vertex sits ON the seam
+between two adjacent fish, both at 0.03, and there is no fact of the matter about which to count. The
+rule is asserted where it is well defined.
+
+**Wrong turn 2: sampling fish centres ranked the wrong candidate first.** k-means over a scan of the
+print recovers Escher's four inks — (117,62,32) red, (217,163,85) yellow, (143,123,75) green,
+(73,103,128) blue. Scoring each candidate's predicted colour at each fish's CENTROID, with the disk
+centre, radius and rotation fitted, put `phi(G_0) = [0,3,1,2]` first at 79% against `[2,0,1,3]`'s 70%.
+
+Rendering it showed the problem immediately: `[0,3,1,2]` paints the four overlap wedges — the parts of
+neighbours' fish that fall inside an octagon — to match the fish they sit against, so they MERGE into
+large single-colour blobs and the four-colour interlock collapses. A centroid cannot see that; it is
+obvious in the picture.
+
+Comparing whole AREAS instead — every point of a grid over the disk, classified in both pictures, the
+rotation fitted — settles it cleanly:
+
+| `phi(G_0)` | 2013 | 2130 | 3021 | 0312 | 1203 | 3102 | 0231 | 1320 |
+|---|---|---|---|---|---|---|---|---|
+| area agreement | **78.4%** | 47.2% | 46.1% | 45.9% | 44.4% | 43.0% | 40.0% | 35.2% |
+
+`phi(G_0) = [2,0,1,3]`, at 78.4% of 5,436 comparable points against 47.2% for the runner-up. The
+residual is the tracing and the shading of a woodcut. Swapping `PALETTE[2]` and `PALETTE[3]` gives
+another admissible homomorphism scoring 46%, which fixes their order too.
+
+The regression test asserts the property that distinguishes them: **no overlap wedge may take one of its
+own octagon's two colours**, or it merges with the fish beside it.
+
+### The rest
+
+* `docs/demo/escher-colors.js` — art data, so it lives with the art: the palette, `PHI_G0`, the
+  fill-to-role map, and the overlap table. The overlaps' roles are DERIVED from the live tiling
+  (`colorPermutation(extendAddress(origin, g))[role]`) rather than written down, so changing the
+  homomorphism cannot leave a stale constant behind.
+* The file's fills are ROLE TAGS and do not match the output colours — `#afe9af` looks green and comes
+  out yellow. Said loudly in three places, because "fixing" it would rotate the whole colouring by 90
+  degrees.
+* `escher-atlas.html` lost all three checkboxes: clip always on, outline off, colouring always on. The
+  symmetry lint is off and must stay off — the outlines are C_4 but the colouring is deliberately C_2.
+* The LOD stand-in is measured from the drawables (shoelace per fill + measured stroke coverage, one
+  average per variant) instead of the stale `meta.coverage`, which was left over from the old generated
+  tile. That field and `meta.fit` are dropped and the note rewritten.
+* Spelling: new API is American per Jim. `src/` had no identifier spelled `colour`, only 15 comment
+  occurrences, all normalised along with the touched demo and test files. `docs/`, `notes/` and
+  `README.md` still use British spelling.
+* `test/escher-colors.test.mjs` imports from `docs/demo/`, which is unusual and deliberate: the data
+  belongs with the art, and duplicating it in the test is exactly how the two would drift apart.
+* Documentation: a new "Color symmetry" section in `README.md`; `notes/tilings.md` gains "Colour
+  symmetry: the general case" under the tile-class table; and the section of
+  `notes/escher-circle-limit-iii.md` titled "Why the fish are not Escher's four colours" was FALSE as of
+  this change and is rewritten as how they are, with the funnel table above. Its stale "Result: symmetry
+  residual 3.9e-17" went with it — the tile is hand-drawn now and is not C_4-exact.
+
+### Verified
+
+* `npm run check`, `npm run build`, `npm test` — **179/179**, 11 of them new (5 in `tiling.test.mjs`,
+  1 in `anchor.test.mjs`, 5 in `escher-colors.test.mjs`).
+* All ten browser diagnostics, run one at a time because the batch exceeds the MCP protocol timeout.
+  Unchanged from before this work, including 2 (byte-identical translation invariance, 45/45 views out
+  to 5,107 hyperbolic units), 9 (45/45 pans) and 10 (hundred-step scroll, 9/9).
+* On the page itself: every probed fish is painted what its own tile's permutation says, with 12
+  colourings on screen at once — 14/14 at the origin, 14/14 after 400 tile crossings (611 hyperbolic
+  units), 14/14 on the way back. `panToTile(origin)` then shows the centre octagon exactly as it began:
+  green top-left and bottom-right, yellow top-right and bottom-left, permutation `[0,1,2,3]`.
+* `escher.html`, `clock.html` and `dungeon-man.html` render with no console output. They pass no
+  `colorSymmetry`, so `colorCount` is 1 and `colorPermutation` is null, and nothing on their path moves.
+
+### Left
+
+The four overlap wedges are hand-drawn approximations of the neighbours' fish rather than the exact
+shapes, so the seams do not line up to the pixel. Harmless — each is clipped to its own octagon — but it
+is why the artwork can never satisfy the symmetry lint, and why the lint is off rather than merely
+loosened.

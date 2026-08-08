@@ -139,9 +139,9 @@ test("STUCK DRAG: tab becoming hidden mid-drag ends the gesture", () => {
 });
 
 test("dragging past the rim clamps instead of freezing", () => {
-  // The second half of the reported bug: the pan used to simply return when the cursor left the
-  // interaction radius, so it stalled and then jumped when the cursor came back. Clamping instead
-  // means two things, and both have to be asserted or the test says nothing:
+  // A pan that simply returns when the cursor leaves the interaction radius stalls, and then jumps
+  // when the cursor comes back. Clamping instead means two things, and both have to be asserted or the
+  // test says nothing:
   //
   //   1. going FURTHER along the same ray changes nothing -- the target is pinned to the circle;
   //   2. changing DIRECTION beyond the rim still moves the view -- it tracks the bearing.

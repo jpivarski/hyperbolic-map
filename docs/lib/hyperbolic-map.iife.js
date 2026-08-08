@@ -1154,8 +1154,9 @@ function internStyle(out) {
   for (let i = 0; i < STYLE_KEYS.length; i++) key += out[STYLE_KEYS[i]] + "\u0001";
   const hit = styleTable.get(key);
   if (hit) return hit;
-  // Frozen so that a later mutation cannot silently restyle every drawable that shares it -- the one
-  // place that used to mutate a resolved style (a marker's radius) now folds it in before interning.
+  // Frozen so that a later mutation cannot silently restyle every drawable that shares it. Anything
+  // that varies per drawable (a marker's radius) has to be folded in BEFORE interning, not written
+  // onto the resolved style afterwards.
   const frozen = Object.freeze(out);
   if (styleTable.size < STYLE_TABLE_LIMIT) styleTable.set(key, frozen);
   return frozen;
@@ -1299,10 +1300,10 @@ const arc = new Arc();
 
 // Projected-vertex scratch, grown on demand and reused for every path in every frame.
 //
-// This used to be `new Float64Array(n)` twice per path. On the Escher scene that is 77,280 typed
-// arrays per frame, and it showed up exactly where you would expect: a median frame of 63 ms with a
-// p95 of 261 ms, the tail being garbage collection. The buffers are module-scope because drawPath is
-// never re-entered -- it does not call back into the renderer.
+// Allocating `new Float64Array(n)` twice per path instead would be 77,280 typed arrays per frame on
+// the Escher scene, and it shows up exactly where you would expect: a median frame of 63 ms with a p95
+// of 261 ms, the tail being garbage collection. The buffers are module-scope because drawPath is never
+// re-entered -- it does not call back into the renderer.
 let vertX = new Float64Array(1024);
 let vertY = new Float64Array(1024);
 function ensureVertexCapacity(n) {
@@ -2345,9 +2346,9 @@ class Anchor {
     let steps = 0;
     // Monotonicity guard. Each step must bring the view centre strictly closer to the camera tile's
     // centre; that is what makes the descent terminate. Enforcing it here rather than trusting each
-    // tiling's rule means a future tiling with a subtly non-monotone `stepToward` degrades to "stop
-    // early" instead of spinning to the iteration cap -- which is how a 2-cycle presented itself before:
-    // 4,096 steps on a single camera move.
+    // tiling's rule means a tiling with a subtly non-monotone `stepToward` degrades to "stop early"
+    // instead of spinning to the iteration cap -- which is what a 2-cycle looks like: 4,096 steps on a
+    // single camera move.
     let previous = Infinity;
     for (; steps < maxSteps; steps++) {
       this.viewCentreLocal(current, c);
@@ -2355,20 +2356,23 @@ class Anchor {
       previous = c[2];
       // Ask the tiling which way to go. Each tiling answers with an EXACT, monotone rule -- the most
       // violated half-plane for a regular tiling, the box test for a binary cell -- so the descent
-      // cannot cycle. An earlier version used a generic nearest-centre comparison with a tolerance,
-      // which is fine for Voronoi cells but wrong for binary ones: mixing it with a containment check
-      // made the two rules fight, and 500 small camera moves cost 143,407 re-anchor steps instead of
-      // about 30.
+      // cannot cycle. It must be the TILING's rule and not a generic nearest-centre comparison with a
+      // tolerance: that suits Voronoi cells but not binary ones, and mixing it with a containment check
+      // makes the two rules fight -- measured, 500 small camera moves then cost 143,407 re-anchor steps
+      // against about 30.
       //
       // The answer is an INDEX INTO the neighbour list, which is why the list's order is part of the
       // Tiling contract. Naming a generator instead cannot work for the binary tiling, whose parent
       // step has two parities: an odd-longitude cell offers only PARENT_ODD, so a request for
-      // PARENT_EVEN silently found nothing and the camera could never move up at all.
+      // PARENT_EVEN finds nothing and the camera can never move up at all.
       const nbrs = this.tiling.neighbours(this.address);
       const dir = this.tiling.stepToward(c[0], c[1]);
       if (dir < 0 || dir >= nbrs.length) break;
       const chosen = nbrs[dir];
-      const g = this.tiling.generator(chosen.gen);
+      // stepFrame, not generator: on a {p,q} tiling the step carries the C_m correction that lands
+      // in the neighbour's CANONICAL frame, so V_c is always the view in the anchor's canonical
+      // frame rather than in whichever frame the route happened to produce.
+      const g = this.tiling.stepFrame(this.address, chosen.gen);
       shift = shift.mul(g).normalize();
       current = current.mul(g).normalize();
       this.address = chosen.address;
@@ -2396,7 +2400,7 @@ class Anchor {
       const nbrs = this.tiling.neighbours(address);
       const dir = this.tiling.stepToward(px, py);
       if (dir < 0 || dir >= nbrs.length) break;
-      const g = this.tiling.generator(nbrs[dir].gen);
+      const g = this.tiling.stepFrame(address, nbrs[dir].gen);
       rel = rel.mul(g).normalize();
       address = nbrs[dir].address;
       // Re-express the point in the new tile's frame.
@@ -2444,62 +2448,18 @@ class Anchor {
       return Math.hypot(A, B);
     };
 
-    // Deduplication. Word addresses are not canonical -- two different words can name one tile -- so
-    // those tilings also need a geometric check. That check is now trivially reliable: the relative
-    // frames are O(1) and carry ~1e-15 of error, against a tile spacing of order 0.3, so a rounded
-    // grid plus an exact invariant comparison has ~13 orders of margin. (The previous design had to
-    // grow the quantum with distance and still produced duplicates, because it was comparing numbers
-    // that had already cancelled away most of their digits.)
+    // Deduplication, on the ADDRESS. Every tiling hands out canonical addresses -- the binary one by
+    // construction from (lat, lon), a regular one because its id is an exact integer name for the tile
+    // -- so the key IS the identity and a Set is the whole answer.
+    //
+    // Note what is NOT here: no geometric comparison, no rounding of centres into buckets, no "these
+    // two are within a quarter of a tile spacing so call them the same". Deciding identity by proximity
+    // has a distance ceiling wherever it is done, because two distinct tiles eventually sit closer
+    // together than the error in the numbers describing them. The exact id has no threshold in it.
     const seenAddress = new Set();
-    const grid = new Map();
-    const accX = [];
-    const accY = [];
-    const accW = [];
-    const CELL = 1e-5;
-    const dupCosh = Math.cosh(spacing / 4);
-    const geometric = !tiling.addressesAreCanonical;
-
-    // For tilings whose addresses are canonical (the binary one) the string IS the identity, so keying
-    // on it is both cheap and complete. For word-addressed tilings it is neither: two words can name one
-    // tile, so a geometric check is needed anyway, and stringifying every candidate the walk dequeues
-    // cost 57 ms per frame at 5,000 tiles from the origin. So: string key only where it is the answer.
-    const alreadySeen = (rel, key) => {
-      if (!geometric) {
-        if (seenAddress.has(key)) return true;
-        seenAddress.add(key);
-        return false;
-      }
-      rel.applyToDisk(0, 0, buf);
-      const zx = buf[0];
-      const zy = buf[1];
-      const k = 1 / Math.sqrt(Math.max(1e-300, 1 - zx * zx - zy * zy));
-      const lx = zx * k;
-      const ly = zy * k;
-      const lw = Math.sqrt(1 + lx * lx + ly * ly);
-      const gx = Math.floor(zx / CELL);
-      const gy = Math.floor(zy / CELL);
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const bucket = grid.get((gx + dx) * 8191 + (gy + dy));
-          if (!bucket) continue;
-          for (let i = 0; i < bucket.length; i++) {
-            const j = bucket[i];
-            const A = accW[j] * lw - accX[j] * lx - accY[j] * ly;
-            const B = accX[j] * ly - accY[j] * lx;
-            if (Math.hypot(A, B) < dupCosh) return true;
-          }
-        }
-      }
-      const home = gx * 8191 + gy;
-      let bucket = grid.get(home);
-      if (!bucket) {
-        bucket = [];
-        grid.set(home, bucket);
-      }
-      bucket.push(accX.length);
-      accX.push(lx);
-      accY.push(ly);
-      accW.push(lw);
+    const alreadySeen = (key) => {
+      if (seenAddress.has(key)) return true;
+      seenAddress.add(key);
       return false;
     };
 
@@ -2524,27 +2484,40 @@ class Anchor {
         break;
       }
       const node = queue.shift();
-      // Only stringify when the string is what deduplicates -- see alreadySeen.
-      const key = geometric ? null : tiling.addressToString(node.address);
-      if (alreadySeen(node.rel, key)) continue;
+      if (alreadySeen(tiling.addressKey(node.address))) continue;
       const ch = coshHalfTo(node.rel);
       if (ch > walkCosh) continue;
       if (ch <= includeCosh) {
         out.push(node);
         dist.push(ch);
       }
-      const nbrs = tiling.neighbours(node.address);
-      for (let i = 0; i < nbrs.length; i++) {
+      // Look before naming. `tiling.generator(g)` moves the tile CENTRE exactly where the real step
+      // does -- they differ only by a rotation about that centre -- so a candidate costs 4 float
+      // multiplies to test, and only the survivors are turned into addresses. Naming is the expensive
+      // half: on a regular tiling an address is an exact integer object costing ~117 ring multiplies to
+      // build. Which tiles are RETURNED is unaffected, since a rejected candidate would be dropped by
+      // this same test on dequeue.
+      //
+      // HONEST SCOPE, measured rather than assumed: this saves nothing on the Escher atlas, because
+      // there the walk stops on the TILE BUDGET (`gatherLimit`) long before anything falls outside
+      // `walkCosh`, so no candidate is ever rejected. It pays when the visible radius is what binds --
+      // a small `maxTiles`, or zoomed in far enough that few tiles are on screen.
+      const gens = tiling.neighbourGens(node.address);
+      for (let i = 0; i < gens.length; i++) {
+        const g = gens[i];
+        const probe = node.rel.mul(tiling.generator(g));
+        if (coshHalfTo(probe) > walkCosh) continue;
         queue.push({
-          address: nbrs[i].address,
-          rel: node.rel.mul(tiling.generator(nbrs[i].gen)),
+          address: tiling.extendAddress(node.address, g),
+          rel: node.rel.mul(tiling.stepFrame(node.address, g)),
         });
       }
     }
 
-    // Always honour the budget. An earlier version only truncated when the queue was still non-empty,
-    // so a walk that gathered past maxTiles and then ran out of candidates returned MORE tiles than
-    // asked for -- a silent budget overrun that a caller sizing its cache to maxTiles would not expect.
+    // Always honour the budget, and note that the condition is on the RESULT and not on the queue.
+    // Truncating only when candidates remain would let a walk that gathered past maxTiles and then ran
+    // out return MORE tiles than asked for -- a silent overrun for a caller sizing its cache to
+    // maxTiles.
     if (out.length > maxTiles) {
       this.lastTruncated = true;
       const order = out.map((_, i) => i).sort((i, j) => dist[i] - dist[j]);
@@ -2562,18 +2535,17 @@ class Anchor {
 }
 
 // ===== src/data/atlas/symmetry.js =====
-// Does a tile's artwork satisfy the symmetry the tiling requires of it?
+// Does a tile's artwork have C_m rotational symmetry? An OPT-IN LINT, for art that is meant to.
 //
-// THE RULE. In a {p,q} atlas a tile's frame is defined only UP TO the tile stabiliser C_m (m =
-// `frameSymmetry`, default p). The walk reaches each tile by the shortest route from the CAMERA, so
-// when the camera crosses into a new tile the routes change and every tile's frame can change by a
-// rotation of 2*pi*k/m about its own centre. Nothing can prevent that -- it is a property of the group,
-// not of the implementation -- so the art must be invariant under it. Art that is not simply rotates on
-// screen as you scroll: measured on {8,3} m=4, 16 of 30 on-screen tiles jumped by a multiple of 90
-// degrees at a single re-anchor.
+// This measures; it does not enforce. Tile frames are canonical -- a tile's frame is a function of the
+// tile and not of the route the walk took to it -- so asymmetric art draws identically however you
+// scroll, and there is no correctness requirement here for it to check.
 //
-// This is very easy to get wrong and completely invisible until you scroll, so the library checks it
-// rather than only documenting it. See notes/tilings.md and docs/MATH.md section 6.
+// What it is FOR is art whose symmetry is part of its meaning. The Escher atlas traces one 90-degree
+// sector of a fish and repeats it four times by exact rotation: that C_4 symmetry is what makes the
+// result Escher's pattern rather than a different one, and if an edit ever breaks it the picture is
+// wrong in a way no other check would notice. Switch this on for such art and leave it off otherwise.
+// See notes/tilings.md and docs/MATH.md section 6.
 //
 // The check is deliberately on the RAW drawables in tile-local coordinates: a rotation about the tile
 // centre is an ordinary Euclidean rotation there, so this is exact and needs no geometry.
@@ -2601,10 +2573,10 @@ function pointsOf(d) {
 // The largest distance by which any point of the artwork fails to land on the artwork after rotating by
 // 2*pi/m about the tile centre. Zero means exactly invariant.
 //
-// Matching is per-drawable and style-aware: a rotated shape must map onto a shape of the SAME colour and
+// Matching is per-drawable and style-aware: a rotated shape must map onto a shape of the SAME color and
 // kind. Matching only the union of points would let a green fish land on a blue one and call the picture
 // symmetric, which is precisely the failure that matters -- the shapes can be symmetric while the
-// colouring is not, and the colouring is what you see.
+// coloring is not, and the coloring is what you see.
 function tileSymmetryResidual(drawables, m) {
   if (!drawables || !drawables.length || !(m > 1)) return { residual: 0, checked: 0, offender: null };
   const angle = (2 * Math.PI) / m;
@@ -2670,22 +2642,45 @@ function tileSymmetryResidual(drawables, m) {
   return { residual: Number.isFinite(residual) ? residual : Infinity, checked: items.length, offender };
 }
 
-// The message the library prints when art violates the rule. Written out in full because the symptom
-// ("some tiles flip as I scroll") gives no hint at all about the cause.
-function tileSymmetryMessage(residual, m, tilingName) {
+// What the lint reports. Written out in full because the symptom ("some tiles flip as I scroll")
+// gives no hint at all about the cause.
+//
+// An INFINITE residual is a different finding from a large one, and saying "worst mismatch Infinity"
+// on its own sends people looking for a coordinate that blew up. It means the search found no
+// candidate at all: some shape has no counterpart of the same style and the same number of points
+// anywhere near where the rotation sends it. In practice that is a COLOURING that is less symmetric
+// than the outlines -- four fish rotate onto each other but are painted four different colors, so a
+// green one is asked to land on a blue one -- or a shape hand-drawn a second time with a different
+// number of nodes instead of being rotated.
+function tileSymmetryMessage(residual, m, tilingName, offender) {
+  const where = offender == null ? "" : ` (drawable ${offender})`;
+  const finding = Number.isFinite(residual)
+    ? `worst mismatch ${residual.toExponential(2)} in tile-local units${where}`
+    : `one or more shapes have no counterpart at all${where}: nothing of the same color, kind and ` +
+      `point count lies where the rotation sends them`;
   return (
     `hyperbolic-map: this tile's artwork is not invariant under rotation by 360/${m} degrees about the ` +
-    `tile centre (worst mismatch ${residual.toExponential(2)} in tile-local units).\n` +
-    `  ${tilingName} has tile stabiliser C_${m}, which means a tile's frame is only defined UP TO that ` +
-    `rotation.\n` +
-    `  The walk reaches each tile by the shortest route from the camera, so the route -- and with it the ` +
-    `rotation -- changes\n` +
-    `  as you scroll. Art that is not C_${m}-invariant will visibly JUMP when the camera crosses a tile ` +
-    `boundary.\n` +
-    `  Fix the art (build it from one wedge repeated ${m} times), or choose a tiling whose stabiliser is ` +
-    `trivial.\n` +
-    `  Set atlas.checkTileSymmetry to "off" to silence this, or "throw" to make it fatal.`
+    `tile centre -- ${finding}.\n` +
+    `  ${tilingName} has tile stabiliser C_${m}. This is a LINT, not an error: tile frames are canonical, ` +
+    `so asymmetric art\n` +
+    `  is stable as you scroll, and you only asked to be told because this art is meant to be ` +
+    `C_${m}-symmetric.\n` +
+    `  Build it from one wedge repeated ${m} times, or set atlas.checkTileSymmetry to "warn" or "off".`
   );
+}
+
+// The lint's failure, when it is set to "throw".
+//
+// A distinct type because the atlas has to tell it apart from a TILE failing. A tile whose data will
+// not load is one tile among hundreds: it is reported and skipped, and the map carries on. A lint the
+// caller deliberately set to "throw" is a statement about the ARTWORK, and downgrading it to a skipped
+// tile turns the loudest setting into the quietest one -- a single tile silently missing, which is
+// exactly the sort of thing nobody notices until it is the tile under the cursor.
+class TileSymmetryError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "TileSymmetryError";
+  }
 }
 
 // ===== src/data/atlas/atlas.js =====
@@ -2726,10 +2721,13 @@ class Atlas {
       styleSheet = null,
       onTileLoad = null,
       onTileError = null,
-      // "warn" | "throw" | "off". See symmetry.js: on a {p,q} tiling a tile's frame is only defined up
-      // to the stabiliser C_m, so art that is not C_m-invariant jumps when the camera re-anchors. That
-      // is invisible until you scroll, so it is checked on the first tile rather than only documented.
-      checkTileSymmetry = "warn",
+      // "off" | "warn" | "throw". An OPT-IN LINT, off by default.
+      //
+      // Tile frames are canonical, so asymmetric art is perfectly stable and there is nothing here to
+      // enforce. Switch it on when the art is MEANT to be C_m-symmetric -- a repeating pattern like the
+      // Escher atlas, where losing the symmetry means the pattern is no longer the one being drawn --
+      // and it will tell you when it has drifted.
+      checkTileSymmetry = "off",
       tileSymmetryTolerance = 1e-6,
       // Below this on-screen tile radius (in CSS pixels) a tile draws its `lod` art instead of its full
       // art, if it supplied any. See passes().
@@ -2753,6 +2751,8 @@ class Atlas {
     // it and so tests can assert on it.
     this.tileSymmetry = null;
     this._symmetryChecked = false;
+    // The message to keep throwing once the lint has failed in "throw" mode. See verifyTileSymmetry.
+    this._symmetryFailure = null;
 
     // key string -> {drawables, withinTile} once resolved
     this.cache = new Map();
@@ -2768,22 +2768,30 @@ class Atlas {
     this.tileLocalRadius = Math.sinh((tiling.metrics.circumradius || 1) / 2);
     // Compiled art, memoised on the IDENTITY of the object the callback returned.
     //
-    // On a {p,q} tiling the walk renames many tiles at once when the camera re-anchors, so they all miss
-    // the address-keyed cache together. Measured on the Escher atlas during a drag: the re-anchor frame
-    // recompiled 160 tiles and took 125 ms, against a 16 ms median. But the data itself had not changed
-    // -- the rule says art on such a tiling may only depend on the tile CLASS, so a sane provider
-    // returns one of a few shared objects, and those had already been compiled. Keying on object
-    // identity turns the whole stall into 160 map lookups without needing to know anything about the
-    // provider. A provider that builds a fresh object every call gets today's behaviour, unchanged.
+    // A repeating atlas hands back one of a few shared objects for every tile -- the Escher atlas has
+    // twelve, one per element of its color symmetry -- so compiling per tile would redo identical work.
+    // Keying on object
+    // identity collapses that to a map lookup without needing to know anything about the provider, and
+    // is what keeps a burst of cache misses cheap: 160 tiles compiled from scratch cost 125 ms against
+    // a 16 ms median frame. A provider that builds a fresh object every call simply misses this memo
+    // and pays the compile, which is correct.
     this._compiled = typeof WeakMap === "function" ? new WeakMap() : null;
   }
 
-  // THE RULE, enforced. See symmetry.js for why this matters and what goes wrong without it.
+  // The symmetry lint. See symmetry.js for what it measures and when it is worth switching on.
   //
-  // Only meaningful for tilings with a non-trivial stabiliser: the binary tiling has none, so its art is
-  // unconstrained and this is skipped entirely.
+  // Only meaningful for tilings with a non-trivial stabiliser: the binary tiling has none, so C_1
+  // symmetry is vacuous and this is skipped entirely.
   verifyTileSymmetry(data) {
-    if (this._symmetryChecked || this.checkTileSymmetry === "off") return;
+    if (this.checkTileSymmetry === "off") return;
+    if (this._symmetryChecked) {
+      // Measured already; the answer is a property of the art, so it is not re-measured. But a "throw"
+      // that fired once and then let every later frame through would leave the page in a state that is
+      // neither working nor visibly broken: the art is still wrong, and the only evidence is one tile
+      // missing from the first frame. Keep throwing.
+      if (this._symmetryFailure) throw new TileSymmetryError(this._symmetryFailure);
+      return;
+    }
     const m = this.tiling.stabiliserOrder;
     if (!(m > 1)) {
       this._symmetryChecked = true;
@@ -2806,13 +2814,18 @@ class Atlas {
     const name = this.tiling.p
       ? `{${this.tiling.p},${this.tiling.q}}${this.tiling.m !== this.tiling.p ? ` with frameSymmetry ${this.tiling.m}` : ""}`
       : "this tiling";
-    const msg = tileSymmetryMessage(residual, m, name);
-    if (this.checkTileSymmetry === "throw") throw new Error(msg);
+    const msg = tileSymmetryMessage(residual, m, name, offender);
+    if (this.checkTileSymmetry === "throw") {
+      this._symmetryFailure = msg;
+      throw new TileSymmetryError(msg);
+    }
     if (typeof console !== "undefined") console.warn(msg);
   }
 
   // Ask for a tile's data. Returns the compiled drawables if they are ready, or null while a request
-  // is outstanding. Never throws: a failing tile is reported and then skipped.
+  // is outstanding. A failing tile is reported and then skipped, so one bad tile cannot take the map
+  // down. The single exception is the symmetry lint set to "throw", which is a deliberate request for
+  // a hard error about the artwork rather than about this tile; see verifyTileSymmetry.
   request(address, keyString, rel, onReady) {
     const hit = this.cache.get(keyString);
     if (hit) {
@@ -2838,19 +2851,25 @@ class Atlas {
       // case every tile must look the same. See RegularTiling.tileClass.
       classIndex: this.tiling.tileClass ? this.tiling.tileClass(address) : 0,
       classCount: this.tiling.classModulus || 1,
+      // The tile's element of a declared COLOR SYMMETRY: the permutation this tile applies to the
+      // caller's colors, and the same thing as a dense index. Null and 0 when none was declared.
+      // Unlike `classIndex` this survives a non-abelian group and does not have to kill the tile
+      // stabiliser, which is what lets a repeating atlas draw Escher's four-color Circle Limit III
+      // rather than one color per tile. See RegularTiling.colorPermutation.
+      colorPermutation: this.tiling.colorPermutation ? this.tiling.colorPermutation(address) : null,
+      colorIndex: this.tiling.colorIndex ? this.tiling.colorIndex(address) : 0,
+      colorCount: this.tiling.colorCount || 1,
       relativeFrame: rel.clone(),
       centreRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
     };
 
     // A SYNCHRONOUS callback must be served in THIS frame.
     //
-    // Going through a promise even for data that is already in hand costs a frame, and on a {p,q}
-    // tiling that frame is visible: word addresses are not canonical, so when the camera re-anchors the
-    // walk renames many tiles at once, every renamed tile misses the cache, and every one of them
-    // vanishes for exactly one frame. Measured on {7,3} panning one tile spacing in 60 steps: 26 of the
-    // on-screen tiles disappeared together on the single re-anchor frame, plus 1-3 per frame from tiles
-    // entering at the rim. That is the flicker. The binary tiling barely showed it (worst 2) because its
-    // addresses are canonical and nothing gets renamed.
+    // Going through a promise even for data already in hand costs a frame, and a tile that is not drawn
+    // for one frame is a tile that visibly blinks. Tiles enter at the rim continuously while panning,
+    // 1-3 per frame, so this is not a rare event -- it is the difference between a clean edge and a
+    // shimmering one. Asynchronous providers cannot avoid the first frame; synchronous ones should not
+    // pay for it.
     let result;
     try {
       result = this.tileData(tile);
@@ -2862,6 +2881,7 @@ class Atlas {
       try {
         return this.acceptTile(keyString, tile, result);
       } catch (err) {
+        if (err instanceof TileSymmetryError) throw err;
         this.failTile(keyString, tile, err);
         return this.cache.get(keyString) || null;
       }
@@ -2875,6 +2895,10 @@ class Atlas {
       })
       .catch((err) => {
         this.pending.delete(keyString);
+        // An asynchronous provider cannot be handed a synchronous throw, so a fatal lint surfaces here
+        // as an unhandled rejection. That is loud, which is what "throw" asked for, and it is still
+        // better than the alternative of one quietly blank tile.
+        if (err instanceof TileSymmetryError) throw err;
         this.failTile(keyString, tile, err);
       });
     this.pending.set(keyString, p);
@@ -2889,9 +2913,8 @@ class Atlas {
       this.cache.set(keyString, empty);
       return empty;
     }
-    // Check THE RULE once, on the first tile that carries artwork: is this art invariant under the tile
-    // stabiliser? If not, it will jump as the camera scrolls, and nothing else in the library will
-    // complain. Once, not per tile: the answer is a property of the art, and the check is O(shapes^2).
+    // Run the symmetry lint once, on the first tile that carries artwork. Once, not per tile: the
+    // answer is a property of the art, and the check is O(shapes^2).
     this.verifyTileSymmetry(data);
     let entry = this._compiled && typeof data === "object" ? this._compiled.get(data) : null;
     if (!entry) {
@@ -2928,8 +2951,8 @@ class Atlas {
   // Build the render passes for the current view: one per visible tile, each with its own matrix and
   // clip path.
   // The tiles the last render used, each with the composed matrix that placed it. Kept so overlays and
-  // diagnostics can work in the same frames the renderer used, instead of recomputing a global frame
-  // (which is what the outline overlay in the Escher demo used to do, and cannot any more).
+  // diagnostics can work in the same frames the renderer used; a global frame is not available to them
+  // and recomputing one is exactly what this design exists to avoid.
   //
   // Populated by passes(); `net` maps tile-local coordinates straight to screen-disk coordinates.
   lastTiles = [];
@@ -3527,8 +3550,8 @@ class HyperbolicViewport {
   //
   // Panning must not rotate. Building the pure translation alone would silently reset the screen
   // rotation to zero, which is invisible on a page that never rotates and jarring on one that does:
-  // dungeon-man.html opens at rotation pi (its art is drawn upside down in the cell frame), and
-  // "jump to row" used to flip the whole dungeon over. In atlas mode the rotation is expressed in the
+  // dungeon-man.html opens at rotation pi (its art is drawn upside down in the cell frame), so a pan
+  // that reset the angle would flip the whole dungeon over. In atlas mode the rotation is expressed in the
   // anchor tile's frame, so carrying the same angle across to the new anchor is exactly right -- the
   // camera keeps its orientation relative to the tiling, and tile art stays the way up it was.
   panMatrix(x, y) {
@@ -3628,12 +3651,11 @@ class HyperbolicViewport {
 
     // Answer with the tile the RENDERER just used, whenever the point is on one of them.
     //
-    // Not a shortcut -- a correctness requirement for word-addressed tilings. Descending independently
-    // finds the right tile geometrically but can name it with a DIFFERENT WORD than the renderer used,
-    // because {p,q} words are not canonical: for {5,4}, "2.3" and "1.0" are the same tile, their centres
-    // agreeing to 2.8e-17. A caller picking a tile wants the address that matches what is on screen --
-    // to look up their own per-tile data, or to correlate with `atlas.lastTiles` -- so resolving against
-    // the drawn set makes picking and rendering agree by construction.
+    // Resolving against the drawn set rather than descending independently. Both name the same tile --
+    // addresses are canonical, so there is only one name to give -- but this way the answer comes with
+    // the very `local` coordinates and the very frame the renderer used, so a caller correlating a pick
+    // with `atlas.lastTiles` gets an exact match, and a point within rounding of a boundary is resolved
+    // by the exact containment test rather than by the descent's oscillation tolerance.
     for (const t of this.atlas.lastTiles) {
       const q = t.net.inverse().applyToDisk(
         (sx - view.cx) / view.radius,
@@ -3673,19 +3695,792 @@ class HyperbolicViewport {
   }
 }
 
+// ===== src/data/atlas/exactring.js =====
+// Exact arithmetic in Z[mu], mu = 2*cos(pi/N).
+//
+// WHY EXACT. A {p,q} tile's identity is a group element, and comparing group elements through their
+// float matrices is what breaks at hyperbolic distance ~37: the entries grow like cosh(d/2), one ULP
+// of |a|^2 exceeds the spacing between adjacent tile centres, and the walk starts to disagree with
+// itself about which tiles it has already seen (measured; see notes/open-questions.md). Integers do
+// not have a distance ceiling, so identity is decided here and only rendering is left to floats.
+//
+// WHY THIS RING. Every entry of the Coxeter Gram matrix is one of {2, 0, -2cos(pi/p), -2cos(pi/q)},
+// and both cosines live in Z[mu] with N = lcm(p, q). The reflection matrices then have entries in
+// Z[mu] with NO denominators and no square roots, so products stay integral forever. (SU(1,1) would
+// need sinh(psi) = sqrt(cosh^2 - 1), a much bigger ring, and would carry the +-M double cover.)
+//
+// Coefficient bit-length grows linearly in distance, about 1.44 bits per unit, so an id far out is
+// large but never unbounded in the way a float is imprecise.
+
+// Multiplications performed, for the steady-state assertion that a rendered frame does no exact work
+// at all. Exact arithmetic is supposed to happen once per newly discovered tile and never per frame,
+// and that is a claim worth being able to measure rather than believe.
+let ringMulCount = 0;
+
+function exactMulCount() {
+  return ringMulCount;
+}
+
+function resetExactMulCount() {
+  ringMulCount = 0;
+}
+
+// ---- integer polynomial helpers, all over BigInt coefficient arrays, low degree first ----
+
+function polyTrim(a) {
+  let n = a.length;
+  while (n > 1 && a[n - 1] === 0n) n--;
+  return n === a.length ? a : a.slice(0, n);
+}
+
+function polyMul(a, b) {
+  const out = new Array(a.length + b.length - 1).fill(0n);
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === 0n) continue;
+    for (let j = 0; j < b.length; j++) {
+      if (b[j] !== 0n) out[i + j] += a[i] * b[j];
+    }
+  }
+  return polyTrim(out);
+}
+
+// Exact division a / b over Z. Every use here divides exactly (cyclotomic recursion), so a remainder
+// is a bug rather than a case to handle.
+function polyDivExact(a, b) {
+  const q = new Array(Math.max(1, a.length - b.length + 1)).fill(0n);
+  const r = a.slice();
+  const lead = b[b.length - 1];
+  for (let i = r.length - b.length; i >= 0; i--) {
+    const c = r[i + b.length - 1] / lead;
+    if (c * lead !== r[i + b.length - 1]) throw new Error("hyperbolic-map: inexact polynomial division");
+    q[i] = c;
+    for (let j = 0; j < b.length; j++) r[i + j] -= c * b[j];
+  }
+  for (const v of r) {
+    if (v !== 0n) throw new Error("hyperbolic-map: polynomial division left a remainder");
+  }
+  return polyTrim(q);
+}
+
+// Phi_n(z), by Phi_n = (z^n - 1) / prod_{d | n, d < n} Phi_d.
+function cyclotomicCoeffs(n, memo) {
+  const cache = memo || new Map();
+  if (cache.has(n)) return cache.get(n);
+  let num = new Array(n + 1).fill(0n);
+  num[0] = -1n;
+  num[n] = 1n;
+  for (let d = 1; d < n; d++) {
+    if (n % d === 0) num = polyDivExact(num, cyclotomicCoeffs(d, cache));
+  }
+  cache.set(n, num);
+  return num;
+}
+
+// Dickson polynomial D_k, defined by D_k(2*cos t) = 2*cos(k t). D_0 = 2, D_1 = x,
+// D_k = x*D_{k-1} - D_{k-2}. This is how one cosine is expressed in terms of another.
+function dicksonCoeffs(k) {
+  if (k === 0) return [2n];
+  let prev = [2n];
+  let cur = [0n, 1n];
+  for (let i = 2; i <= k; i++) {
+    const next = polyMul([0n, 1n], cur);
+    for (let j = 0; j < prev.length; j++) next[j] -= prev[j];
+    prev = cur;
+    cur = polyTrim(next);
+  }
+  return cur;
+}
+
+// The minimal polynomial of mu = 2*cos(pi/N): monic, degree phi(2N)/2, integer coefficients.
+//
+// Phi_{2N} is palindromic for 2N >= 6 (always, since p, q >= 3), so writing it as
+// sum_j c_j z^j with degree 2m and using z^j + z^-j = D_j(z + 1/z) collapses it to
+// C(x) = c_m + sum_{j=1..m} c_{m+j} D_j(x).
+function minPolyFor2Cos(N) {
+  if (!(Number.isInteger(N) && N >= 3)) {
+    throw new Error(`hyperbolic-map: minPolyFor2Cos needs an integer N >= 3, got ${N}`);
+  }
+  const phi = cyclotomicCoeffs(2 * N);
+  const deg = phi.length - 1;
+  if (deg % 2 !== 0) throw new Error(`hyperbolic-map: Phi_${2 * N} has odd degree ${deg}`);
+  const m = deg / 2;
+  const out = new Array(m + 1).fill(0n);
+  out[0] = phi[m];
+  for (let j = 1; j <= m; j++) {
+    const d = dicksonCoeffs(j);
+    for (let i = 0; i < d.length; i++) out[i] += phi[m + j] * d[i];
+  }
+  const trimmed = polyTrim(out);
+  if (trimmed[trimmed.length - 1] !== 1n) {
+    throw new Error(`hyperbolic-map: minimal polynomial for 2cos(pi/${N}) is not monic`);
+  }
+  return trimmed;
+}
+
+// An element is a plain array of `deg` BigInts, ALWAYS fully reduced. There is no division anywhere
+// in this ring -- the minimal polynomial is monic, so reduction is repeated subtraction of a shifted
+// multiple. Needing a denominator would mean a formula is wrong.
+class ExactRing {
+  constructor(N) {
+    this.N = N;
+    this.poly = minPolyFor2Cos(N);
+    this.deg = this.poly.length - 1;
+    this.muFloat = 2 * Math.cos(Math.PI / N);
+  }
+
+  zero() {
+    return new Array(this.deg).fill(0n);
+  }
+
+  one() {
+    const v = this.zero();
+    v[0] = 1n;
+    return v;
+  }
+
+  fromInt(k) {
+    const v = this.zero();
+    v[0] = BigInt(k);
+    return v;
+  }
+
+  // mu itself. For deg 1 the ring is just Z and mu is the rational root: x + poly[0] = 0.
+  mu() {
+    if (this.deg === 1) return [-this.poly[0]];
+    const v = this.zero();
+    v[1] = 1n;
+    return v;
+  }
+
+  // Reduce a raw convolution (length up to 2*deg-1) modulo the minimal polynomial.
+  reduce(raw) {
+    const c = raw.slice();
+    for (let i = c.length - 1; i >= this.deg; i--) {
+      const f = c[i];
+      if (f === 0n) continue;
+      c[i] = 0n;
+      for (let j = 0; j < this.deg; j++) c[i - this.deg + j] -= f * this.poly[j];
+    }
+    const out = new Array(this.deg);
+    for (let i = 0; i < this.deg; i++) out[i] = c[i] === undefined ? 0n : c[i] + 0n;
+    return out;
+  }
+
+  add(a, b) {
+    const out = new Array(this.deg);
+    for (let i = 0; i < this.deg; i++) out[i] = a[i] + b[i];
+    return out;
+  }
+
+  sub(a, b) {
+    const out = new Array(this.deg);
+    for (let i = 0; i < this.deg; i++) out[i] = a[i] - b[i];
+    return out;
+  }
+
+  neg(a) {
+    const out = new Array(this.deg);
+    for (let i = 0; i < this.deg; i++) out[i] = -a[i];
+    return out;
+  }
+
+  mul(a, b) {
+    ringMulCount++;
+    const raw = new Array(2 * this.deg - 1).fill(0n);
+    for (let i = 0; i < this.deg; i++) {
+      if (a[i] === 0n) continue;
+      for (let j = 0; j < this.deg; j++) {
+        if (b[j] !== 0n) raw[i + j] += a[i] * b[j];
+      }
+    }
+    return this.reduce(raw);
+  }
+
+  isZero(a) {
+    for (let i = 0; i < this.deg; i++) {
+      if (a[i] !== 0n) return false;
+    }
+    return true;
+  }
+
+  equals(a, b) {
+    for (let i = 0; i < this.deg; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  // A TOTAL ORDER on ring elements. This is not a mathematical order (the ring is not ordered in any
+  // way that respects the arithmetic) -- it is an arbitrary but FIXED tie-break, and it is what
+  // decides which member of a tile's coset becomes the canonical one. Changing it silently renames
+  // every id in every user cache, so it is fixed forever: lowest coefficient first.
+  cmp(a, b) {
+    for (let i = 0; i < this.deg; i++) {
+      if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+    }
+    return 0;
+  }
+
+  // D_k(mu) = 2*cos(k*pi/N), as a ring element.
+  dicksonOfMu(k) {
+    if (k === 0) return this.fromInt(2);
+    let prev = this.fromInt(2);
+    let cur = this.mu();
+    for (let i = 2; i <= k; i++) {
+      const next = this.sub(this.mul(this.mu(), cur), prev);
+      prev = cur;
+      cur = next;
+    }
+    return cur;
+  }
+
+  // lambda_n = 2*cos(pi/n), as a ring element.
+  //
+  // TRAP, and the reason this is a method with an assert rather than an inline D_{N/n}(mu): the
+  // Dickson identity needs n to DIVIDE N. The n = 3 shortcut (take N = p when q = 3, halving the
+  // ring degree) breaks that -- with N = 8 and n = 3, N/n truncates to 2 and D_2(mu) is sqrt(2),
+  // not 1. That silently produced a wrong Gram matrix and the Coxeter relations failed for {8,3},
+  // {7,3} and {3,7}. 2*cos(pi/3) = 1 is rational and lives in every ring, so it is returned as the constant.
+  lambdaFor(n) {
+    if (this.N % n === 0) return this.dicksonOfMu(this.N / n);
+    if (n === 3) return this.fromInt(1);
+    throw new Error(
+      `hyperbolic-map: 2cos(pi/${n}) is not expressible in Z[2cos(pi/${this.N})]: ${n} does not divide ${this.N}`,
+    );
+  }
+
+  // Float value, for tests and for the calibration intertwiner ONLY. Never for identity.
+  toNumber(a) {
+    let s = 0;
+    for (let i = this.deg - 1; i >= 0; i--) s = s * this.muFloat + Number(a[i]);
+    return s;
+  }
+
+  // The serialized form of one element. Fixed, unambiguous, and part of the public id.
+  serialize(a) {
+    let s = "";
+    for (let i = 0; i < this.deg; i++) {
+      if (i) s += ",";
+      s += (a[i] === 0n ? 0n : a[i]).toString();
+    }
+    return s;
+  }
+}
+
+// ===== src/data/atlas/exactcoxeter.js =====
+// The Coxeter group [p,q] in its geometric (reflection) representation, exactly, over Z[mu].
+//
+// WHY THIS REPRESENTATION. Tits' theorem (Humphreys, Reflection Groups and Coxeter Groups, 5.3-5.4)
+// says the geometric representation is FAITHFUL: two words give the same matrix if and only if they
+// are the same group element. That turns matrix equality into a DEFINITION of tile identity rather
+// than a heuristic with a tolerance -- which is the whole point, since the float version of the same
+// question breaks down at hyperbolic distance ~37.
+//
+// It also has no double cover. SU(1,1) represents each isometry as +-M and every comparison in the
+// float code has to be "up to sign"; here each isometry is one matrix.
+//
+// GEOMETRY, matching the library's conventions exactly (RegularTiling puts vertices at angles
+// pi/p + 2*pi*k/p, so edge MIDPOINTS land on 2*pi*k/p and edge 0's midpoint is on the +x axis):
+//
+//     mirror a = the x-axis                  (through the centre O and the edge-0 midpoint M)
+//     mirror b = the line at angle pi/p      (through O and vertex V0)
+//     mirror c = the edge-0 geodesic         (through M and V0)
+//
+// with m(a,b) = p, m(b,c) = q, m(a,c) = 2.
+//
+// Composition is matrix product = apply the RIGHTMOST first, which is the same convention as
+// Isom.mul. That is asserted rather than assumed; see the calibration in exactcalib.js.
+
+// The DOUBLED Gram matrix, G = 2B. Doubling is what keeps everything integral: the entries are
+// 2 and -2cos(pi/n), never a half.
+function gramMatrix(R, lambdaP, lambdaQ) {
+  const Z = R.zero();
+  const two = R.fromInt(2);
+  return [
+    [two, R.neg(lambdaP), Z],
+    [R.neg(lambdaP), two, R.neg(lambdaQ)],
+    [Z, R.neg(lambdaQ), two],
+  ];
+}
+
+// S_i = I - e_i . (row i of G), acting on column coordinate vectors.
+function reflectionMatrix(R, G, i) {
+  const rows = [];
+  for (let r = 0; r < 3; r++) {
+    const row = [];
+    for (let c = 0; c < 3; c++) {
+      const delta = r === c ? R.one() : R.zero();
+      row.push(r === i ? R.sub(delta, G[i][c]) : delta);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function exactIdentity(R) {
+  return [
+    [R.one(), R.zero(), R.zero()],
+    [R.zero(), R.one(), R.zero()],
+    [R.zero(), R.zero(), R.one()],
+  ];
+}
+
+function exactMatMul(R, A, B) {
+  const out = [];
+  for (let i = 0; i < 3; i++) {
+    const row = [];
+    for (let j = 0; j < 3; j++) {
+      row.push(R.add(R.add(R.mul(A[i][0], B[0][j]), R.mul(A[i][1], B[1][j])), R.mul(A[i][2], B[2][j])));
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+function exactMatVec(R, A, v) {
+  const out = [];
+  for (let i = 0; i < 3; i++) {
+    out.push(R.add(R.add(R.mul(A[i][0], v[0]), R.mul(A[i][1], v[1])), R.mul(A[i][2], v[2])));
+  }
+  return out;
+}
+
+function exactMatPow(R, A, n) {
+  let out = exactIdentity(R);
+  let base = A;
+  let k = n;
+  while (k > 0) {
+    if (k & 1) out = exactMatMul(R, out, base);
+    base = exactMatMul(R, base, base);
+    k >>= 1;
+  }
+  return out;
+}
+
+function exactMatEquals(R, A, B) {
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      if (!R.equals(A[i][j], B[i][j])) return false;
+    }
+  }
+  return true;
+}
+
+// Determinant and adjugate. Inverses go through the ADJUGATE and never through elimination: these
+// matrices have det = +-1 exactly, so the adjugate is the inverse up to that sign and the whole
+// computation stays denominator-free. Needing to divide would mean something is wrong.
+function exactDet3(R, A) {
+  const t = (i, j, k, l) => R.sub(R.mul(A[i][j], A[k][l]), R.mul(A[i][l], A[k][j]));
+  return R.add(
+    R.sub(R.mul(A[0][0], t(1, 1, 2, 2)), R.mul(A[0][1], t(1, 0, 2, 2))),
+    R.mul(A[0][2], t(1, 0, 2, 1)),
+  );
+}
+
+function exactInverse3(R, A) {
+  const det = exactDet3(R, A);
+  const one = R.one();
+  const negOne = R.neg(one);
+  let sign;
+  if (R.equals(det, one)) sign = 1;
+  else if (R.equals(det, negOne)) sign = -1;
+  else throw new Error("hyperbolic-map: exact inverse needs det = +-1; this matrix is not unimodular");
+  const cof = (i, j) => {
+    const r = [0, 1, 2].filter((x) => x !== i);
+    const c = [0, 1, 2].filter((x) => x !== j);
+    const minor = R.sub(R.mul(A[r[0]][c[0]], A[r[1]][c[1]]), R.mul(A[r[0]][c[1]], A[r[1]][c[0]]));
+    return (i + j) % 2 === 0 ? minor : R.neg(minor);
+  };
+  // adjugate is the TRANSPOSE of the cofactor matrix
+  const out = [];
+  for (let i = 0; i < 3; i++) {
+    const row = [];
+    for (let j = 0; j < 3; j++) row.push(sign === 1 ? cof(j, i) : R.neg(cof(j, i)));
+    out.push(row);
+  }
+  return out;
+}
+
+// The serialized form of a matrix: a `p,q,m` prefix so different tilings can never collide, then the
+// nine entries row-major, each as `deg` decimal BigInt coefficients. Delimiters are unambiguous at
+// every level. Used for tests and diagnostics; the tile id is the shorter vector form below.
+function serializeExactMatrix(R, A, p, q, m) {
+  let s = `${p},${q},${m}|`;
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      if (i || j) s += ";";
+      s += R.serialize(A[i][j]);
+    }
+  }
+  return s;
+}
+
+// THE PUBLIC TILE ID, so its shape is fixed forever. Same prefix, then three entries.
+//
+// The id is the serialized TILE CENTRE v = F.v_O, not the whole frame F. Three ring elements instead
+// of nine is a third of the memory and a third of the work, and nothing is lost: P fixes v_O, so every
+// frame in a tile's coset gives the SAME vector, and distinct tiles have distinct centres. The id is
+// therefore canonical automatically -- it does not depend on the coset tie-break at all, which is why
+// the round-trip tests below check the canonical FRAME separately rather than inferring it from the id.
+function serializeExactVector(R, v, p, q, m) {
+  return `${p},${q},${m}|${R.serialize(v[0])};${R.serialize(v[1])};${R.serialize(v[2])}`;
+}
+
+// Everything exact about one {p,q}: the ring, the mirrors, the special points, and the rotations.
+function buildExactCoxeter(p, q) {
+  // The n = 3 shortcut: 2cos(pi/3) = 1 is rational, so it costs nothing in ANY ring, and taking
+  // N = p when q = 3 halves the ring degree ({8,3}: 4 instead of 8). ExactRing.lambdaFor knows that
+  // 3 does not divide N in that case and returns the constant rather than a truncated Dickson.
+  let N;
+  if (q === 3) N = p;
+  else if (p === 3) N = q;
+  else N = (p * q) / gcdInt(p, q);
+
+  const R = new ExactRing(N);
+  const lambdaP = R.lambdaFor(p);
+  const lambdaQ = R.lambdaFor(q);
+  const G = gramMatrix(R, lambdaP, lambdaQ);
+  const Sa = reflectionMatrix(R, G, 0);
+  const Sb = reflectionMatrix(R, G, 1);
+  const Sc = reflectionMatrix(R, G, 2);
+
+  // The three special points, each the intersection of two mirrors and so fixed by both.
+  const two = R.fromInt(2);
+  const four = R.fromInt(4);
+  const vO = [R.mul(lambdaP, lambdaQ), R.mul(two, lambdaQ), R.sub(four, R.mul(lambdaP, lambdaP))];
+  const vM = [lambdaP, two, lambdaQ];
+  const vV = [R.sub(four, R.mul(lambdaQ, lambdaQ)), R.mul(two, lambdaP), R.mul(lambdaP, lambdaQ)];
+
+  // rho = Sb.Sa is the rotation by +2*pi/p about the tile centre (counter-clockwise in the disk).
+  // Verified in calibration rather than trusted here.
+  const rho = exactMatMul(R, Sb, Sa);
+
+  const out = { p, q, N, R, G, Sa, Sb, Sc, vO, vM, vV, lambdaP, lambdaQ, rho };
+  checkCoxeterRelations(out);
+  return out;
+}
+
+function gcdInt(a, b) {
+  let x = a;
+  let y = b;
+  while (y) {
+    const t = x % y;
+    x = y;
+    y = t;
+  }
+  return x;
+}
+
+// The defining relations, exactly. These run at construction for every tiling, so a ring or Gram
+// mistake cannot reach the renderer: this is the check that caught the truncated-Dickson bug.
+function checkCoxeterRelations(cx) {
+  const { R, G, Sa, Sb, Sc, vO, vM, vV, p, q } = cx;
+  const I = exactIdentity(R);
+  const must = (cond, what) => {
+    if (!cond) throw new Error(`hyperbolic-map: {${p},${q}} exact Coxeter check failed: ${what}`);
+  };
+  must(exactMatEquals(R, exactMatPow(R, Sa, 2), I), "Sa^2 = I");
+  must(exactMatEquals(R, exactMatPow(R, Sb, 2), I), "Sb^2 = I");
+  must(exactMatEquals(R, exactMatPow(R, Sc, 2), I), "Sc^2 = I");
+  must(exactMatEquals(R, exactMatPow(R, exactMatMul(R, Sa, Sb), p), I), `(Sa Sb)^${p} = I`);
+  must(exactMatEquals(R, exactMatPow(R, exactMatMul(R, Sb, Sc), q), I), `(Sb Sc)^${q} = I`);
+  must(exactMatEquals(R, exactMatPow(R, exactMatMul(R, Sa, Sc), 2), I), "(Sa Sc)^2 = I");
+  // Each reflection preserves the form: S^T G S = G.
+  for (const [S, name] of [[Sa, "Sa"], [Sb, "Sb"], [Sc, "Sc"]]) {
+    const St = [0, 1, 2].map((i) => [0, 1, 2].map((j) => S[j][i]));
+    must(exactMatEquals(R, exactMatMul(R, St, exactMatMul(R, G, S)), G), `${name}^T G ${name} = G`);
+  }
+  // The special points are where the mirrors meet.
+  must(exactVecEquals(R, exactMatVec(R, Sa, vO), vO) && exactVecEquals(R, exactMatVec(R, Sb, vO), vO),
+    "vO fixed by Sa and Sb");
+  must(exactVecEquals(R, exactMatVec(R, Sa, vM), vM) && exactVecEquals(R, exactMatVec(R, Sc, vM), vM),
+    "vM fixed by Sa and Sc");
+  must(exactVecEquals(R, exactMatVec(R, Sb, vV), vV) && exactVecEquals(R, exactMatVec(R, Sc, vV), vV),
+    "vV fixed by Sb and Sc");
+  // ...and all three are inside the light cone. The doubled form means timelike is < 0.
+  for (const [v, name] of [[vO, "vO"], [vM, "vM"], [vV, "vV"]]) {
+    must(R.toNumber(exactBilinear(R, G, v, v)) < 0, `${name} is timelike`);
+  }
+}
+
+function exactVecEquals(R, u, v) {
+  return R.equals(u[0], v[0]) && R.equals(u[1], v[1]) && R.equals(u[2], v[2]);
+}
+
+function exactBilinear(R, G, u, v) {
+  let s = R.zero();
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) s = R.add(s, R.mul(R.mul(G[i][j], u[i]), v[j]));
+  }
+  return s;
+}
+
+// ===== src/data/atlas/exactcalib.js =====
+// Calibration: tying the exact Coxeter matrices to the library's float SU(1,1) isometries.
+//
+// Every convention this file could get wrong -- which way rho turns, which exact word is which walk
+// generator, whether P is +2pi/m or -2pi/m, whether matrix product means the same as Isom.mul -- is
+// DISCOVERED here by comparing actions on sample points, not asserted from a comment. The audit
+// already caught one composition-order bug in this codebase (math-audit claim 2); the cure is to make
+// the convention an executed match rather than a belief.
+//
+// Comparing ACTIONS rather than matrix entries also sidesteps the SU(1,1) +-M double cover for free:
+// +M and -M act identically, and the exact representation has no sign ambiguity at all.
+//
+// Nothing in here runs per frame. It runs once per tiling, at construction.
+
+// A float map from the exact hyperboloid model to the Poincare disk, pinned to the library's frame:
+// the tile centre at the origin, the edge-0 midpoint on the +x axis, vertex 0 at angle +pi/p.
+function buildIntertwiner(cx) {
+  const { R, G, vO, vM, vV } = cx;
+  const B = [0, 1, 2].map((i) => [0, 1, 2].map((j) => R.toNumber(G[i][j]) / 2));
+  const bl = (u, v) => {
+    let s = 0;
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) s += B[i][j] * u[i] * v[j];
+    }
+    return s;
+  };
+  const f = (v) => [R.toNumber(v[0]), R.toNumber(v[1]), R.toNumber(v[2])];
+  const o = f(vO);
+  const mm = f(vM);
+  const vv = f(vV);
+
+  // e0 timelike and unit; e1, e2 spacelike, B-orthogonal, signed so that vM has a positive e1
+  // coordinate and vV a positive e2 coordinate. Those two sign choices are what fix the frame.
+  const e0 = o.map((c) => c / Math.sqrt(-bl(o, o)));
+  let t = [0, 1, 2].map((i) => mm[i] + bl(mm, e0) * e0[i]);
+  let e1 = t.map((c) => c / Math.sqrt(bl(t, t)));
+  if (bl(mm, e1) < 0) e1 = e1.map((c) => -c);
+  let u = [0, 1, 2].map((i) => vv[i] + bl(vv, e0) * e0[i] - bl(vv, e1) * e1[i]);
+  let e2 = u.map((c) => c / Math.sqrt(bl(u, u)));
+  if (bl(vv, e2) < 0) e2 = e2.map((c) => -c);
+
+  // exact (or float) hyperboloid vector -> disk
+  const toDisk = (vec) => {
+    const w = typeof vec[0] === "number" ? vec : f(vec);
+    const s = Math.sqrt(-bl(w, w));
+    const T = -bl(w, e0) / s;
+    return [bl(w, e1) / s / (1 + T), bl(w, e2) / s / (1 + T)];
+  };
+  // disk point -> hyperboloid vector, so an exact matrix can be applied to an arbitrary point.
+  // B(e0,e0) = -1, so T = -B(v,e0) means the e0 COMPONENT is +T, not -T; with that sign
+  // B(v,v) = -T^2 + X^2 + Y^2 = -1 identically. (Getting it backwards puts the point on the wrong
+  // sheet and every generator match fails.)
+  const fromDisk = (zx, zy) => {
+    const k = 1 / (1 - zx * zx - zy * zy);
+    const T = (1 + zx * zx + zy * zy) * k;
+    const X = 2 * zx * k;
+    const Y = 2 * zy * k;
+    return [0, 1, 2].map((i) => T * e0[i] + X * e1[i] + Y * e2[i]);
+  };
+  // The action of an exact matrix on a disk point, as a float Mobius map.
+  const actOnDisk = (M, zx, zy) => {
+    const v = fromDisk(zx, zy);
+    const img = [0, 1, 2].map((i) =>
+      R.toNumber(M[i][0]) * v[0] + R.toNumber(M[i][1]) * v[1] + R.toNumber(M[i][2]) * v[2]);
+    return toDisk(img);
+  };
+  return { R, toDisk, fromDisk, actOnDisk, bl, e0, e1, e2 };
+}
+
+// Sample points chosen to be generic: the origin (which pins the translation part) plus two
+// off-axis points (which pin the rotation part and would not detect a reflection on their own).
+const PROBES = [[0, 0], [0.3, 0], [0.2, 0.1], [-0.15, 0.22]];
+
+function actionsAgree(actA, actB, tol) {
+  for (const [zx, zy] of PROBES) {
+    const a = actA(zx, zy);
+    const b = actB(zx, zy);
+    if (!(Math.hypot(a[0] - b[0], a[1] - b[1]) < tol)) return false;
+  }
+  return true;
+}
+
+// Match each float generator to an exact word, by ACTION. Returns the exact matrices in the same
+// index order as `tiling.generators`, so the two representations stay interchangeable.
+//
+// Throws if any generator is unmatched or if two generators match the same word: a silent
+// mis-assignment here would corrupt every id downstream, and there is no later check that would
+// notice.
+function matchGenerators(cx, generators, p, m, tol) {
+  const eps = tol || 1e-9;
+  const { R, rho, Sa, Sb, Sc } = cx;
+  const inter = buildIntertwiner(cx);
+  const rhoInv = exactMatPow(R, rho, p - 1);
+
+  // Candidate exact words, built the same two ways RegularTiling builds its float generators.
+  const candidates = [];
+  if (m === p) {
+    const ht = exactMatMul(R, Sa, Sc); // half-turn about the edge-0 midpoint
+    for (let k = 0; k < p; k++) {
+      candidates.push(exactMatMul(R, exactMatMul(R, exactMatPow(R, rho, k), ht), exactMatPow(R, rhoInv, k)));
+    }
+  } else {
+    const vr = exactMatMul(R, Sb, Sc); // rotation about vertex 0
+    const vrInv = exactMatMul(R, Sc, Sb);
+    for (let k = 0; k < p; k += p / m) {
+      for (const w of [vr, vrInv]) {
+        candidates.push(exactMatMul(R, exactMatMul(R, exactMatPow(R, rho, k), w), exactMatPow(R, rhoInv, k)));
+      }
+    }
+  }
+
+  const out = new Array(generators.length).fill(null);
+  const used = new Array(candidates.length).fill(-1);
+  for (let i = 0; i < generators.length; i++) {
+    const g = generators[i];
+    const floatAct = (zx, zy) => g.applyToDisk(zx, zy, [0, 0]);
+    let found = -1;
+    for (let c = 0; c < candidates.length; c++) {
+      if (actionsAgree(floatAct, (zx, zy) => inter.actOnDisk(candidates[c], zx, zy), eps)) {
+        if (found >= 0) {
+          throw new Error(`hyperbolic-map: generator ${i} matches two exact words (${found} and ${c})`);
+        }
+        found = c;
+      }
+    }
+    if (found < 0) throw new Error(`hyperbolic-map: generator ${i} matches no exact word`);
+    if (used[found] >= 0) {
+      throw new Error(`hyperbolic-map: generators ${used[found]} and ${i} match the same exact word`);
+    }
+    used[found] = i;
+    out[i] = candidates[found];
+  }
+  return { exactGenerators: out, intertwiner: inter };
+}
+
+// Which sign of rotation the exact P corresponds to. P is rho^(p/m), a rotation by 2*pi/m about the
+// tile centre; whether that reads as Isom.rotation(+2pi/m) or (-2pi/m) depends on conventions this
+// file refuses to guess. Returns +1 or -1.
+function calibrateSpin(cx, inter, P, m, Isom, tol) {
+  const eps = tol || 1e-9;
+  const pAct = (zx, zy) => inter.actOnDisk(P, zx, zy);
+  for (const sign of [1, -1]) {
+    const rot = Isom.rotation((sign * 2 * Math.PI) / m);
+    if (actionsAgree(pAct, (zx, zy) => rot.applyToDisk(zx, zy, [0, 0]), eps)) return sign;
+  }
+  throw new Error(`hyperbolic-map: exact P does not act as a rotation by +-2pi/${m}`);
+}
+
+// Pin the composition order: exact matrix product must mean the same as Isom.mul (apply the right
+// factor first). Uses a deliberately NON-COMMUTING pair, or the test would pass either way.
+function checkMultiplyOrder(cx, inter, exactA, exactB, isomA, isomB, tol) {
+  const eps = tol || 1e-9;
+  const { R } = cx;
+  const prod = exactMatMul(R, exactA, exactB);
+  const swapped = exactMatMul(R, exactB, exactA);
+  const viaIsom = isomA.mul(isomB);
+  const agrees = actionsAgree(
+    (zx, zy) => inter.actOnDisk(prod, zx, zy),
+    (zx, zy) => viaIsom.applyToDisk(zx, zy, [0, 0]),
+    eps,
+  );
+  const commutes = actionsAgree(
+    (zx, zy) => inter.actOnDisk(prod, zx, zy),
+    (zx, zy) => inter.actOnDisk(swapped, zx, zy),
+    eps,
+  );
+  if (commutes) throw new Error("hyperbolic-map: MUL_ORDER probe used a commuting pair, so it proves nothing");
+  if (!agrees) throw new Error("hyperbolic-map: exact matrix product disagrees with Isom.mul ordering");
+  return true;
+}
+
+// The float isometry corresponding to an exact matrix, built from the library's own primitives.
+//
+// The exact matrix lives in the hyperboloid basis and the library in SU(1,1), so this goes through the
+// ORTHOGONAL FRAME rather than through matrix entries. Write L for the matrix of the isometry in the
+// frame (e0, e1, e2) and decompose it as translation-then-rotation,
+//
+//     L = Rot(alpha) . Boost_x(d) . Rot(psi),      theta = alpha + psi
+//
+// Column 0 is (cosh d, sinh d cos alpha, sinh d sin alpha), which gives d and alpha; row 0 is
+// (cosh d, sinh d cos psi, -sinh d sin psi), which gives psi. Both come straight out of atan2 and
+// hypot on entries of L, with nothing large ever subtracted from anything large.
+//
+// Reading L is what makes this accurate. The same decomposition can be had by sending a probe point
+// through the map and transporting it back through the translation to read the angle, and that route
+// is unusable: the probe lands within 1e-9 of the boundary and coming back cancels cosh(d)-sized
+// quantities, costing eight digits by d = 7 -- enough to make the re-anchoring identity look broken
+// when only its measuring instrument was.
+//
+// Row 0 degenerates when the translation part is small (it is all sinh d), so near d = 0 psi comes
+// instead from row 2 of Rot(-alpha).L, which is (0, sin psi, cos psi) for ANY alpha when d = 0 -- so
+// the meaningless alpha that atan2 returns there cancels out of theta = alpha + psi.
+function exactToIsom(inter, M, Isom, movePointToPoint) {
+  const { R, bl, e0, e1, e2 } = inter;
+  const column = (e) => {
+    const v = [0, 1, 2].map((i) =>
+      R.toNumber(M[i][0]) * e[0] + R.toNumber(M[i][1]) * e[1] + R.toNumber(M[i][2]) * e[2]);
+    // frame components: e0 is timelike (B(e0,e0) = -1), so its coefficient carries a minus sign
+    return [-bl(v, e0), bl(v, e1), bl(v, e2)];
+  };
+  const L = [column(e0), column(e1), column(e2)]; // L[j] is COLUMN j
+  // An orientation-reversing element has no SU(1,1) representative at all. The walk never builds one
+  // -- every generator is a product of two reflections -- so this is a guard, not a case to handle.
+  //
+  // Taken EXACTLY, and that is not fussiness. The float determinant of an isometry is a difference of
+  // products of entries of size cosh(d), so by d = 23 it is 1 computed as a difference of numbers near
+  // 1e30: pure noise, with a sign that flips at random. A float version of this guard rejects perfectly
+  // good frames.
+  const det = exactDet3(R, M);
+  if (!R.equals(det, R.one())) {
+    throw new Error("hyperbolic-map: exactToIsom needs an orientation-preserving element; this one reflects");
+  }
+  const alpha = Math.atan2(L[0][2], L[0][1]);
+  let psi;
+  if (Math.hypot(L[1][0], L[2][0]) > 1) {
+    psi = Math.atan2(-L[2][0], L[1][0]);
+  } else {
+    const sa = Math.sin(alpha);
+    const ca = Math.cos(alpha);
+    psi = Math.atan2(-sa * L[1][1] + ca * L[1][2], -sa * L[2][1] + ca * L[2][2]);
+  }
+  // tanh(d/2) = sinh d / (1 + cosh d), which is the disk radius of the image of the origin.
+  const rad = Math.hypot(L[0][1], L[0][2]) / (1 + L[0][0]);
+  const beta = [rad * Math.cos(alpha), rad * Math.sin(alpha)];
+  const out = movePointToPoint(0, 0, beta[0], beta[1]).mul(Isom.rotation(alpha + psi)).normalize();
+  // HONEST LIMIT, and a loud one. The exact matrix is good at any distance, but a float SU(1,1)
+  // isometry is not: past |beta| ~ 1 - 1e-16 the disk coordinate saturates, the hyperboloid norm
+  // sqrt(-B(w,w)) cancels catastrophically, and this returns NaN. Measured on {12,3}: twelve random
+  // walk steps reach |beta| = 0.9999998 and the next one is NaN.
+  //
+  // Nothing on the render path calls this -- the walk composes floats incrementally with periodic
+  // renormalisation, which is exactly why it does not have this problem. But a caller converting a
+  // faraway tile's frame in one go deserves an error rather than a silently poisoned matrix.
+  if (!Number.isFinite(out.ar) || !Number.isFinite(out.ai) ||
+      !Number.isFinite(out.br) || !Number.isFinite(out.bi)) {
+    throw new Error(
+      "hyperbolic-map: exactToIsom is out of float range -- this tile is too far away to express as " +
+        "a single SU(1,1) matrix relative to the origin. Use the anchored walk instead.",
+    );
+  }
+  return out;
+}
+
 // ===== src/data/atlas/tiling.js =====
-// Tilings of the hyperbolic plane, addressed LOCALLY.
+// Tilings of the hyperbolic plane: GLOBAL names, LOCAL geometry.
 //
-// The contract here is deliberately global-free, and that is the whole point of the rewrite. A tiling
-// supplies, for each tile: an integer or word ADDRESS, the list of its neighbours' addresses with the
-// index of the generator that reaches each, and a table of CONSTANT generator matrices. It never
-// supplies a tile's frame relative to the world origin, because that frame has entries of order
-// cosh(d/2) -- 1.08e75 for binary cell (500, 0) -- and multiplying it by an equally large view matrix
-// to get an O(1) screen position destroys every digit.
+// A tiling supplies, for each tile: a canonical ADDRESS, the list of its neighbours' addresses with
+// the index of the generator that reaches each, and a table of CONSTANT generator matrices. Those two
+// halves answer different questions and are built out of different arithmetic, which is the central
+// design decision here:
 //
-// Instead the renderer starts at the camera's own tile with the identity and multiplies by one
-// constant generator per step of the walk (see anchor.js). Every matrix on the path from a tile's own
-// JSON coordinates to the screen is then O(1), whatever the camera's absolute position.
+//   IDENTITY is exact and global. A tile's address names the tile itself, the same name by every
+//   route and at every distance, so tile art may depend on it. It is an integer object -- the tile's
+//   centre in the Coxeter reflection representation of [p,q], over Z[2cos(pi/N)] with BigInt
+//   coefficients -- because a name has to be decided by equality, and float equality of far-apart
+//   frames is not a usable notion of "the same tile".
+//
+//   GEOMETRY is float and relative. A tiling never supplies a tile's frame relative to the world
+//   origin, because that frame has entries of order cosh(d/2) -- 1.08e75 for binary cell (500, 0) --
+//   and multiplying it by an equally large view matrix to get an O(1) screen position destroys every
+//   digit. The renderer starts at the camera's own tile with the identity and multiplies by one
+//   constant generator per step of the walk (see anchor.js), so every matrix on the path from a tile's
+//   own JSON coordinates to the screen is O(1) whatever the camera's absolute position.
+//
+// The two meet in `stepFrame`: the float step that accompanies an edge is the one that lands in the
+// neighbour's canonical frame.
 //
 // Proved in dev/audit_atlas_math.py (31/31), recorded in notes/math-audit.md. Load-bearing results:
 //
@@ -3700,6 +4495,13 @@ class HyperbolicViewport {
 //
 // All metric relations were verified BY CONSTRUCTION -- build the polygon and measure -- rather than
 // formula against formula, which is how an inverted inradius slipped through once. See notes/tilings.md.
+
+// How much of the discovered tile graph a RegularTiling keeps. See `storeNode` for why there is a
+// budget at all. The floor is comfortably larger than any one frame's working set (a 200-tile
+// neighbourhood with its fringe), so ordinary panning never evicts anything it is about to want; the
+// character budget is what bounds memory once ids grow long far from the origin.
+const NODE_FLOOR = 4096;
+const ID_CHAR_BUDGET = 4e6;
 
 // Boundary edge kinds. Geodesics are circles orthogonal to the unit circle; horocycles are circles
 // internally TANGENT to it. The binary tiling needs both.
@@ -3756,11 +4558,11 @@ function sameIsometry(a, b, tol = 1e-12) {
 // the camera re-anchors. So the candidate is checked by walking the tile graph and requiring every pair
 // of routes to one tile to agree, and it degrades to a single class if it does not.
 //
-// Cached per {p,q,m}: the walk is a few hundred tiles, which is microseconds, but tilings get built
-// repeatedly by tests and demo pages.
+// Cached per {p,q,m}, and the cache earns its keep: the walk is a few hundred tiles of exact integer
+// arithmetic, 41 ms for {8,3} m=4, and tilings get built repeatedly by tests and demo pages.
 const TILE_CLASS_CACHE = new Map();
 
-function regularTileClass(p, q, m, generators, inverseIndex) {
+function regularTileClass(p, q, m, generators, inverseIndex, exact, exactGenerators) {
   const cacheKey = `${p},${q},${m}`;
   const hit = TILE_CLASS_CACHE.get(cacheKey);
   if (hit) return hit;
@@ -3772,29 +4574,27 @@ function regularTileClass(p, q, m, generators, inverseIndex) {
 
   let modulus = 1;
   if (candidate > 1) {
+    const R = exact.R;
     const norm = step.map((s) => ((s % candidate) + candidate) % candidate);
-    const seen = [];
-    const queue = [{ mat: Isom.identity(), c: 0 }];
+    // Tiles are recognised by their exact id -- the serialized centre M.v_O -- so "two routes reached
+    // one tile" is decided by integer equality and not by how close two centres came. The centre is
+    // fixed by the stabiliser, so the RAW product serves as the id directly and none of this has to
+    // canonicalise anything: one matmul and one mat-vec per edge.
+    const seen = new Map();
+    const queue = [{ M: exactIdentity(R), c: 0 }];
     let consistent = true;
     let collisions = 0;
-    while (queue.length && seen.length < 300 && consistent) {
+    while (queue.length && seen.size < 300 && consistent) {
       const node = queue.shift();
-      const z = node.mat.applyToDisk(0, 0, [0, 0]);
-      let hitTile = null;
-      for (const s of seen) {
-        if (Math.hypot(s.x - z[0], s.y - z[1]) < 1e-7) {
-          hitTile = s;
-          break;
-        }
-      }
-      if (hitTile) {
+      const id = serializeExactVector(R, exactMatVec(R, node.M, exact.vO), p, q, m);
+      if (seen.has(id)) {
         collisions++;
-        if (hitTile.c !== node.c) consistent = false;
+        if (seen.get(id) !== node.c) consistent = false;
         continue;
       }
-      seen.push({ x: z[0], y: z[1], c: node.c });
+      seen.set(id, node.c);
       for (let i = 0; i < generators.length; i++) {
-        queue.push({ mat: node.mat.mul(generators[i]), c: (node.c + norm[i]) % candidate });
+        queue.push({ M: exactMatMul(R, node.M, exactGenerators[i]), c: (node.c + norm[i]) % candidate });
       }
     }
     // Require real evidence: a walk that never revisited a tile has proved nothing.
@@ -3809,8 +4609,216 @@ function regularTileClass(p, q, m, generators, inverseIndex) {
   return out;
 }
 
-// The shared root of every word address. `str` is pre-filled so the memoisation has a base case.
-const REGULAR_ROOT = { gen: -1, prev: null, len: 0, str: "root", h1: 2166136261, h2: 987654321, cls: 0 };
+// ---- color symmetry: a homomorphism from the walk group into a permutation group -------------
+//
+// A tile CLASS (above) is the special case of this that the library can discover on its own: a
+// homomorphism onto Z/n that kills the stabiliser, so it descends to tiles and is one integer per
+// tile. A color symmetry is the general case, and it is the caller's to declare, because nothing
+// about {p,q} chooses it -- it is a property of the picture.
+//
+// The motivating case is Escher's Circle Limit III. Its four fish colors are not a property of the
+// tile: every motion of the tiling permutes them, so the color of a fish is
+//
+//     palette[ phi(F)[ that fish's base color ] ]
+//
+// with F the tile's canonical frame and phi a homomorphism into A_4. Repeating one tile's art
+// everywhere cannot express that, and a tile class cannot either -- {8,3} m=4 admits only Z/3, while
+// the group needed has 12 elements and is not abelian.
+//
+// THE PART A TILE CLASS DOES NOT NEED. phi does NOT kill the stabiliser: phi(P) is the swap of the two
+// colors an octagon shows. That is not a problem, it is the point -- and it is why this could not have
+// worked before tile frames became canonical. Choosing the other coset representative F.P rotates the
+// art by 2*pi/m AND sends phi(F) to phi(F).phi(P), and the two cancel exactly, so the picture drawn is
+// the same either way. The one thing that must hold is that the SAME F decides both, which it does:
+// the art is placed by the walk in F's frame and the color is read off F's label.
+//
+// Concretely the accumulation carries the canonical fold's P^k, which the cyclic case can drop:
+//
+//     F_child = F_parent . Gx[g] . P^k    =>    phi_child = phi_parent . phi(G_g) . phi(P)^k
+//
+// Elements are interned as dense indices with a Cayley table, so a walk step is two array lookups and
+// allocates nothing -- the same cost as the tile class's integer addition.
+const COLOR_GROUP_CAP = 4096;
+
+function permIsValid(p, n) {
+  if (!Array.isArray(p) || p.length !== n) return false;
+  const seen = new Array(n).fill(false);
+  for (const v of p) {
+    if (!Number.isInteger(v) || v < 0 || v >= n || seen[v]) return false;
+    seen[v] = true;
+  }
+  return true;
+}
+
+// a after b: (a o b)[c] = a[b[c]]. Matches the group's own order, since phi(XY) = phi(X) o phi(Y).
+function permCompose(a, b) {
+  const out = new Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = a[b[i]];
+  return out;
+}
+
+function permInverse(a) {
+  const out = new Array(a.length);
+  for (let i = 0; i < a.length; i++) out[a[i]] = i;
+  return out;
+}
+
+function permEquals(a, b) {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+// Validate a declared color symmetry and compile it to integer tables.
+//
+// The cheap algebraic conditions are checked first and separately, each with its own message, because
+// "your permutations are not a homomorphism" is not something a caller can act on. They are necessary
+// but NOT sufficient -- a set can satisfy all of them and still fail on a longer relator -- so the walk
+// afterwards is the actual proof, exactly as for the tile class.
+//
+// Unlike the tile class this THROWS instead of degrading. A class is something the library discovers,
+// so falling back to one class is honest; a color symmetry is something the caller asserted, and
+// quietly ignoring it would paint the picture wrong in a way that looks deliberate.
+const COLOR_SYMMETRY_CACHE = new Map();
+
+function regularColorSymmetry(spec, p, q, m, generators, inverseIndex, piTransport, extendFor) {
+  const n = spec.colors;
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`hyperbolic-map: colorSymmetry.colors must be a positive integer, got ${spec.colors}`);
+  }
+  const gens = spec.generators;
+  if (!Array.isArray(gens) || gens.length !== generators.length) {
+    throw new Error(
+      `hyperbolic-map: colorSymmetry.generators must have one permutation per walk generator ` +
+        `(${generators.length} for {${p},${q}} m=${m}), got ${Array.isArray(gens) ? gens.length : typeof gens}`,
+    );
+  }
+  for (let g = 0; g < gens.length; g++) {
+    if (!permIsValid(gens[g], n)) {
+      throw new Error(
+        `hyperbolic-map: colorSymmetry.generators[${g}] is not a permutation of ${n} colors: ` +
+          JSON.stringify(gens[g]),
+      );
+    }
+  }
+  const stab = spec.stabiliser || spec.stabilizer;
+  if (!permIsValid(stab, n)) {
+    throw new Error(
+      `hyperbolic-map: colorSymmetry.stabiliser is not a permutation of ${n} colors: ${JSON.stringify(stab)}`,
+    );
+  }
+
+  const cacheKey = `${p},${q},${m}|${n}|${gens.map((x) => x.join("")).join(",")}|${stab.join("")}`;
+  const hit = COLOR_SYMMETRY_CACHE.get(cacheKey);
+  if (hit) return hit;
+
+  const identity = [];
+  for (let i = 0; i < n; i++) identity.push(i);
+
+  // phi(P)^m = 1, because P^m is the identity of the group.
+  const stabPowPerm = [identity];
+  for (let k = 1; k < m; k++) stabPowPerm.push(permCompose(stabPowPerm[k - 1], stab));
+  if (!permEquals(permCompose(stabPowPerm[m - 1], stab), identity)) {
+    throw new Error(
+      `hyperbolic-map: colorSymmetry.stabiliser must have order dividing ${m} -- it is the image of the ` +
+        `2*pi/${m} rotation about a tile centre, and P^${m} is the identity. Got ${JSON.stringify(stab)}.`,
+    );
+  }
+  // phi respects the inverse pairing of the generators.
+  for (let g = 0; g < gens.length; g++) {
+    if (!permEquals(gens[inverseIndex[g]], permInverse(gens[g]))) {
+      throw new Error(
+        `hyperbolic-map: colorSymmetry.generators[${inverseIndex[g]}] must be the inverse of ` +
+          `generators[${g}], since generator ${inverseIndex[g]} is the inverse walk step. Expected ` +
+          `${JSON.stringify(permInverse(gens[g]))}, got ${JSON.stringify(gens[inverseIndex[g]])}.`,
+      );
+    }
+  }
+  // Conjugating a generator by P permutes the generator set (see piTransport), so phi must agree.
+  for (let j = 1; j < m; j++) {
+    const inv = permInverse(stabPowPerm[j]);
+    for (let g = 0; g < gens.length; g++) {
+      const want = permCompose(permCompose(stabPowPerm[j], gens[g]), inv);
+      const h = piTransport[j][g];
+      if (!permEquals(gens[h], want)) {
+        throw new Error(
+          `hyperbolic-map: colorSymmetry is inconsistent with the tiling: P^${j}.G_${g}.P^-${j} is ` +
+            `G_${h}, so generators[${h}] must be ${JSON.stringify(want)}, but it is ` +
+            `${JSON.stringify(gens[h])}.`,
+        );
+      }
+    }
+  }
+
+  // Enumerate the generated group and build its Cayley table. The BFS closes under every generator
+  // image and the stabiliser image, which is exactly the set of labels any walk can produce.
+  const index = new Map([[identity.join(","), 0]]);
+  const elements = [identity];
+  const seeds = gens.concat([stab]);
+  for (let i = 0; i < elements.length; i++) {
+    for (const s of seeds) {
+      const prod = permCompose(elements[i], s);
+      const key = prod.join(",");
+      if (!index.has(key)) {
+        if (elements.length >= COLOR_GROUP_CAP) {
+          throw new Error(
+            `hyperbolic-map: colorSymmetry generates a group of more than ${COLOR_GROUP_CAP} elements. ` +
+              "That is almost always a typo in one permutation: a color symmetry's group is small (12 " +
+              "for Circle Limit III's A_4).",
+          );
+        }
+        index.set(key, elements.length);
+        elements.push(prod);
+      }
+    }
+  }
+  const size = elements.length;
+  const table = [];
+  for (let i = 0; i < size; i++) {
+    const row = new Int32Array(size);
+    for (let j = 0; j < size; j++) row[j] = index.get(permCompose(elements[i], elements[j]).join(","));
+    table.push(row);
+  }
+  const genIndex = gens.map((g) => index.get(g.join(",")));
+  const stabPow = stabPowPerm.map((s) => index.get(s.join(",")));
+
+  // THE PROOF. Everything above is necessary; only this is sufficient. Walk the real tile graph,
+  // accumulate labels the way the walk will, and require every pair of routes to one tile to agree.
+  const seen = new Map();
+  const queue = [{ node: extendFor.origin, col: 0 }];
+  let collisions = 0;
+  while (queue.length && seen.size < 400) {
+    const cur = queue.shift();
+    const prev = seen.get(cur.node.id);
+    if (prev !== undefined) {
+      collisions++;
+      if (prev !== cur.col) {
+        throw new Error(
+          `hyperbolic-map: colorSymmetry is not a homomorphism -- two routes to one tile of ` +
+            `{${p},${q}} m=${m} give different colors (${JSON.stringify(elements[prev])} and ` +
+            `${JSON.stringify(elements[cur.col])}). Every relator of the walk group must be respected, ` +
+            "not only the generator relations that were checked above.",
+        );
+      }
+      continue;
+    }
+    seen.set(cur.node.id, cur.col);
+    for (let g = 0; g < generators.length; g++) {
+      const edge = extendFor.edge(cur.node, g);
+      queue.push({ node: edge.node, col: table[table[cur.col][genIndex[g]]][stabPow[edge.k]] });
+    }
+  }
+  // A walk that never revisited a tile has proved nothing; the same guard the tile class uses.
+  if (collisions <= 10) {
+    throw new Error(
+      `hyperbolic-map: could not verify colorSymmetry -- the walk over {${p},${q}} m=${m} closed on ` +
+        `itself only ${collisions} times, which is not evidence.`,
+    );
+  }
+
+  const out = { colors: n, size, elements, table, genIndex, stabPow };
+  COLOR_SYMMETRY_CACHE.set(cacheKey, out);
+  return out;
+}
 
 class RegularTiling {
   // `frameSymmetry` (m, a divisor of p) is the rotational symmetry the tile art is promised to have.
@@ -3818,13 +4826,32 @@ class RegularTiling {
   // in every tile" produce a consistent pattern. See notes/tilings.md and
   // notes/escher-circle-limit-iii.md -- for Circle Limit III this must be 4, not 8, and using the
   // default half-turn generators there would silently shred the pattern.
-  constructor({ p, q, frameSymmetry = null } = {}) {
+  constructor({ p, q, frameSymmetry = null, colorSymmetry = null } = {}) {
     this.metrics = regularMetrics(p, q);
     this.p = p;
     this.q = q;
     this.m = frameSymmetry || p;
-    if (p % this.m !== 0) {
-      throw new Error(`hyperbolic-map: frameSymmetry ${this.m} must divide p = ${p}`);
+    // Only m = p and m = p/2 are usable, and dividing p is NOT enough.
+    //
+    // m = p takes its steps with half-turns about edge midpoints: p generators, one per edge, so every
+    // neighbour is one step away. m < p takes them with rotations about VERTICES, two generators per
+    // vertex (the two senses), at the m vertices whose index is a multiple of p/m -- so 2m generators
+    // reaching 2m of the p edges. Covering the plane needs 2m >= p, and since m divides p and m < p
+    // forces m <= p/2, the only m < p that works is exactly p/2.
+    //
+    // Anything smaller silently produces a tiling that cannot reach most of its own neighbours. It does
+    // not throw and it does not look obviously wrong at a glance: measured on {8,3} with m = 2, the
+    // walk reaches edges 0, 1, 4 and 5 only, a 0.75-radius view returns 5 tiles where it should return
+    // 17, and the rest of the disk renders as background. `containsLocal` agrees with it -- the Voronoi
+    // test is built from the generator set, so it sees 4 half-planes instead of 8 and hands the gaps to
+    // whichever tile is nearest -- which means picking claims ground that nothing draws.
+    if (!(this.m === p || 2 * this.m === p)) {
+      throw new Error(
+        `hyperbolic-map: frameSymmetry ${this.m} cannot tile {${p},${q}}: only ${p}` +
+          (p % 2 === 0 ? ` and ${p / 2}` : "") +
+          ` work. m = p steps by edge half-turns and m = p/2 by vertex rotations; a smaller m reaches ` +
+          `only ${2 * this.m} of the ${p} neighbours and leaves the rest of the plane unreachable.`,
+      );
     }
 
     const psi = this.metrics.inradius;
@@ -3844,7 +4871,7 @@ class RegularTiling {
       // (2,p,q) triangle group -- including for ODD p. (Only pure TRANSLATIONS between adjacent
       // tiles need even p; do not confuse the two.) Each is an involution AS AN ISOMETRY: the matrix
       // squares to -I, so g^-1 = -g, and the edge back to the parent carries the same index in the
-      // child. That makes words walk-reversible for free.
+      // child (before the canonical frame correction; see reverseGenerator).
       const g0 = new Isom(0, Math.cosh(psi), 0, -Math.sinh(psi));
       this.generators = [];
       for (let k = 0; k < p; k++) {
@@ -3886,8 +4913,8 @@ class RegularTiling {
 
     // Which generator undoes each generator. The set is closed under inverse UP TO SIGN in both
     // cases: for m = p every generator is its own inverse; for m < p the +/- senses about each vertex
-    // pair up. Verified in the constructor rather than assumed, because a wrong entry here would make
-    // words fail to reduce and the walk would revisit its own parent forever.
+    // pair up. Verified in the constructor rather than assumed, because a wrong entry here would send
+    // `reverseGenerator` to the wrong neighbour and a walk could never retrace its own steps.
     this.inverseIndex = this.generators.map((g, i) => {
       const gi = g.inverse();
       for (let j = 0; j < this.generators.length; j++) {
@@ -3911,93 +4938,316 @@ class RegularTiling {
       return [zx * k, zy * k];
     });
 
-    // Addresses are words, so two different words can name the same tile: the walk must deduplicate
-    // geometrically. (Contrast BinaryTiling, whose integer addresses are canonical.)
-    this.addressesAreCanonical = false;
+    // ---- EXACT IDENTITY AND ORIENTATION ----
+    //
+    // A tile-with-frame is an element of the walk group, and two routes to one tile differ by an
+    // element of the stabiliser C_m. So a TILE is a coset F.C_m, and its canonical representative --
+    // the lexicographically least matrix in that coset -- is simultaneously its unique id and its
+    // canonical orientation. One object solves identity and orientation together.
+    //
+    // Computed in the Coxeter reflection representation over Z[mu] with BigInt entries. Integers are
+    // what make this work at any distance: a float frame at hyperbolic distance ~37 has entries whose
+    // one-ulp spacing exceeds the gap between adjacent tile centres, so no float test can decide
+    // whether two frames name one tile out there. Integers have no such ceiling.
+    //
+    // WHAT IT COSTS, measured on the Escher atlas ({8,3} m=4, 200 tiles, 560 px):
+    //
+    //   * naming happens once per tile ever, not per frame. Across a 200-frame pan, 197 frames do ZERO
+    //     ring multiplies and the median frame is 16.4 ms. `exactMulCount()` is exported so that claim
+    //     can be measured rather than believed.
+    //   * a frame that reaches tiles never seen before pays for all of them at once: ~1,800 edges
+    //     around a 200-tile view at ~117 ring multiplies each. The first frame of all costs 250 ms, and
+    //     the frame where a pan first crosses into unexplored ground costs ~130 ms. Panning back over
+    //     ground already walked costs nothing.
+    //
+    // The 117 divides as 27 for F_parent . G_g, 9 for the id vector, and 27(m-1) to canonicalise -- so
+    // canonicalisation dominates and grows with m. Lex-min over the m images of v_M instead of over
+    // matrices would make that 9m + 27, worth doing if {12,3} ever matters; it renames every tile, so
+    // it is not worth doing casually.
+    this.exact = buildExactCoxeter(p, q);
+    const matched = matchGenerators(this.exact, this.generators, p, this.m);
+    this.exactGenerators = matched.exactGenerators;
+    this.intertwiner = matched.intertwiner;
+    this.exactP = exactMatPow(this.exact.R, this.exact.rho, p / this.m);
+    // Whether the exact P reads as a +2pi/m or -2pi/m rotation is discovered, never assumed.
+    this.spin = calibrateSpin(this.exact, this.intertwiner, this.exactP, this.m, Isom);
 
-    // The tile-class homomorphism. See tileClass() for what it is for and why it is sound.
-    const cls = regularTileClass(p, q, this.m, this.generators, this.inverseIndex);
+    this.exactPPow = [exactIdentity(this.exact.R)];
+    for (let k = 1; k < this.m; k++) {
+      this.exactPPow.push(exactMatMul(this.exact.R, this.exactPPow[k - 1], this.exactP));
+    }
+    // Float rotations by 2*pi*k/m about a tile's own centre, precomputed: the walk multiplies by one
+    // of these on every step and must never build them per frame.
+    this.rotP = [];
+    for (let k = 0; k < this.m; k++) {
+      this.rotP.push(Isom.rotation((this.spin * 2 * Math.PI * k) / this.m));
+    }
+
+    // The transport permutation. Conjugating by P permutes the generator set -- they are built as
+    // rho^k . base . rho^-k with k closed under adding p/m -- so
+    //
+    //     P^j . Gx[g] . P^-j = Gx[pi[j][g]]
+    //
+    // exactly, with no leftover rotation -- pi is a pure permutation of generator indices, and the
+    // search below throws rather than assume it. The walk forward does not need this table, because
+    // folding P^k into each step keeps every frame canonical. Stepping BACK does: see reverseGenerator.
+    this.piTransport = [];
+    this.piInverse = [];
+    for (let j = 0; j < this.m; j++) {
+      const row = new Array(this.generators.length).fill(-1);
+      const inv = new Array(this.generators.length).fill(-1);
+      const Pj = this.exactPPow[j];
+      const PjInv = this.exactPPow[(this.m - j) % this.m];
+      for (let g = 0; g < this.generators.length; g++) {
+        const conj = exactMatMul(this.exact.R, exactMatMul(this.exact.R, Pj, this.exactGenerators[g]), PjInv);
+        let found = -1;
+        for (let h = 0; h < this.exactGenerators.length; h++) {
+          if (exactMatEquals(this.exact.R, conj, this.exactGenerators[h])) {
+            found = h;
+            break;
+          }
+        }
+        if (found < 0) {
+          throw new Error(
+            `hyperbolic-map: {${p},${q}} m=${this.m}: P^${j} does not permute the generators, so the ` +
+              "walk group is not what this construction assumes",
+          );
+        }
+        row[g] = found;
+        inv[found] = g;
+      }
+      if (inv.includes(-1)) throw new Error(`hyperbolic-map: transport row ${j} is not a permutation`);
+      this.piTransport.push(row);
+      this.piInverse.push(inv);
+    }
+
+    // The tile-class homomorphism. See tileClass() for what it is for and why it is sound. It comes
+    // after the exact machinery because verifying it means recognising when two routes have reached one
+    // tile, and that is decided by the exact id.
+    const cls = regularTileClass(p, q, this.m, this.generators, this.inverseIndex, this.exact,
+      this.exactGenerators);
     this.classModulus = cls.modulus;
     this.classStep = cls.step;
+
+    // Every tile ever discovered, keyed by its canonical id. Nodes are persistent and shared, so
+    // reaching a tile by a second route returns the SAME object -- which is what makes the id, the
+    // frame and the tile-data cache slot route-independent.
+    this.nodes = new Map();
+    this.idChars = 0;
+    this.rootNode = this.internNode(exactIdentity(this.exact.R), 0, 0);
+
+    // The declared color symmetry, if there is one. See regularColorSymmetry.
+    this.color = null;
+    this.colorCount = 1;
+    if (colorSymmetry) {
+      this.color = regularColorSymmetry(colorSymmetry, p, q, this.m, this.generators, this.inverseIndex,
+        this.piTransport, {
+          origin: this.rootNode,
+          edge: (node, g) => {
+            this.extendAddress(node, g);
+            return node.edges.get(g);
+          },
+        });
+      this.colorCount = this.color.size;
+      // Verifying it built a few hundred nodes while `this.color` was still null, so their labels are
+      // all zero. Start the store again now that labels can be computed; nothing outside has seen it.
+      this.nodes = new Map();
+      this.idChars = 0;
+      this.rootNode = this.internNode(exactIdentity(this.exact.R), 0, 0);
+    }
+  }
+
+  // Compare two exact matrices in a fixed total order: row-major, entrywise, using the ring's own
+  // order. This is what "lexicographically least" means, and it is what picks the canonical coset
+  // representative -- so it is frozen. Changing it renames every id in every cache.
+  cmpExact(A, B) {
+    const R = this.exact.R;
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        const c = R.cmp(A[i][j], B[i][j]);
+        if (c !== 0) return c;
+      }
+    }
+    return 0;
+  }
+
+  // The tile id of ANY frame for a tile: the serialized centre M.v_O.
+  //
+  // P fixes v_O, so every frame in the coset gives the same vector and the id needs no canonicalisation
+  // at all -- which is why it can be computed before deciding whether the tile is new, and why the
+  // tile-class walk can use raw products. Distinct tiles have distinct centres, so it is injective.
+  idExact(M) {
+    const R = this.exact.R;
+    return serializeExactVector(R, exactMatVec(R, M, this.exact.vO), this.p, this.q, this.m);
+  }
+
+  // The canonical representative of the coset M.C_m, and which power of P got us there.
+  //
+  // Two routes to one tile give M and M.P^j; the candidate sets {M.P^k} and {M.P^j.P^k} are the SAME
+  // SET, so the minimum over them is identical. That is the entire proof that a tile's frame does not
+  // depend on the route -- no automaton, no normal form, no parent heuristic.
+  //
+  // Canonicalising over C_m and NOT the full C_p matters: a canonical frame must stay inside the set of
+  // frames the walk can actually produce. Over C_p, roughly half of {8,3} m=4's tiles would be turned
+  // by an odd multiple of 45 degrees, which is not a symmetry of the C_4 walk group, and the Escher
+  // pattern would shatter into a misaligned variant.
+
+  canonicalExact(M) {
+    const R = this.exact.R;
+    const I = exactIdentity(R);
+    let bestK = 0;
+    let best = M;
+    // IDENTITY-FIRST TIE-BREAK. Only the origin tile's coset contains I, and letting I win its own
+    // coset makes the origin tile's canonical frame exactly the identity. Any fixed rule would be
+    // equally canonical, but this one is worth the two comparisons: without it the origin canonicalises
+    // to whichever P^k sorts first -- P^2, a half-turn, for {8,3} m=4 -- and the entire picture is then
+    // turned by a constant relative to the unanchored global frame, so `globalFrameForTesting` and the
+    // walk disagree about where the origin tile is pointing.
+    if (this.cmpExact(M, I) === 0) return { F: I, k: 0 };
+    for (let k = 1; k < this.m; k++) {
+      const cand = exactMatMul(R, M, this.exactPPow[k]);
+      if (this.cmpExact(cand, I) === 0) return { F: cand, k };
+      if (this.cmpExact(cand, best) < 0) {
+        best = cand;
+        bestK = k;
+      }
+    }
+    return { F: best, k: bestK };
+  }
+
+  // Look up or create the node for the coset of M.
+  internNode(M, cls, col) {
+    const id = this.idExact(M);
+    const hit = this.nodes.get(id);
+    if (hit) return hit;
+    const { F } = this.canonicalExact(M);
+    return this.storeNode({ F, id, cls, col, edges: new Map() });
+  }
+
+  // Add a node to the store and keep the store bounded.
+  //
+  // WHY BOUNDED. An id is one string per tile ever visited and its length grows linearly with distance
+  // (measured on {8,3} m=4: about 12 characters per tile crossed), so retaining every node makes the
+  // memory of a long pan grow like the SQUARE of the distance travelled -- 93 MB at 1,000 tiles out,
+  // 734 MB at 4,000. That is a property of naming tiles globally at all, not of this encoding: there
+  // are exponentially many tiles within distance d, so any correct global name needs Omega(d) bits.
+  //
+  // Eviction is safe because nothing anywhere depends on node object identity -- `addressEquals`
+  // compares ids, and re-deriving an evicted node costs one canonicalisation. Evicting also CLEARS the
+  // dropped node's edges, so a dropped node cannot keep the rest of its subtree alive through a live
+  // neighbour's edge cache.
+  //
+  // The budget is on retained id characters rather than node count, because that is the thing that
+  // actually grows; the floor on count is what keeps a frame's working set resident so that steady-state
+  // panning still does no exact arithmetic at all.
+  storeNode(node) {
+    this.nodes.set(node.id, node);
+    this.idChars += node.id.length;
+    while (this.nodes.size > NODE_FLOOR && this.idChars > ID_CHAR_BUDGET) {
+      // Map iterates in insertion order, so this drops the least recently created node.
+      const oldest = this.nodes.keys().next();
+      if (oldest.done) break;
+      const victim = this.nodes.get(oldest.value);
+      if (victim === this.rootNode) {
+        // The origin is inserted first, so it would block every eviction; move it to the back instead.
+        // It is kept forever because `originAddress()` hands it out and losing its edges would make
+        // every route through the origin redo exact work.
+        this.nodes.delete(oldest.value);
+        this.nodes.set(oldest.value, victim);
+        continue;
+      }
+      this.nodes.delete(oldest.value);
+      this.idChars -= victim.id.length;
+      victim.edges.clear();
+    }
+    return node;
   }
 
   // ---- addressing ----
   //
-  // A word address is a CONS CELL, not an array: { gen, prev, len } with the string form memoised.
+  // An address is a NODE in the tile graph: { F, id, cls, edges }, with F the tile's canonical exact
+  // frame and `id` its canonical name. A node names the TILE, not a route to it: two routes to one
+  // tile return the same id, the same frame and the same tile-data cache slot, which is what lets tile
+  // art be fully asymmetric and depend on its own address.
   //
-  // The array version was correct but quadratic in the wrong place. `neighbours()` is called for every
-  // candidate the walk dequeues, and `concat` copies the whole word each time, while `addressToString`
-  // rebuilt it from scratch. Measured at 5,000 tiles from the origin (word length 3,796): one
-  // `addressToString` cost 43 microseconds and one `neighbours` 9.8, so a single frame's enumeration
-  // spent 57 ms on address bookkeeping alone and the frame time went from 17 ms to 84 ms. The geometry
-  // was already distance-independent; only the labelling was not.
-  //
-  // With a cons cell, extending is O(1) and the prefix that every tile in a frame shares -- the camera's
-  // own address -- is stringified once and then reused.
+  // Treat an address as opaque. `id` is stable and safe to persist as a key, but it is not a coordinate
+  // and there is no way back from the string to a node -- keep the object if you need to return to a
+  // tile (see viewport.getCamera).
 
   originAddress() {
-    return REGULAR_ROOT;
+    return this.rootNode;
   }
 
-  // A cheap, collision-resistant key for cache lookups. O(1) per address, because it is folded from the
-  // parent's hash when the cell is created.
-  //
-  // The string form cannot serve this purpose far from the origin: a word address is one symbol per tile
-  // crossed, so at 50,000 tiles it is ~38,000 characters, and using it as a Map key forces the rope to
-  // flatten. Measured, that put 200 such keys at ~20 ms per frame even though enumeration itself stayed
-  // at 0.26 ms. Two independent 32-bit folds give ~53 bits, so a collision across millions of tiles is
-  // negligible -- and a collision would only mean two tiles sharing a cache slot, which for the
-  // position-independent data an atlas usually carries is invisible anyway.
+  // The id IS the key, and reading it is a field access: canonicalisation happened once, when the node
+  // was created, and never happens again for that tile.
   addressKey(address) {
-    return address.h1 * 4294967296 + address.h2;
+    return address.id;
   }
 
   addressToString(address) {
-    if (address.str !== null) return address.str;
-    // Walk back to the nearest ancestor whose string is already known, then build forward. Iterative
-    // rather than recursive: a word can be thousands of symbols long and recursion would overflow.
-    const pending = [];
-    let node = address;
-    while (node.str === null) {
-      pending.push(node);
-      node = node.prev;
-    }
-    let s = node.str;
-    for (let i = pending.length - 1; i >= 0; i--) {
-      s = s === "root" ? String(pending[i].gen) : `${s}.${pending[i].gen}`;
-      pending[i].str = s;
-    }
-    return address.str;
+    return address.id;
   }
 
   addressEquals(a, b) {
-    if (a === b) return true;
-    if (a.len !== b.len) return false;
-    let x = a;
-    let y = b;
-    while (x !== y && x.len > 0) {
-      if (x.gen !== y.gen) return false;
-      x = x.prev;
-      y = y.prev;
-    }
-    return true;
+    return a === b || a.id === b.id;
   }
 
-  // Append a generator, cancelling it against the last one if they are mutual inverses. Free
-  // reduction only -- it keeps words short and makes an out-and-back walk return the SAME address,
-  // which is what the round-trip property test checks. It is not a full normal form: the {p,q}
-  // reflection group has braid relations too, so two genuinely different words can still name one
-  // tile. That is why the walk deduplicates geometrically as well, and why notes/open-questions.md
-  // records the Coxeter shortlex automaton as the rigorous upgrade.
+  // Step to a neighbour. Nodes are interned, so the second route to a tile returns the same object.
+  //
+  // The edge also records the float step to use: not the bare generator, but the generator followed
+  // by the rotation that lands in the CHILD'S canonical frame. Folding the correction into the step
+  // is what keeps every frame the walk produces canonical, so nothing downstream has to know that a
+  // correction happened -- `net` is already right, and clipping, picking and boundary overlays are
+  // untouched (the tile polygon is C_p-invariant and P is in C_p).
+  //
+  // Exact arithmetic happens HERE, once per edge ever traversed, and never again.
   extendAddress(address, gen) {
-    if (address.len > 0 && this.inverseIndex[address.gen] === gen) return address.prev;
-    // Fold the hash forward as the cell is built, so addressKey is O(1) forever after.
-    const h1 = (Math.imul(address.h1 ^ (gen + 1), 16777619) >>> 0);
-    const h2 = (Math.imul(address.h2 + gen * 2654435761, 2246822519) >>> 0) ^ (h1 >>> 13);
-    // And the tile class, likewise O(1). See tileClass(): unlike the word itself, this IS canonical.
-    const n = this.classModulus;
-    const cls = n > 1 ? (address.cls + this.classStep[gen]) % n : 0;
-    return { gen, prev: address, len: address.len + 1, str: null, h1, h2: h2 >>> 0, cls };
+    const hit = address.edges.get(gen);
+    if (hit) return hit.node;
+    const R = this.exact.R;
+    const M = exactMatMul(R, address.F, this.exactGenerators[gen]);
+    const id = this.idExact(M);
+    const { F, k } = this.canonicalExact(M);
+    let child = this.nodes.get(id);
+    if (!child) {
+      const n = this.classModulus;
+      const cls = n > 1 ? (((address.cls + this.classStep[gen]) % n) + n) % n : 0;
+      // The color label carries the canonical fold's P^k as well as the generator, because phi(P) is
+      // not the identity -- see regularColorSymmetry. Two table lookups, no allocation.
+      const c = this.color;
+      const col = c ? c.table[c.table[address.col][c.genIndex[gen]]][c.stabPow[k]] : 0;
+      child = this.storeNode({ F, id, cls, col, edges: new Map() });
+    }
+    // F_child = F_parent . Gx[gen] . P^k, so the float step is the generator then that rotation.
+    const step = this.generators[gen].mul(this.rotP[k]).normalize();
+    address.edges.set(gen, { node: child, k, step });
+    return child;
+  }
+
+  // The float isometry for one walk step, in canonical frames. The walk uses this instead of
+  // generator(gen); the difference is the C_m correction folded in.
+  stepFrame(address, gen) {
+    const hit = address.edges.get(gen);
+    if (hit) return hit.step;
+    this.extendAddress(address, gen);
+    return address.edges.get(gen).step;
+  }
+
+  // Which generators lead out of this tile, WITHOUT building any of the neighbours.
+  //
+  // This exists so the walk can decide whether it wants a neighbour before paying for it. Naming a
+  // tile costs exact integer arithmetic -- one matmul, m-1 more to canonicalise, and a mat-vec for the
+  // id -- and the walk discards most of what it looks at: it explores about eight candidates per tile
+  // and keeps a couple of hundred in total. Measured on the Escher atlas before this existed, a frame
+  // that crossed a tile boundary named ~800 new tiles, spent 210,000 ring multiplies and took 154 ms
+  // against a 17 ms median. The centre of a neighbour can be found from the plain generator, with no
+  // exact work at all, which is enough to reject it.
+  neighbourGens() {
+    if (!this._gensAll) {
+      this._gensAll = [];
+      for (let g = 0; g < this.generators.length; g++) this._gensAll.push(g);
+    }
+    return this._gensAll;
   }
 
   neighbours(address) {
@@ -4016,22 +5266,38 @@ class RegularTiling {
     return this.inverseIndex[i];
   }
 
+  // The generator that steps from `extendAddress(address, gen)` BACK to `address`.
+  //
+  // NOT `inverseGenerator(gen)`, and this is the one place where canonical frames cost something. The
+  // child's canonical frame is F_p . Gx[g] . P^k, so a step h out of the child reads as
+  //
+  //     F_p . Gx[g] . P^k . Gx[h]  =  F_p . Gx[g] . Gx[pi_k(h)] . P^k
+  //
+  // which lands back on the parent exactly when pi_k(h) is the inverse of g. Applying the plain
+  // inverse index instead lands on a DIFFERENT neighbour of the child -- a real tile, so nothing
+  // throws; the walk just quietly fails to come home. (`inverseGenerator` still means what it always
+  // meant: the index whose isometry is the inverse. It is the frame that moved, not the name.)
+  reverseGenerator(address, gen) {
+    const hit = address.edges.get(gen) || (this.extendAddress(address, gen), address.edges.get(gen));
+    return this.piInverse[hit.k][this.inverseIndex[gen]];
+  }
+
   generatorCount() {
     return this.generators.length;
   }
 
-  // ---- tile classes: the only per-tile variation a {p,q} atlas may legally use ----
+  // ---- tile classes: a cheap, meaningful grouping of tiles ----
   //
-  // A tile's word address is NOT canonical, so `tileData` must not colour a tile by its address -- the
-  // colour would change as you scroll. But a tile can still be given a class, provided the class comes
-  // from a group HOMOMORPHISM phi: Gamma -> Z/n. A homomorphism is defined on group ELEMENTS, so every
-  // word for a tile gives the same value automatically, and if it kills the stabiliser C_m it descends
-  // to tiles. No canonical address and no automaton needed, and it costs one addition per walk step.
+  // A class is a coloring of the tiling by a group HOMOMORPHISM phi: Gamma -> Z/n that kills the
+  // stabiliser C_m, so it descends to tiles. Art may key on the tile's own id, so a class is not the
+  // only per-tile variation available any more -- what it still is, is the STRUCTURED one: adjacent
+  // tiles never share a class, so it reads as a proper coloring of the tiling rather than as noise,
+  // and it costs one integer addition per walk step instead of a string lookup.
   //
   // What n can be is fixed by the abelianisation of the walk group, and it is small:
   //
   //   m < p  (vertex-rotation generators, e.g. Circle Limit III's {8,3} m=4): phi(g) has order q,
-  //          giving Z/q -- THREE classes for {8,3} m=4. Geometrically it is a proper 3-colouring of the
+  //          giving Z/q -- THREE classes for {8,3} m=4. Geometrically it is a proper 3-coloring of the
   //          octagons: the three meeting at any vertex all differ.
   //   m == p (edge half-turn generators): phi(g) has order dividing 2, and going around a vertex forces
   //          q*phi(g) = 0 too, so there are two classes when q is EVEN ({5,4}, {6,4}) and only one when
@@ -4041,6 +5307,23 @@ class RegularTiling {
   // pair of routes to one tile agrees, and it falls back to 1 if it does not. Cached per {p,q,m}.
   tileClass(address) {
     return this.classModulus > 1 ? address.cls : 0;
+  }
+
+  // ---- color symmetry ----
+  //
+  // The permutation this tile applies to the caller's colors, or null if no colorSymmetry was declared.
+  // A function of the TILE: two routes give the same permutation, because they give the same canonical
+  // frame. Do not mutate the returned array -- it is the interned group element, shared by every tile
+  // that carries it.
+  colorPermutation(address) {
+    return this.color ? this.color.elements[address.col] : null;
+  }
+
+  // The same thing as a dense index in [0, colorCount). What art keyed on the color symmetry should
+  // cache on: a repeating atlas has one recolored copy per group element and no more, so this is the
+  // key that keeps `Atlas`'s compile memo hitting.
+  colorIndex(address) {
+    return this.color ? address.col : 0;
   }
 
   // ---- geometry, all in tile-local coordinates ----
@@ -4121,17 +5404,10 @@ class RegularTiling {
   // near-origin regime where the naive one is still trustworthy, and so the mpmath oracle has
   // something to check. Deliberately named to be greppable.
   globalFrameForTesting(address) {
-    // The word runs newest-first through the cons chain, but the frame is a product read oldest-first,
-    // so collect and reverse.
-    const gens = [];
-    for (let node = address; node.len > 0; node = node.prev) gens.push(node.gen);
-    gens.reverse();
-    let m = Isom.identity();
-    for (let i = 0; i < gens.length; i++) {
-      m = m.mul(this.generators[gens[i]]);
-      if ((i & 7) === 7) m.normalize();
-    }
-    return m.normalize();
+    // Now exact underneath: the node carries its canonical frame as an integer matrix, and this is
+    // just the float image of it. Still diagnostic-only -- the entries grow like cosh(d/2), which is
+    // precisely why the render path composes relative frames instead.
+    return exactToIsom(this.intertwiner, address.F, Isom, movePointToPoint);
   }
 }
 
@@ -4176,8 +5452,8 @@ const BIN_PARENT_ODD = 5;
 
 // The half-plane map z -> S z + T, conjugated into SU(1,1) by the Cayley transform C = [[i,1],[1,i]].
 // Verified symbolically (audit claim 6): a = (S + 1 + iT)/(2 sqrt S), b = (T + i(S - 1))/(2 sqrt S),
-// and |a|^2 - |b|^2 = 1 identically. An earlier hand derivation had b's real and imaginary parts
-// swapped, which is exactly why this is checked rather than trusted.
+// and |a|^2 - |b|^2 = 1 identically. Checked symbolically rather than trusted, because a hand
+// derivation swaps b's real and imaginary parts very easily and the result still looks plausible.
 function isomFromScaleShift(S, T) {
   const rs = Math.sqrt(S);
   const inv = 1 / rs;
@@ -4274,9 +5550,6 @@ class BinaryTiling {
         return worst;
       })(),
     };
-    // Integer addresses are canonical: one cell, one (lat, lon). No geometric dedup needed.
-    this.addressesAreCanonical = true;
-
     // The stabiliser is TRIVIAL: a binary cell's frame is z -> S z + T in the half-plane, and no
     // non-identity element of the walk group fixes a cell. So a cell's frame is unique, its address is
     // unique, and tile art here is under NO symmetry constraint -- any asymmetric art is fine, and art
@@ -4288,9 +5561,20 @@ class BinaryTiling {
     // No homomorphism needed: (lat, lon) is canonical, so a caller may key art on the ADDRESS itself and
     // give every cell something different. `classModulus` exists only to keep the tile object uniform.
     this.classModulus = 1;
+    // Nor a color symmetry, for the same reason and one more: a color symmetry earns its keep by
+    // permuting art that repeats, and nothing here has to repeat. Present so the tile object is uniform.
+    this.colorCount = 1;
   }
 
   tileClass() {
+    return 0;
+  }
+
+  colorPermutation() {
+    return null;
+  }
+
+  colorIndex() {
     return 0;
   }
 
@@ -4306,7 +5590,7 @@ class BinaryTiling {
 
   addressToString(address) {
     // Memoised on the address object. BigInt toString is not free, and a deep descent makes the
-    // longitude very long indeed -- the same cost that made word addresses expensive far out.
+    // longitude very long indeed.
     if (address.str === undefined || address.str === null) {
       address.str = `${address.lat},${address.lon}`;
     }
@@ -4321,12 +5605,52 @@ class BinaryTiling {
     return a.lat === b.lat && a.lon === b.lon;
   }
 
+  // Which generators lead out of this cell, WITHOUT building any of the neighbours. See the note on
+  // RegularTiling.neighbourGens. The parent step is the one that varies: a cell offers PARENT_EVEN or
+  // PARENT_ODD according to its own longitude parity, never both.
+  neighbourGens(address) {
+    const even = (address.lon & 1n) === 0n;
+    return [BIN_RIGHT, BIN_LEFT, BIN_CHILD0, BIN_CHILD1, even ? BIN_PARENT_EVEN : BIN_PARENT_ODD];
+  }
+
+  // The neighbour reached by one generator. Same arithmetic as `neighbours`, one entry at a time, so a
+  // caller that has already decided which way it is going does not build the other four.
+  //
+  // A cell has only ONE parent, and which of PARENT_EVEN / PARENT_ODD names it depends on the cell's
+  // own longitude parity. Asking for the wrong one is a caller error rather than a different cell:
+  // saying PARENT_EVEN from an odd-longitude cell once made the camera unable to move up at all, and it
+  // then chased downward until the latitude ran to several hundred digits. So it throws.
+  extendAddress(address, gen) {
+    const { lat, lon } = address;
+    const even = (lon & 1n) === 0n;
+    switch (gen) {
+      case BIN_RIGHT: return { lat, lon: lon + 1n };
+      case BIN_LEFT: return { lat, lon: lon - 1n };
+      case BIN_CHILD0: return { lat: lat - 1n, lon: lon * 2n };
+      case BIN_CHILD1: return { lat: lat - 1n, lon: lon * 2n + 1n };
+      case BIN_PARENT_EVEN:
+      case BIN_PARENT_ODD: {
+        if ((gen === BIN_PARENT_EVEN) !== even) {
+          throw new Error(
+            `hyperbolic-map: cell (${lat},${lon}) has longitude parity ${even ? "even" : "odd"}, so its ` +
+              `parent is reached by ${even ? "BIN_PARENT_EVEN" : "BIN_PARENT_ODD"}, not generator ${gen}`,
+          );
+        }
+        // Floor division: BigInt / truncates toward zero, so -1n/2n is 0n where the parent of cell -1
+        // must be cell -1. Off-by-one here would break the western hemisphere only.
+        return { lat: lat + 1n, lon: lon >= 0n ? lon / 2n : -((-lon + 1n) / 2n) };
+      }
+      default:
+        throw new Error(`hyperbolic-map: unknown binary generator ${gen}`);
+    }
+  }
+
   // The ORDER of this list is part of the contract: `stepToward` returns an index into it.
   neighbours(address) {
     const { lat, lon } = address;
     // Floor division for negative longitudes: BigInt / truncates toward zero, so -1n/2n is 0n where
     // the parent of cell -1 must be cell -1. Off-by-one here would break the western hemisphere only,
-    // which is precisely the kind of asymmetry a diagnostic with hashed colours makes obvious.
+    // which is precisely the kind of asymmetry a diagnostic with hashed colors makes obvious.
     const half = lon >= 0n ? lon / 2n : -((-lon + 1n) / 2n);
     const even = (lon & 1n) === 0n;
     return [
@@ -4344,6 +5668,23 @@ class BinaryTiling {
 
   inverseGenerator(i) {
     return BINARY_INVERSE[i];
+  }
+
+  // No stabiliser, so no frame correction, so stepping back really is the inverse generator. Present
+  // so a caller can walk back on either tiling without asking which one it has.
+  //
+  // The one wrinkle is the parent step's two parities: PARENT_EVEN and PARENT_ODD are inverse to
+  // CHILD0 and CHILD1 respectively, and a cell offers only the one that matches its own longitude, so
+  // callers must still look the returned index up in `neighbours` rather than assume it is present.
+  reverseGenerator(address, gen) {
+    return BINARY_INVERSE[gen];
+  }
+
+  // The stabiliser is trivial here, so a cell's frame is unique and the walk step is just the
+  // generator -- no canonical correction exists to fold in. Present so the walk can call the same
+  // method on either tiling.
+  stepFrame(address, gen) {
+    return BINARY_GENERATORS[gen];
   }
 
   generatorCount() {
@@ -4429,6 +5770,11 @@ class BinaryTiling {
 // Imports must stay one-per-line and single-line (see dev/check-bundle.mjs): the builder strips
 // import lines individually, so a multi-line import would leave fragments behind.
 
+// The exact machinery behind canonical tile ids. Not needed to USE a tiling -- an id is just the string
+// `addressToString` hands you -- but exported so that the claim can be checked from outside: build the
+// Coxeter group for any {p,q} and see that the relations hold, or watch `exactMulCount` stay flat across
+// a rendered frame, which is the assertion that no exact arithmetic happens per frame.
+
 global.HyperbolicMap = {
   Isom: Isom,
   localCompanion: localCompanion,
@@ -4479,6 +5825,12 @@ global.HyperbolicMap = {
   BIN_CHILD1: BIN_CHILD1,
   BIN_PARENT_EVEN: BIN_PARENT_EVEN,
   BIN_PARENT_ODD: BIN_PARENT_ODD,
+  ExactRing: ExactRing,
+  minPolyFor2Cos: minPolyFor2Cos,
+  exactMulCount: exactMulCount,
+  resetExactMulCount: resetExactMulCount,
+  buildExactCoxeter: buildExactCoxeter,
+  serializeExactVector: serializeExactVector,
   VERSION: "0.1.0",
 };
 })(typeof globalThis !== "undefined" ? globalThis : self);

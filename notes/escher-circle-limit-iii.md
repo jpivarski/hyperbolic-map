@@ -40,7 +40,8 @@ The word "alternate" is load-bearing — see the frame section below.
 ## The decisive constraint for the demo
 
 Repeating identical data in every tile makes the pattern invariant under the walk group `G` **iff the
-tile art is invariant under `Stab_G(tile)`**. For `G = 433` on `{8,3}`:
+tile art is invariant under `Stab_G(tile)`** — as a SHAPE. The colouring is a separate question and is
+answered separately, by a colour symmetry; see "Escher's four colours" below. For `G = 433` on `{8,3}`:
 
 - `R₈ ∉ 433` (there is no order-8 cone point), so `Stab_{433}(octagon) = ⟨R₈²⟩ = **C₄**`.
   Verified numerically: enumerating `433` words that fix the central octagon, the realised screen
@@ -182,19 +183,58 @@ expected), and rotating 20 degrees to where no vertex lies scores 0.42.
 What works is a **black top-hat** — how much darker is this pixel than the closing of its neighbourhood
 — which is the operator meant for thin dark structures and finds a 1 px outline on any background.
 
-### Why the fish are not Escher's four colours
+## Escher's four colours, and how they are produced
 
-Because a 4-colouring that is not stabiliser-invariant is not a function of the tile. Around an octagon
-centre the four fish alternate green-orange, so Escher's colouring is `C2` while the shape is `C4`;
-C4 shapes in four colours score 0.36 on the symmetry check. The four fish in a tile therefore share a
-colour, and variety comes from the tile class — `{8,3}` m=4 admits three classes, giving a proper
-3-colouring of the octagons in which no two neighbours match, path-independent by construction.
+A colour here is not a property of a fish, or of a tile. Every motion of the tiling permutes the four
+colours, so what a fish is painted is
+
+    palette[ phi(F)[ that fish's base colour ] ]
+
+with `F` the tile's canonical frame and `phi: 433 -> S_4` a homomorphism — a COLOUR SYMMETRY in the
+crystallographic sense. Repeating one tile's art cannot express that on its own, and neither can a tile
+class: `{8,3}` m=4 admits `Z/3`, and the group needed has 12 elements and is not abelian.
+
+**The image is `A_4`.** A three-fold rotation must cycle the three fish meeting at a vertex, so its image
+is a 3-cycle. The four-fold rotation `P` about an octagon centre must swap the two colours that octagon
+shows — this is the old observation that "around an octagon centre the fish alternate", i.e. that the
+colouring is `C_2` while the shape is `C_4` — so its image is a double transposition. Both are even, and
+they generate the walk group, so `im(phi) <= A_4`. Order 12, confirmed by construction.
+
+**One free parameter, and how it was pinned down.** The walk group fixes everything but `phi(G_0)`:
+`inverseIndex` is `[1,0,3,2,5,4,7,6]` and `P.G_g.P^-1 = G_{g+2}`, so generator 1 is generator 0's inverse
+and the rest are conjugates. Of the 24 permutations of four colours:
+
+| stage | left | what it rules out |
+|---|---|---|
+| all candidates | 24 | — |
+| a homomorphism at all | **8** | 16 pass every cheap algebraic check and are caught only by walking the tile graph |
+| three colours at each three-fold vertex | **6** | Escher's own rule; necessary, not sufficient |
+| area agreement with the woodcut | **1** | 78.4% of 5,436 grid points, against 45.9% for the runner-up |
+
+The last row is measurement, not argument. k-means over a scan of the print recovers Escher's four inks
+— `(117,62,32)` red, `(217,163,85)` yellow, `(143,123,75)` green, `(73,103,128)` blue — and each
+candidate was rendered and compared with the print point by point over the disk with the rotation fitted.
+The answer is `phi(G_0) = [2,0,1,3]`, in `docs/demo/escher-colors.js`.
+
+**Measure the whole area, not sampled fish centres.** Scoring only the centroid of each fish ranked a
+DIFFERENT candidate first, at 79% against 70%. That candidate paints the four overlap wedges — the parts
+of neighbours' fish that fall inside an octagon — to match the fish they sit against, so they merge into
+large single-colour blobs and the four-colour interlock collapses. A centroid cannot see it; the eye sees
+it instantly, and so does an area comparison. The regression test asserts that no overlap takes one of
+its own octagon's two colours.
+
+**Why this works now and could not before.** `phi(P)` is not the identity, so `phi` does not descend to
+tiles on its own — and it does not have to. Choosing the other coset representative `F.P` rotates the art
+by 90° AND multiplies the label by `phi(P)`, and the two cancel exactly. The one requirement is that the
+same `F` decide both, which is exactly what canonical tile frames give.
 
 ### Result
 
-Symmetry residual **3.9e-17** (was `Infinity`). Crossing a tile boundary changes **3 pixels**, identical
-to an ordinary step of the same size (was a visible snap). At 6,114 hyperbolic units from the origin the
-picture is indistinguishable from the origin view, with `max|V| = 1.000`.
+Four colours, arranged as Escher arranged them, from one octagon of art repeated forever. Twelve
+recoloured copies of the tile cover the whole plane — one per group element — so the atlas's compile memo
+still collapses every tile onto a handful of compiled objects.
 
-The raster is 316 px across, so the outlines are approximate and the fish are simplified. What is exact
-is the geometry and the symmetry.
+The tile is hand-drawn in Inkscape (`tools/svg_to_drawables.py`), so the outlines are approximate and the
+fish are simplified, and the artwork is no longer `C_4`-exact: the symmetry lint is off on that page and
+must stay off, since the colouring is deliberately only `C_2`. What is exact is the geometry and the
+group.

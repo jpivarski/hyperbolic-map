@@ -2,7 +2,7 @@
 //
 // The last three tests are regressions against real numerical failures: a double cancellation near
 // the half-plane basepoint, and a denominator reaching exactly zero inside the dungeon's own data
-// range. Each pins the CORRECT closed-form answer at the input that used to break, so they keep
+// range. Each pins the CORRECT closed-form answer at an input where a naive form breaks, so they keep
 // their teeth without needing the broken formula to compare against.
 //
 // Throughout, the comparison is against an independent oracle -- the half-plane -> disk map stated

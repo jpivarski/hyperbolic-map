@@ -3,123 +3,118 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Infinite Circle Limit III &mdash; hyperbolic-map-widget</title>
+<title>M.C. Escher's Circle Limit III &mdash; hyperbolic-map-widget</title>
 <link rel="stylesheet" href="demo/style.css">
 </head>
 <body>
 <nav><a href="index.html">&larr; all examples</a></nav>
 
-<h1>Infinite <em>Circle Limit III</em></h1>
+<h1>M.C. Escher's <em>Circle Limit III</em></h1>
 
-<p>The same fish, but tiled properly. One octagon&rsquo;s worth of art is stored
-(<a href="escher-atlas.json"><code>escher-atlas.json</code></a>) and the callback returns
-<strong>that same tile for every tile coordinate</strong>. Scroll as far as you like: the pattern never
-runs out, which is what Escher was reaching for and could not physically carve.</p>
+<div id="map" class="fill"></div>
 
-<p>The tile is traced directly from the woodcut and made <strong>exactly C<sub>4</sub>-symmetric by
-construction</strong> &mdash; one 90&deg; sector is traced and repeated by exact rotation. That is not
-decoration: a tile&rsquo;s frame is only defined up to the stabiliser C<sub>4</sub>, so art that is not
-C<sub>4</sub>-invariant visibly rotates as you scroll across a tile boundary. See
-<a href="tiling-diagnostics.html">the tiling diagnostics</a>, where you can switch between art that
-obeys the rule and art that breaks it.</p>
+<h2>How this is drawn</h2>
 
-<div id="map"></div>
-<p class="status"><span id="status">…</span></p>
-<p class="readout" id="readout"></p>
+<p>The center tile was drawn in Inkscape as SVG and converted using <code>svg_to_drawables.py</code> from the <a href="https://github.com/jpivarski/hyperbolic-map-widget/tree/main/tools">tools/</a> directory. Then it's repeated over the infinite surface using {8, 3} octagonal tiling with some dynamic corrections to the fill colors to make them depend on tile index, as they do in M.C. Escher's original.</p>
 
-<div class="controls">
-  <label><input type="checkbox" id="clip" checked> clip each tile to its octagon</label>
-  <label><input type="checkbox" id="showTiles"> outline the tiling</label>
-  <label><input type="checkbox" id="colourByClass" checked> colour by tile class</label>
-</div>
-
-<h2>Why <code>{8,3}</code></h2>
-
-<p>Circle Limit III sits on the <code>{8,3}</code> tiling &mdash; regular octagons, <em>three</em> per
-vertex &mdash; with the chiral <code>433</code> symmetry group: four fish to an octagon, with 4-fold
-rotation centres at the octagon centres. Repeating one tile everywhere only produces a consistent
-pattern if the art is invariant under the tile&rsquo;s stabiliser, and under <code>433</code> that
-stabiliser is <strong>C<sub>4</sub>, not C<sub>8</sub></strong>. Eight-fold art would give a different
-member of the family, not Escher&rsquo;s.</p>
-
-<p>That also rules out the two obvious ways to walk the tiling: the 8-fold rotation about a tile
-centre and the half-turn about a shared edge midpoint are both <em>outside</em> <code>433</code>
-(which has no order-2 points at all). The library therefore uses 3-fold rotations about alternate
-vertices &mdash; which is exactly Escher&rsquo;s own &ldquo;connect alternate vertices&rdquo;
-construction.</p>
-
-<h2>Why the fish are not Escher&rsquo;s four colours</h2>
-
-<p>Because they provably cannot be. Around an octagon centre Escher&rsquo;s four fish alternate
-green&ndash;orange&ndash;green&ndash;orange, so his colouring is only C<sub>2</sub> while the shape is
-C<sub>4</sub>. Painting C<sub>4</sub> shapes in four different colours fails the stabiliser rule
-outright &mdash; the library&rsquo;s own check scores it 0.36 &mdash; and the fish would change colour
-under you as you scrolled.</p>
-
-<p>So the four fish in an octagon share a colour, and the variety comes from the <strong>tile
-class</strong> instead. The <code>433</code> group admits a three-class homomorphism, which gives a
-proper 3-colouring of the octagons in which no two neighbours match. Being a homomorphism, it is the
-same whichever route the walk took to reach a tile &mdash; unlike a tile&rsquo;s word address, which is
-not canonical and would flicker.</p>
-
-<p class="note">Honest about the source: Escher&rsquo;s woodcut is hand-drawn, and the raster it is
-traced from here is 316&nbsp;px across, so the outlines are approximate and the fish are simplified.
-What <em>is</em> exact is the geometry and the symmetry: the disk radius, centre and tiling rotation
-were fitted by requiring the pattern to be invariant under the walk group&rsquo;s own generator, and
-the tile is C<sub>4</sub>-symmetric to 4&nbsp;&times;&nbsp;10<sup>&minus;17</sup>. The fitted numbers
-are recorded in the tile&rsquo;s own <code>meta</code> block.</p>
+<p>See the code in <a href="https://github.com/jpivarski/hyperbolic-map-widget/blob/main/docs/escher-atlas.html">docs/escher-atlas.html</a>.</p>
 
 <script src="lib/hyperbolic-map.iife.js"></script>
 <script type="module">
-import { attachReadout, errorBox } from "./demo/common.js";
+import { errorBox } from "./demo/common.js";
+import { PALETTE, FISH_ROLE, escherColorSymmetry, overlapRoles } from "./demo/escher-colors.js";
 
 try {
-  const status = document.getElementById("status");
-  status.textContent = "loading tile…";
   const tile = await (await fetch("escher-atlas.json")).json();
-  status.textContent = `${tile.drawables.length} shapes in one {8,3} octagon, repeated forever (C4-exact)`;
 
-  const tiling = new HyperbolicMap.RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  // The color symmetry is what makes this Escher's picture rather than one octagon photocopied. See
+  // demo/escher-colors.js for the homomorphism and how each shape's role was established; the library
+  // re-derives and re-verifies it here, and throws if it is not a homomorphism of the walk group.
+  const tiling = new HyperbolicMap.RegularTiling({
+    p: 8,
+    q: 3,
+    frameSymmetry: 4,
+    colorSymmetry: escherColorSymmetry(),
+  });
 
-  // One recoloured copy of the tile per CLASS, built once. The class comes from a group homomorphism,
-  // so it is the same whichever route the walk took to a tile -- which is what makes it safe to key art
-  // on, and why the tile's word address is not.
-  const BODY_IN_FILE = "#7ba05b";
-  const CLASS_COLOURS = ["#79bd68", "#e1ba62", "#cf7050"];
+  // fill in the file -> which of the four colors it plays. The fish roles are fixed art data; the four
+  // overlap pieces are pieces of NEIGHBOURS' fish, so their roles are asked of the tiling rather than
+  // written down, and cannot go stale if the homomorphism changes.
+  const ROLE = Object.assign({}, FISH_ROLE, overlapRoles(tiling));
 
-  // The low-detail stand-in has to be recoloured too, and it is not simply the class colour: it is the
-  // tile's AREA-WEIGHTED average, so it has to be re-mixed against the ink and spine using the coverage
-  // the tracer recorded. Without this a distant tile would read as a lighter patch than a near one.
+  // The low-detail stand-in for a tile only a few pixels across, MEASURED from the artwork rather than
+  // taken from a recorded constant. Without it a distant tile reads as a lighter patch than a near one.
+  //
+  // Shoelace area per fill, in tile-local coordinates. The filled shapes come to 102% of the octagon --
+  // the fish overhang the boundary and the eyes sit on top of them -- so there is no background left to
+  // account for, and the average is a straight area weighting. The line work is not filled, so its
+  // contribution is its length times its width: 22.7 local units at 0.6 px against the renderer's
+  // nominal 300 px per unit, which is 8% of the tile, blended in as black.
+  const shoelace = (pts) => {
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const j = (i + 1) % pts.length;
+      a += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1];
+    }
+    return Math.abs(a) / 2;
+  };
+  const areaByFill = new Map();
+  let strokeArea = 0;
+  for (const d of tile.drawables) {
+    if (d.fill && d.fill !== "none") areaByFill.set(d.fill, (areaByFill.get(d.fill) || 0) + shoelace(d.points));
+    if (d.stroke !== "none") {
+      for (let i = 0; i < d.points.length - 1; i++) {
+        strokeArea += Math.hypot(d.points[i + 1][0] - d.points[i][0], d.points[i + 1][1] - d.points[i][1])
+          * ((d.lineWidth || 1) / 300);
+      }
+    }
+  }
+  const filledArea = [...areaByFill.values()].reduce((a, b) => a + b, 0);
+  const inkFraction = Math.min(0.5, strokeArea / filledArea);
+
   const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
   const mix = (parts) => "#" + [0, 1, 2].map((k) =>
     Math.round(parts.reduce((a, [c, w]) => a + hex(c)[k] * w, 0)).toString(16).padStart(2, "0")).join("");
-  const cov = tile.meta.coverage;
-  const byClass = CLASS_COLOURS.map((col) => ({
-    version: 1,
-    coordinates: "local",
-    lodPx: tile.lodPx,
-    lod: tile.lod.map((d) => Object.assign({}, d, {
-      fill: mix([["#141414", cov.ink], [col, cov.body], ["#fbf6e6", cov.spine]]),
-    })),
-    drawables: tile.drawables.map((d) => (d.fill === BODY_IN_FILE ? Object.assign({}, d, { fill: col }) : d)),
-  }));
+
+  // One recolored copy of the tile per element of the color group -- twelve for the whole plane, and
+  // no more, because the coloring is a function of the tile's group element and nothing else. Built on
+  // demand and kept, so the atlas's compile memo (which keys on the identity of the object returned)
+  // keeps hitting and a burst of new tiles costs nothing.
+  const variants = new Map();
+  function variantFor(index, perm) {
+    const hit = variants.get(index);
+    if (hit) return hit;
+    const paint = (f) => (ROLE[f] === undefined ? f : PALETTE[perm[ROLE[f]]]);
+    const parts = [...areaByFill].map(([f, a]) => [paint(f), a / filledArea]);
+    parts.push(["#000000", inkFraction]);
+    const built = {
+      version: 1,
+      coordinates: "local",
+      lodPx: tile.lodPx,
+      lod: tile.lod.map((d) => Object.assign({}, d, {
+        fill: mix(parts.map(([c, w]) => [c, w / (1 + inkFraction)])),
+      })),
+      drawables: tile.drawables.map((d) =>
+        (ROLE[d.fill] === undefined ? d : Object.assign({}, d, { fill: paint(d.fill) }))),
+    };
+    variants.set(index, built);
+    return built;
+  }
 
   let viewport = null;
   function build() {
-    const clip = document.getElementById("clip").checked;
-    const outline = document.getElementById("showTiles").checked;
-    const byTileClass = document.getElementById("colourByClass").checked;
     if (viewport) viewport.destroy();
     viewport = new HyperbolicMap.HyperbolicViewport({
       container: "#map",
-      width: 560,
-      height: 560,
+      aspectRatio: 1,
+      autoResize: true,
       zoom: 0.95,
       minZoom: 0.6,
       maxZoom: 4,
       interactRadius: 0.92,
       background: "#fdf9f0",
       rimFill: "#f5d6ab",
+      pageBackground: "#ffffff",
       // The tile carries real line work, so most of what a far-out tile contributes is smaller than a
       // pixel. Dropping it costs nothing visible and most of the frame time.
       minFeaturePx: 1.2,
@@ -127,46 +122,23 @@ try {
       decimateTolerancePx: 0.5,
       atlas: {
         tiling: tiling,
-        // The whole point: the same data for every tile, apart from a class-indexed palette. The
-        // callback never does any geometry -- the library rotates the art into each tile's frame.
-        tileData: (t) => (byTileClass ? byClass[t.classIndex % byClass.length] : byClass[0]),
-        clip: clip ? "always" : "never",
+        // The same drawables for every tile, in one of twelve palettes. The callback does no geometry --
+        // the library rotates the art into each tile's frame -- and no color arithmetic either: the
+        // permutation is the tile's own group element, so this is a map lookup.
+        tileData: (t) => variantFor(t.colorIndex, t.colorPermutation),
+        clip: "always",
         maxTiles: 200,
-        // Fail loudly if the art ever stops obeying the stabiliser rule.
-        checkTileSymmetry: "throw",
+        // The symmetry lint is OFF here, and it has to be. The outlines are C_4 but the coloring is
+        // deliberately only C_2 -- opposite fish match, adjacent ones do not -- which is Escher's design
+        // and the whole reason the color symmetry exists. A lint that measures whether a rotated shape
+        // lands on one of the same color therefore cannot pass, and should not.
+        checkTileSymmetry: "off",
       },
-      onAfterDraw: outline
-        ? (ctx, view) => {
-            ctx.save();
-            ctx.strokeStyle = "rgba(0,0,0,0.35)";
-            ctx.lineWidth = 1;
-            // Draw the boundaries in the SAME frames the renderer just used. There is no global frame
-            // to rebuild them from any more, and that is the point: `net` is already the composed
-            // camera-relative transform, so this overlay is correct however far out the camera is.
-            for (const t of viewport.atlas.lastTiles) {
-              const net = t.net;
-              const pts = tiling.boundaryLocal().points.map((p) => {
-                const z = net.applyToLocal(p[0], p[1], undefined, [0, 0]);
-                return [z[0] * view.radius + view.cx, -z[1] * view.radius + view.cy];
-              });
-              ctx.beginPath();
-              ctx.moveTo(pts[0][0], pts[0][1]);
-              for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-              ctx.closePath();
-              ctx.stroke();
-            }
-            ctx.restore();
-          }
-        : null,
     });
-    attachReadout(viewport, document.getElementById("readout"));
     window.viewport = viewport;
     window.tiling = tiling;
   }
   build();
-  for (const id of ["clip", "showTiles", "colourByClass"]) {
-    document.getElementById(id).addEventListener("change", build);
-  }
 } catch (err) {
   errorBox(err);
 }
