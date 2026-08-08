@@ -30,10 +30,10 @@ const arc = new Arc();
 
 // Projected-vertex scratch, grown on demand and reused for every path in every frame.
 //
-// This used to be `new Float64Array(n)` twice per path. On the Escher scene that is 77,280 typed
-// arrays per frame, and it showed up exactly where you would expect: a median frame of 63 ms with a
-// p95 of 261 ms, the tail being garbage collection. The buffers are module-scope because drawPath is
-// never re-entered -- it does not call back into the renderer.
+// Allocating `new Float64Array(n)` twice per path instead would be 77,280 typed arrays per frame on
+// the Escher scene, and it shows up exactly where you would expect: a median frame of 63 ms with a p95
+// of 261 ms, the tail being garbage collection. The buffers are module-scope because drawPath is never
+// re-entered -- it does not call back into the renderer.
 let vertX = new Float64Array(1024);
 let vertY = new Float64Array(1024);
 function ensureVertexCapacity(n) {

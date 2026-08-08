@@ -1,14 +1,13 @@
 // The automated half of the tiling diagnostics. NOT part of the library.
 //
 // Each check builds its own offscreen viewport so it controls every option and cannot be disturbed by
-// the visible one. They are written to fail loudly on the specific defects this rewrite was about:
+// the visible one. Each is written to fail loudly on one specific way the atlas could be wrong:
 //
 //   1  near-origin ground truth   the anchored path agrees with the naive global computation, in the
 //                                 one regime where the naive one is still trustworthy
-//   2  translation invariance     the picture 2000 tiles out matches the picture at the origin, which is
-//                                 the user's own acceptance criterion. It was 5000 tiles and it was
-//                                 BYTE-identical; see checkInvariance for why both moved, and by how
-//                                 little (one antialiasing level on {3,7})
+//   2  translation invariance     the picture 2000 tiles out matches the picture at the origin, to the
+//                                 last antialiasing level; see checkInvariance for what "matches" means
+//                                 exactly and why the distance is 2000
 //   3  tile ownership             every pixel is painted by exactly the tile that contains it -- the
 //                                 sharp test for clipping
 //   4  nothing outside the disk   no drawn pixel beyond the disk, at any distance
@@ -17,14 +16,14 @@
 //   7  boundedness                max|V| and the relative frames stay O(1) at every distance
 //   8  picking                    the tile under the cursor is the tile that was drawn there
 //   9  smoothness                 crossing a tile boundary changes nothing discontinuously
-//  10  hundred-step scroll        the acceptance test for canonical ids: a full tile spacing in a
-//                                 hundred equal steps, with fully asymmetric art, must not jump
+//  10  hundred-step scroll        a full tile spacing in a hundred equal steps, with fully asymmetric
+//                                 art coloured by tile id, must not jump at any step
 //
-// Check 2 uses the SYMMETRISED motif on purpose. With asymmetric art the decorated tiling is not
-// invariant under the tile stabiliser, so byte-identity would fail by construction rather than by bug --
-// and that is still so even though frames are canonical, because canonicalisation is not equivariant
-// under translating the whole tiling. Checks 1, 3, 9 and 10 use the asymmetric one, where orientation
-// errors are what we want to catch.
+// Check 2 uses the SYMMETRISED motif on purpose. Canonicalisation is lex-min over a coset, which is not
+// equivariant under translating the whole tiling, so the arrangement far out is the near one with each
+// tile turned about its own centre by a multiple of 2*pi/m. With C_m-symmetric art that is invisible and
+// the pictures match; with asymmetric art it would differ by construction rather than by bug. Checks 1,
+// 3, 9 and 10 use the asymmetric motif, where a turned tile is exactly what we want to catch.
 
 /* global window, document, HyperbolicMap */
 
@@ -109,12 +108,10 @@ function diffCount(a, b) {
 }
 
 // Walk the ADDRESS n tiles away, and PROVE the walk travelled. The renderer forms no global coordinate,
-// which is why the picture 2000 tiles out is as ACCURATE as the one at 1 -- but the walk itself must know
-// how far it got, or "the picture 2000 tiles out" is an unchecked claim. (It is not as CHEAP as at 1 any
-// more: naming each tile discovered on the way costs exact integer arithmetic whose width grows with
-// distance. Accuracy and cost were the same question before and are different questions now.)
+// which is why the picture 2000 tiles out is as ACCURATE as the one at 1 -- but the walk itself has to
+// know how far it got, or "the picture 2000 tiles out" is an unchecked claim.
 //
-// It cannot count symbols to find out. A {p,q} generator may have finite order: {8,3} m=4 steps with
+// It cannot count steps to find out. A {p,q} generator may have finite order: {8,3} m=4 steps with
 // 2*pi/3 rotations about octagon vertices, so `g0` has order 3 and five thousand repetitions of it name
 // a tile 1.53 units from home. A plain random walk does travel, but nothing here would notice if it
 // stopped doing so. So: greedy outward, with the distance measured in log-scaled form (a test may form
@@ -139,9 +136,9 @@ function walkWithDistance(tiling, n, seed) {
     const off = Math.floor(rand() * nbrs.length);
     for (let k = 0; k < nbrs.length; k++) {
       const cand = nbrs[(k + off) % nbrs.length];
-      // stepFrame, not generator: a walk step now carries the C_m correction that lands in the child's
+      // stepFrame, not generator: a walk step carries the C_m correction that lands in the child's
       // CANONICAL frame, and accumulating the bare generator would build a frame belonging to no
-      // address at all. (The measured symptom is unmistakable -- the walk reports zero distance.)
+      // address at all. (The symptom is unmistakable -- the walk reports zero distance.)
       const g = tiling.stepFrame(address, cand.gen);
       const nar = ar * g.ar - ai * g.ai + br * g.br + bi * g.bi;
       const nai = ar * g.ai + ai * g.ar - br * g.bi + bi * g.br;
@@ -271,19 +268,17 @@ async function renderFresh(key, address, opts) {
 }
 
 export async function checkInvariance(lines, only) {
-  // The top distance was 5000 tiles and is now 2000, and the reason is worth stating because 5000 was
-  // the user's own headline number.
+  // 2000 tiles, which is about 3000 hyperbolic units, and the number is chosen from both ends.
   //
-  // GETTING there is what changed, not the property. Each tile discovered on the way is given a
-  // canonical id computed in exact integer arithmetic, and an id's width grows linearly with distance,
-  // so a greedy 5000-tile walk on {8,3} m=4 costs 11.7 s and peaks at 520 MB (measured), against 1.9 s
-  // and 142 MB at 2000. Times eight regular tilings, 5000 made this check exceed the DevTools protocol
-  // timeout and risked exhausting a browser tab.
+  // It has to be far enough: what is being tested is that the rendering does not know how far out it
+  // is, and that fails at d ~ 16 if it fails at all, since that is where a global float frame starts
+  // losing digits. 3000 units is two hundred times past it.
   //
-  // 2000 tiles is 3057 hyperbolic units. The thing being tested -- that the rendering does not know how
-  // far out it is -- fails at d ~ 16 if it fails at all, since that is where a global float frame starts
-  // losing digits, so 3057 exercises it just as completely as 7643 did. What is genuinely no longer
-  // claimed is that going there is CHEAP.
+  // It cannot be much further, because GETTING there is not free. Each tile discovered on the way is
+  // named in exact integer arithmetic and an id's width grows linearly with distance, so a greedy walk
+  // on {8,3} m=4 costs 1.9 s and peaks at 142 MB at 2000 tiles, against 11.7 s and 520 MB at 5000.
+  // Times eight regular tilings, the larger figure exceeds the DevTools protocol timeout and threatens
+  // the browser tab.
   const distances = [1, 5, 50, 500, 2000];
   const failures = [];
   const travelled = [];
@@ -559,11 +554,9 @@ export async function checkBounded(lines) {
 
 // ---- 8. picking agrees with what is on screen -----------------------------------------------
 //
-// `tileAtScreen` must name the tile the RENDERER used, not merely a tile that geometrically contains the
-// point. For word-addressed tilings those differ: {p,q} words are not canonical, so an independent
-// descent can land on the same tile by a different word -- for {5,4}, "2.3" and "1.0" name one tile with
-// centres agreeing to 2.8e-17. Since the artwork's colour is a hash of the ADDRESS, that shows up here
-// as a wrong colour, which is exactly what caught it.
+// `tileAtScreen` must name the tile the RENDERER used, and the artwork here is coloured by a hash of
+// the ADDRESS, so any disagreement between what was picked and what was painted shows up as a wrong
+// colour under the cursor -- which is the sharpest form this question has.
 export async function checkPicking(lines) {
   let tested = 0;
   let wrong = 0;
@@ -654,14 +647,11 @@ window.diagChecks = {
 
 // ---- 9. SMOOTHNESS across a tile boundary -------------------------------------------------------
 //
-// The check the user's own report demanded, and the one the rest of the suite could not make.
+// Panning across a tile centre forces a re-anchor, which is the moment at which a tile's frame or its
+// name could conceivably change. Neither may: frames and ids are functions of the tile. Nothing here
+// may jump.
 //
-// Panning across a tile centre forces a re-anchor. Under the old design that was the instant when every
-// tile's frame could change by an element of the stabiliser C_m and every word address could change
-// with it, so art that was not C_m-invariant, or that depended on its address, snapped. Canonical ids
-// removed both, and this check is what proves it: nothing here may jump any more.
-//
-// Measuring it needs care, and the first two attempts were not sensitive enough:
+// Measuring it needs care, because the obvious ways are not sensitive enough:
 //
 //   * comparing consecutive frames of an ordinary pan buries the jump, because a pan changes a lot of
 //     pixels by itself -- the asymmetric motif scored only 1.3x the median that way;
@@ -673,9 +663,9 @@ window.diagChecks = {
 // and any difference at all is the discontinuity. Each frame is rendered in a FRESH viewport, because
 // re-reading one canvas across renders is not reproducible in Chrome.
 //
-// It used to include a NEGATIVE CONTROL -- art that breaks the rule must be caught -- because this
-// suite has been burned more than once by checks that could not fail. There is no rule left to break,
-// so that control is gone and a SENSITIVITY PROBE takes its place: see below.
+// Nothing here is required to jump, so nothing here can fail by finding a jump that is missing -- and
+// this suite has been burned more than once by checks that could not fail. A SENSITIVITY PROBE supplies
+// the missing half: see below.
 export async function checkSmoothness(lines, only) {
   const H = window.HyperbolicMap;
   const SZ = 240;
@@ -750,12 +740,11 @@ export async function checkSmoothness(lines, only) {
     return { n, worst };
   };
 
-  // Every case is now `mustJump: false`, and the two that were `true` are exactly what canonical ids
-  // fixed: an id-hash colour and a fully asymmetric shape used to snap at every re-anchor on a {p,q}
-  // tiling, and must not any more. That leaves the check with no case that is REQUIRED to jump, so its
-  // anti-vacuity has to come from somewhere else -- see the sensitivity probe below, which measures
-  // that the instrument can still see a real difference. (The binary tiling remains what it always was:
-  // the tiling that never jumped, and so the control for the control.)
+  // The two hostile cases are the last two: an id-hash colour, and a fully asymmetric shape with an
+  // id-hash colour. Those are the combinations that a route-dependent frame or a route-dependent name
+  // would break instantly, and they must be as still as the symmetric ones. The binary tiling is
+  // carried through all five as a control, being the tiling whose addresses are integers and whose
+  // stabiliser is trivial, so it has nothing to get wrong.
   const cases = [];
   for (const key of only || KEYS) {
     cases.push({ key, opts: { motif: "art", hashColour: false } });
@@ -829,11 +818,10 @@ export async function checkSmoothness(lines, only) {
 
 // ---- 10. THE HUNDRED-STEP SCROLL ----------------------------------------------------------------
 //
-// The acceptance test for canonical tile identity, in the form it was asked for: scroll smoothly from
-// one tile centre to the next in a hundred equal steps, with the most hostile art available -- a fully
-// asymmetric stroke coloured by a hash of the tile id -- and require that NO step shows a
-// discontinuity. Every regular tiling. (The binary tiling is included as the control that was always
-// clean.)
+// The acceptance test for canonical tile identity: scroll smoothly from one tile centre to the next in
+// a hundred equal steps, with the most hostile art available -- a fully asymmetric stroke coloured by a
+// hash of the tile id -- and require that NO step shows a discontinuity. Every regular tiling, plus the
+// binary one as a control.
 //
 // Why this and not check 9. Check 9 bisects to the boundary and compares two frames a hundredth of a
 // pixel apart, which isolates the discontinuity but only looks at ONE crossing, the one it went hunting

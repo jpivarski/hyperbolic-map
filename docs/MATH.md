@@ -233,15 +233,15 @@ Pythagoras on the fundamental right triangle).
 > for self-dual `{p,p}`, so an inverted formula survives casual checking. It did here, until the
 > tiling was built and measured instead of compared against another formula.
 
-**Repeating one tile everywhere** works only under a condition worth stating plainly:
+**Repeating one tile everywhere** produces a pattern with a symmetry worth stating plainly:
 
 > The union of copies is symmetric under the walk group **if and only if** the tile's art is
 > invariant under the tile's stabiliser in that group.
 
-So the group you walk with has to match the art you have. Walking with the full symmetry group means
-the stabiliser is all `p` rotations *and* the reflections; walking with rotations only makes it
-`C_p`; and a suitable subgroup can make it `C_m` for any `m` dividing `p`. That is what the
-`frameSymmetry` option selects.
+That is a statement about which *pattern* you get, not a restriction on what you may draw: art that is
+not stabiliser-invariant is drawn perfectly stably (see §6), it simply produces a decorated tiling with
+less symmetry than the tiling itself. Which stabiliser you get is what `frameSymmetry` selects — `C_p`
+for the edge-half-turn group, `C_{p/2}` for the alternate-vertex group.
 
 ### The binary (Böröczky) tiling
 
@@ -359,9 +359,11 @@ constant, so a relative frame has to be *composed along a path* rather than comp
 
 ### What that buys, measured
 
-- The rendered picture is **byte-identical** at 1, 5, 50, 500 and 5000 tiles from the origin, across
-  nine tilings — which is the acceptance criterion: a regular tiling is homogeneous, so however far you
-  scroll it must look exactly as it did at the start.
+- The rendered picture matches, to the last antialiasing level, at 1, 5, 50, 500 and 2000 tiles from
+  the origin, across nine tilings — which is the acceptance criterion: a regular tiling is homogeneous,
+  so however far you scroll it must look as it did at the start. Eight of the nine are byte-identical;
+  `{3,7}` differs on 1–4 channels of 409,600 by one level of 255, because canonicalisation is not
+  equivariant under translation and a tile 120° from where it was rasterises its last bit differently.
 - Screen-position error against a 60-digit `mpmath` reference is **flat in distance**: `3 × 10⁻¹⁶` to
   `1.3 × 10⁻¹⁵` disk units, the same at 5000 tiles as at 0 (worst growth factor 1.0). The *flatness* is
   the property; the magnitude is just float64 epsilon. On the same inputs the global route errs by
@@ -369,68 +371,87 @@ constant, so a relative frame has to be *composed along a path* rather than comp
 - Frame time is flat out to 200,000 tiles (about 150,000 hyperbolic units).
 - `stats.maxViewEntry` stays near 1 forever; it is the invariant made visible.
 
-### The stabiliser: what tile art is allowed to look like
+### Tile identity: naming a tile, exactly
 
-The anchored composition fixes the arithmetic, but it brings a constraint with it that is easy to miss
-and impossible to work around, because it is a property of the group rather than of the code.
+The anchored composition fixes the arithmetic of *where* a tile is drawn. It says nothing about *which*
+tile it is, and that is a separate question with a separate answer.
 
-A tile's frame is not unique. If `F_k` carries the base tile onto tile `k`, so does `F_k · s` for any
-`s` in the **stabiliser** of the base tile — the subgroup fixing it. For a `{p,q}` walk group that
-stabiliser is the cyclic group `C_m` of rotations about the tile centre, `m = frameSymmetry` (default
-`p`). Measured directly, by walking the tile graph and collecting `F_seen⁻¹ · F_new` at every collision:
-every discrepancy is a rotation by a multiple of `2π/m`, never anything else.
+**A tile's frame is not unique.** If `F_k` carries the base tile onto tile `k`, so does `F_k · s` for
+any `s` in the **stabiliser** of the base tile — the subgroup fixing it. For a `{p,q}` walk group that
+stabiliser is the cyclic group `C_m` of rotations about the tile centre, `m = frameSymmetry`. Measured
+directly, by walking the tile graph and collecting `F_seen⁻¹ · F_new` at every collision: every
+discrepancy is a rotation by a multiple of `2π/m`, never anything else. So a tile is not a group
+element; a tile is a **coset** `F · C_m`.
 
-The renderer must therefore pick a representative, and it picks the one the walk reaches first — which
-depends on the **camera**, because the walk starts there. So:
+**The canonical representative.** Take the lexicographically least matrix in the coset. Two routes to
+one tile give `M` and `M · P^j`, and the candidate sets `{M · P^k}` and `{M · P^j · P^k}` are the *same
+set*, so their minima are identical. That is the whole proof that the choice does not depend on the
+route — no automaton, no normal form, no parent heuristic. The winner is simultaneously the tile's
+unique **id** and its canonical **frame**: one object answers both questions.
 
-```
-camera crosses a tile boundary  ⟹  the routes change  ⟹  the representatives change
-```
+Canonicalise over `C_m` and not over the full `C_p`. A canonical frame has to stay inside the set of
+frames the walk can produce; over `C_p`, roughly half of `{8,3}` m=4's tiles would be turned by an odd
+multiple of 45°, and the Escher pattern would shatter into a misaligned variant.
 
-Measured on `{8,3}` with `m = 4`, panning from one octagon centre to the next in 100 steps: at step 51,
-the single step where the anchor changes, **16 of the 30 on-screen tiles change identity**, with no
-motion at all — their displacement is the same 0.00–0.01 disk units as every other step. Their frames
-differ by exactly 0°, ±90° or 180°.
+**Why it has to be exact.** The comparison is between matrices whose entries grow like `cosh(d/2)`. By
+hyperbolic distance ≈ 37 one ulp of such an entry exceeds the spacing between adjacent tile centres, so
+no float test can still tell two tiles apart out there — and identity decided by proximity fails at
+*some* distance however the threshold is tuned. So the representation is integral:
 
-Hence the rule:
+- the ring is `ℤ[μ]`, `μ = 2cos(π/N)`, with `BigInt` coefficients reduced modulo the minimal polynomial
+  of `μ` (monic, so no division ever appears);
+- the group is `[p,q] = Δ(2,p,q)` in its **Coxeter geometric representation** — mirrors `a`, `b`, `c`
+  with `m(a,b) = p`, `m(b,c) = q`, `m(a,c) = 2`, and reflections `S_i = I − e_i·(row i of 2B)`;
+- that representation is **faithful** (Tits; Humphreys §5.3–5.4), which is what promotes matrix equality
+  from a heuristic to a *definition* of group-element equality. It also has no `±M` double cover, unlike
+  SU(1,1);
+- `N = lcm(p,q)`, except that when either index is 3 the ring can be halved, since `2cos(π/3) = 1` is
+  rational and needs no extension at all. That shortcut is a trap: the Dickson identity `λ_n = D_{N/n}(μ)`
+  requires `n | N`, so with `N = 8` and `n = 3` it silently yields `√2` instead of `1` and the Coxeter
+  relations fail. `lambdaFor` asserts it.
 
-> Tile art must be invariant under rotation by `2π/m` about the tile centre, and must not depend on the
-> tile's word address.
+**The published id** is the serialized tile centre `F · v_O`, three ring elements rather than nine. `P`
+fixes `v_O`, so every frame in the coset gives the same vector — the id needs no canonicalisation at all,
+and distinct tiles have distinct centres, so it is injective.
 
-The second half is the same problem wearing different clothes: a word address is not canonical either
-(next section), so `hash(address)` changes at a re-anchor even though the tile has not moved.
+**What this costs.** Naming a tile is ~117 ring multiplications and happens once per tile ever, never
+per frame: measured across a 200-frame pan of the Escher atlas, 197 frames perform zero. An id's text
+grows about 12 characters per tile crossed, so a walk of thousands of tiles is real work — see
+`notes/performance.md`.
 
-**What is still allowed to vary between tiles.** A tile class, provided it comes from a group
-homomorphism `φ: Γ → Z/n`. A homomorphism is defined on group *elements*, so every word for a tile gives
-the same value; and if it kills the stabiliser it descends to tiles. The available `n` is fixed by the
-abelianisation:
+**What it buys.** Tile art may be fully asymmetric and may depend on its own address, at any distance,
+because both the id and the frame are functions of the tile alone.
+
+### Tile classes
+
+Art may key on the id, but the id is unstructured. A **tile class** is the structured alternative: a
+colouring by a group homomorphism `φ: Γ → Z/n` that kills the stabiliser, so it descends to tiles, and
+under which adjacent tiles never agree. The available `n` is fixed by the abelianisation:
 
 | generators | `φ(g)` order | classes |
 |---|---|---|
-| vertex rotations, `m < p` (e.g. `{8,3}` m=4) | `q` | `q` — three for Circle Limit III, a proper 3-colouring |
+| vertex rotations, `m = p/2` (e.g. `{8,3}` m=4) | `q` | `q` — three for Circle Limit III, a proper 3-colouring |
 | edge half-turns, `m = p` | divides 2, and `q·φ(g) = 0` | 2 when `q` is even, 1 when odd |
 
-`BinaryTiling` escapes all of this: its stabiliser is trivial and its `(lat, lon)` addresses are
-canonical, so its cells may each carry different, entirely asymmetric art. That is exactly why it was
-the one tiling that always scrolled cleanly, and why the dungeon demo can put a different room in every
-cell.
+The modulus is verified rather than assumed: the tile graph is walked with exact ids and every pair of
+routes to one tile must agree, or it falls back to a single class.
 
-**Escher's colours are a casualty.** Around an octagon centre in *Circle Limit III* the four fish
-alternate green–orange, so the colouring is only `C₂` while the shape is `C₄`. C₄ shapes in four
-different colours score 0.36 on the library's symmetry check — a clear failure — so the four fish in a
-tile must share a colour, and variety has to come from the tile class instead. This is not a limitation
-of the implementation; a 4-colouring that is not invariant under the stabiliser simply is not a function
-of the tile.
+### Which `frameSymmetry` values exist
 
-### The one thing that is still not canonical
+Only `m = p` and `m = p/2`. For `m = p` the generators are half-turns about edge midpoints, one per
+edge. For `m < p` they are rotations about the `m` vertices whose index is a multiple of `p/m`, two per
+vertex — reaching `2m` of the `p` edges. Covering the plane needs `2m ≥ p`, and `m | p` with `m < p`
+forces `m = p/2` exactly. Smaller values are rejected at construction: `{8,3}` with `m = 2` reaches
+edges 0, 1, 4 and 5 only, and a view that holds 17 tiles would return 5.
 
-Tile *identity*, for regular tilings only. A `{p, q}` address is a word over the generators, reduced
-only freely (`g g⁻¹ → e`). The group also has braid relations, so two words can name one tile: for
-`{5, 4}`, `"2.3"` and `"1.0"` are the same tile, their centres agreeing to `2.8 × 10⁻¹⁷`. The walk
-therefore deduplicates geometrically as well, and picking resolves against the tiles actually drawn so
-that it agrees with what is on screen. The binary tiling has no such problem — its `(lat, lon)` are
-canonical integers (`BigInt`, since descending doubles the longitude). `notes/open-questions.md`
-records the Coxeter shortlex automaton that would make `{p, q}` addresses canonical too.
+### Escher's colours
+
+Around an octagon centre in *Circle Limit III* the four fish alternate green–orange, so the colouring is
+only `C₂` while the shape is `C₄`. Such a tile draws perfectly stably, but it would not reassemble into
+Escher's pattern: which phase a given octagon shows would follow its canonical frame, which is fixed by
+an arithmetic tie-break rather than by anything about the picture, so neighbouring octagons would
+alternate in unrelated senses. The four fish in a tile therefore share a colour and the variety comes
+from the tile class.
 
 <details>
 <summary>What the 2011 code did, and how badly it failed</summary>

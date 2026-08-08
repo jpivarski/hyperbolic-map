@@ -6,8 +6,8 @@
 // (cos(pi/p)/sin(pi/q) is the HALF-EDGE, and the two swap under p <-> q, so they look interchangeable).
 //
 // The anchored tests all share one theme: nothing may depend on how far the camera has travelled. A
-// test that passes at the origin and not at 500 tiles out has found the bug this rewrite exists to
-// remove, so most assertions are run at a range of distances and compared ACROSS them.
+// test that passes at the origin and not at 500 tiles out has found a real bug, so most assertions are
+// run at a range of distances and compared ACROSS them.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -106,6 +106,34 @@ test("{p,q} rejects non-hyperbolic parameters", () => {
   assert.doesNotThrow(() => regularMetrics(5, 4));
 });
 
+test("frameSymmetry accepts only p and p/2, because a smaller m cannot reach its own neighbours", () => {
+  // Dividing p is not enough, and the failure was silent. For m < p the generators are rotations about
+  // the m vertices whose index is a multiple of p/m, two per vertex, so they reach 2m of the p edges;
+  // covering the plane needs 2m >= p, and m | p with m < p forces m = p/2 exactly.
+  //
+  // Measured on the case this rejects: {8,3} with m = 2 reaches edges 0, 1, 4 and 5 and no others, and
+  // a 0.75-radius view returns 5 tiles where 17 belong.
+  for (const [p, q, m] of [[8, 3, 8], [8, 3, 4], [12, 3, 12], [12, 3, 6], [4, 5, 2], [5, 4, 5], [3, 7, 3]]) {
+    assert.doesNotThrow(() => new RegularTiling({ p, q, frameSymmetry: m }), `{${p},${q}} m=${m}`);
+  }
+  for (const [p, q, m] of [[8, 3, 2], [8, 3, 1], [12, 3, 4], [12, 3, 3], [9, 4, 3], [5, 4, 1], [3, 7, 1]]) {
+    assert.throws(() => new RegularTiling({ p, q, frameSymmetry: m }), /cannot tile/, `{${p},${q}} m=${m}`);
+  }
+  // Non-divisors are rejected by the same rule rather than slipping through it.
+  assert.throws(() => new RegularTiling({ p: 8, q: 3, frameSymmetry: 3 }), /cannot tile/);
+
+  // The reason, stated as the property that actually matters: every accepted m reaches all p edges.
+  for (const [p, q, m] of [[8, 3, 8], [8, 3, 4], [12, 3, 6], [6, 4, 3], [10, 4, 5]]) {
+    const t = new RegularTiling({ p, q, frameSymmetry: m });
+    const reached = new Set();
+    for (let g = 0; g < t.generatorCount(); g++) {
+      const c = t.generator(g).applyToDisk(0, 0, [0, 0]);
+      reached.add(((Math.round((Math.atan2(c[1], c[0]) / (2 * Math.PI)) * p) % p) + p) % p);
+    }
+    assert.equal(reached.size, p, `{${p},${q}} m=${m} reaches only ${reached.size} of ${p} edges`);
+  }
+});
+
 test("edge half-turn generators reach every neighbour, for odd p too", () => {
   for (const [p, q] of PAIRS) {
     const t = new RegularTiling({ p, q });
@@ -122,8 +150,8 @@ test("edge half-turn generators reach every neighbour, for odd p too", () => {
 
 test("an edge half-turn squares to -I, so g inverse is g as an ISOMETRY", () => {
   // The Spin(2,1) double cover, audit claims 9 and 9b. The matrix does NOT square to +I, and code
-  // that compares frames must therefore work up to sign. This is also what makes words
-  // walk-reversible with the same generator index.
+  // that compares frames must therefore work up to sign. It is also why, for m = p, the edge back to a
+  // parent carries the same generator index as the edge out.
   for (const [p, q] of PAIRS) {
     const t = new RegularTiling({ p, q });
     for (let k = 0; k < p; k++) {
@@ -185,11 +213,6 @@ test("every tiling's generator set is closed under inverse, up to sign", () => {
       `binary generator ${i} times its claimed inverse ${j} is not the identity`,
     );
   }
-});
-
-test("frameSymmetry must divide p", () => {
-  assert.throws(() => new RegularTiling({ p: 8, q: 3, frameSymmetry: 3 }), /must divide/);
-  assert.doesNotThrow(() => new RegularTiling({ p: 8, q: 3, frameSymmetry: 2 }));
 });
 
 // ---- the binary tiling's constant generators ----
@@ -440,14 +463,12 @@ test("the neighbourhood walk is IDENTICAL however far the camera has travelled",
   // The sharpest statement of the fix. A regular tiling is homogeneous, so the set of relative frames
   // around the camera cannot depend on where the camera is -- and now it provably does not, because
   // nothing in the computation knows.
-  // Compared to twelve decimals, with values below that treated as zero.
-  //
-  // This used to be bit-for-bit string equality, and it no longer can be: each walk step now carries a
-  // C_m correction whose power of P depends on WHICH tile it is, so the float products are associated
-  // differently at different places even though the geometry is the same. What differs is the last bit
-  // -- a coordinate that is +0 at the origin comes out as -1.2e-16 far away -- and printing that with
-  // toFixed(12) yields "-0.000000000000" against "0.000000000000". Twelve decimals is the precision
-  // this test asserts; below it, zero is zero.
+  // Compared to twelve decimals, with values below that treated as zero -- NOT bit for bit, and the
+  // reason is worth knowing. Each walk step carries a C_m correction whose power of P depends on which
+  // tile it is, so the same geometry is reached by a differently associated product of floats in
+  // different places. What differs is the last bit: a coordinate that is +0 at the origin comes out as
+  // -1.2e-16 far away, which toFixed(12) prints as "-0.000000000000" against "0.000000000000". Twelve
+  // decimals is the precision this test asserts; below it, zero is zero.
   //
   // Note this compares tile CENTRES, not frames. The frames genuinely do differ between locations, by
   // a rotation of each tile about its own centre -- that is the canonical orientation doing its job.
@@ -636,10 +657,9 @@ test("addresses round-trip: walk out and back returns the same address", () => {
   // nothing until a hundred steps later.
   for (const spec of REGULARS) {
     const t = new RegularTiling(spec);
-    // The greedy outward walk, not a fixed arithmetic sequence of generator indices. `(i * 7 + 3) % n`
-    // used to be the path here, and for {7,3} -- seven generators -- it is the CONSTANT 3, one
-    // finite-order generator applied two hundred times, which travels 2.7 units and comes home for free.
-    // The anti-vacuity assertion below is what found that.
+    // The greedy outward walk, and NOT a fixed arithmetic sequence of generator indices: `(i * 7 + 3) % n`
+    // is the constant 3 for {7,3}, which is one finite-order generator applied two hundred times. That
+    // travels 2.7 units and comes home for free, which is why the anti-vacuity assertion below exists.
     let { address: a, path } = advanceAddressWithDistance(t, 200, 90210 + spec.p);
     assert.ok(addressDistance(t, a) > 20, `{${spec.p},${spec.q}} only reached ${addressDistance(t, a)}`);
     for (let i = path.length - 1; i >= 0; i--) {
@@ -669,8 +689,8 @@ test("addresses round-trip: walk out and back returns the same address", () => {
 });
 
 test("a tile reached two different ways is recognised as one tile", () => {
-  // Word addresses are not canonical, so the walk deduplicates geometrically. This checks that the
-  // dedup actually fires: going around a vertex must not produce p copies of one tile.
+  // Going around a vertex reaches one tile by several routes, and the walk must return it once. This
+  // checks that the dedup actually fires rather than never being exercised.
   const t = new RegularTiling({ p: 5, q: 4 });
   const anchor = new Anchor(t);
   const tiles = anchor.neighbourhood(Isom.identity(), 0.85, 400);
@@ -700,14 +720,14 @@ test("a {p,q} generator can have FINITE ORDER, so a long walk can be standing st
   assert.ok(!sameIsometry(g0.mul(g0), I), "g0 should NOT be an involution for m=4");
   assert.ok(sameIsometry(g0.mul(g0).mul(g0), I), "g0 should have order 3 as an isometry for m=4");
 
-  // The consequence, stated on addresses -- and stating it now takes the transport table, which is
-  // itself worth pinning.
+  // The consequence, stated on addresses -- and stating it takes the transport table, which is itself
+  // worth pinning.
   //
-  // Repeating generator INDEX 0 is no longer the same thing as repeating the group element g0. Each
-  // step lands in the child's canonical frame, which differs from the frame the step produced by a
-  // power of P, so the next "index 0" is a different geometric move. To follow g0 itself, transport the
-  // index through the accumulated correction: if the walked frame is W and the canonical frame is
-  // W . P^j, then W . g0 is reached by generator pi_{-j}(0).
+  // Repeating generator INDEX 0 is not the same thing as repeating the group element g0. Each step
+  // lands in the child's canonical frame, which differs from the frame the step produced by a power of
+  // P, so the next "index 0" is a different geometric move. To follow g0 itself, transport the index
+  // through the accumulated correction: if the walked frame is W and the canonical frame is W . P^j,
+  // then W . g0 is reached by generator pi_{-j}(0).
   const seen = new Set();
   let a = t.originAddress();
   let j = 0;
@@ -793,19 +813,18 @@ test("advanceAddress refuses to return a walk that did not travel", () => {
   }
 });
 
-test("THE RULE: a tile's frame is defined only up to the stabiliser C_m", () => {
-  // This is the constraint every piece of tile art must satisfy, so it is measured here the same way
-  // the renderer produces it, not asserted from theory.
+test("two routes to one tile differ by exactly the stabiliser C_m, never more", () => {
+  // The group fact that canonicalisation rests on, measured rather than taken from theory.
   //
-  // Walk the tile graph keeping one frame per tile. When a second route reaches a tile already seen,
-  // `frame_seen^-1 . frame_new` is the discrepancy between two equally valid frames for ONE tile. Every
-  // such discrepancy must be a rotation about that tile's centre by a multiple of 2*pi/m -- never a
-  // translation, never any other angle.
+  // Walk the tile graph with RAW generator products, keeping one frame per tile. When a second route
+  // reaches a tile already seen, `frame_seen^-1 . frame_new` is the discrepancy between two frames for
+  // ONE tile. Every such discrepancy must be a rotation about that tile's centre by a multiple of
+  // 2*pi/m -- never a translation, never any other angle. That is what makes the coset F.C_m the right
+  // object to canonicalise over: the ambiguity is exactly C_m and nothing else, so choosing the
+  // lex-least member of it resolves exactly as much as needs resolving.
   //
-  // The renderer cannot avoid this: it reaches each tile by the shortest route from the CAMERA, so the
-  // route changes when the camera re-anchors, and with it the frame. Art that is not C_m-invariant
-  // therefore jumps as you scroll. Measured on {8,3} m=4: 16 of 30 on-screen tiles rotated by a multiple
-  // of 90 degrees at one re-anchor.
+  // Measured on {8,3} m=4: 16 of 30 on-screen tiles differ by a multiple of 90 degrees between two
+  // routes, which is the size of the ambiguity being removed.
   for (const spec of [
     { p: 8, q: 3, frameSymmetry: 4 }, { p: 8, q: 3 }, { p: 7, q: 3 }, { p: 5, q: 4 },
     { p: 4, q: 5 }, { p: 6, q: 4 }, { p: 3, q: 7 }, { p: 12, q: 3 },
@@ -850,7 +869,6 @@ test("the binary tiling's stabiliser is trivial, so its art is unconstrained", (
   // The reason the dungeon demo can put a DIFFERENT room in every cell while a {p,q} atlas cannot.
   const b = new BinaryTiling();
   assert.equal(b.stabiliserOrder, 1);
-  assert.ok(b.addressesAreCanonical);
   // No two routes ever disagree: addresses are canonical integers, so a cell has exactly one frame.
   const seen = new Map();
   const queue = [{ a: b.originAddress(), m: Isom.identity() }];
@@ -872,10 +890,10 @@ test("the binary tiling's stabiliser is trivial, so its art is unconstrained", (
   assert.ok(checked > 20, `only ${checked} revisits -- not exercising anything`);
 });
 
-test("tile classes are path-independent, which addresses are not", () => {
-  // The escape hatch that lets a {p,q} atlas vary its art per tile at all. A tile's WORD is not
-  // canonical, so art keyed on it jumps as you scroll; a class coming from a group homomorphism is
-  // canonical, because a homomorphism is defined on group elements rather than on spellings.
+test("tile classes agree by every route, and are a proper colouring", () => {
+  // A class comes from a group homomorphism phi: Gamma -> Z/n, so it is defined on group ELEMENTS and
+  // every route to a tile computes the same value -- provided the modulus really is one the group
+  // admits, which is what this checks.
   //
   // Checked the way it can fail: walk the graph, and every time a second route reaches a tile already
   // seen, the two routes must agree on the class.

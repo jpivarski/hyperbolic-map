@@ -3,30 +3,6 @@
 Things that are genuinely unresolved. Kept separate from `math-audit.md`, which records only what has
 been settled.
 
-## Unproven by design
-
-### The canonical-word rule for regular-tiling tile keys
-
-`src/data/atlas/tilekey.js` canonicalises a tile's word by a **greedy geometric parent rule**: from a
-tile's frame, rank the neighbour centres by `(round(log⟨C,O⟩/qs), round(atan2(y,x)/qa))` and step to
-the strictly-lower-ranked minimum.
-
-This is a heuristic, not a theorem. It is the single largest design risk in the library.
-
-- **Why it should work:** the rank is a strict total order under quantisation, so the parent chain is
-  unique, acyclic and terminates at the root; the quantisation is *relative*, so it behaves the same at
-  every distance; and ties occur only across exact symmetry walls, where the angular tie-break resolves
-  them identically every time.
-- **Why it might not:** "should be a strict total order under quantisation" is exactly the kind of claim
-  that fails on a measure-zero set that turns out not to be measure zero in floating point.
-- **The guard:** a property test enumerating 50,000 tiles and asserting that word↔tile is a bijection.
-  If that ever fails, do not patch the heuristic — switch schemes.
-- **The rigorous alternative:** Coxeter shortlex normal form. Coxeter groups are automatic, so a finite
-  DFA recognises exactly the canonical coset representatives of `⟨s₁,s₂⟩` (the tile stabiliser) and BFS
-  over the DFA enumerates tiles with no duplicates and provably unique keys. Costs a per-`{p,q}` DFA
-  construction and variable-length string keys. Keep the `Tiling` interface swappable so this can be
-  dropped in without touching the atlas.
-
 ## Unconfirmed from the literature
 
 Recorded so nobody re-spends the effort assuming it is settled.
@@ -66,47 +42,6 @@ Recorded so nobody re-spends the effort assuming it is settled.
   portrait canvas, which is not a behaviour anyone would choose deliberately.
 
 
-## The far-field precision ceiling, and the floating origin that would remove it
-
-**Measured, 2026-08-06.** The view is a single SU(1,1) matrix relative to the data origin, so its
-entries grow like `cosh(d/2)`. Consequences, all measured rather than estimated:
-
-| distance | behaviour |
-|---|---|
-| d <= 28 | the visible tile set is a pure function of the view; stable under a one-ULP or renormalising perturbation across 24 bearings |
-| d = 30 | first failures: 2 bearings of 24 |
-| d = 34 | 13 of 24 |
-| d ~ 37 | entries reach 1e8, one ULP of `|a|^2` exceeds the spacing between adjacent tile centres |
-
-Why it matters in practice rather than in principle: the Escher atlas is unbounded, so a random pan
-**reaches d ~ 39 within a couple of minutes of dragging**. Past the ceiling the picture starts to
-depend on the route taken rather than only on the view -- `setMatrix` renormalises, shifting the
-matrix by about one ULP, and that is enough to change which tiles the walk finds. Confirmed by
-comparing against a from-scratch render with the caches cleared: the reset frame always matched
-ground truth exactly, and it was the gestured frame that deviated.
-
-`vp.stats.viewDistance` now exposes this so an application can see it coming.
-
-### The fix: a floating origin
-
-Store the view relative to the tile containing the view centre rather than to the data origin.
-
-    originKey   the tile the camera is in
-    viewLocal   the view matrix expressed in THAT tile's frame -- always O(1) entries
-
-Then `net = viewLocal * frameRelativeTo(originKey, key)`, and both factors stay small for every tile
-actually on screen, so precision no longer depends on where the camera has wandered. Re-anchor
-whenever `locate()` reports a different tile: fold the old origin's frame into the new one, which is
-a single composition of two O(1)-ish matrices.
-
-Half the machinery already exists: `RegularTiling.visible` already conjugates by the starting tile's
-frame for deduplication, for exactly this reason. What is missing is expressing tile keys relative to
-an origin and re-anchoring the viewport.
-
-Deliberately not attempted in this session: it changes atlas addressing, which is load-bearing for
-both tiled demos, and it was 3 a.m. The measured ceiling is documented and tested instead, so the
-limit is known rather than lurking.
-
 ## Truncation-boundary flicker at the rim
 
 Separate from the ceiling, and smaller. When the walk hits `maxTiles`, which tile is the last one
@@ -115,76 +50,37 @@ tiles are the farthest ones, crushed against the rim, so the visible effect is t
 these as a worst-cell difference under 15 with a mean around 0.006, i.e. one downsampled cell moving
 slightly. It is why a handful of path-dependence findings appear below the precision ceiling.
 
-A stable tie-break -- ordering the frontier by exact distance and admitting in that order, as
-`BinaryTiling.visible` now does -- would remove it. `RegularTiling.visible` still admits in BFS
-order.
+The walk gathers twice the budget and then keeps the NEAREST `maxTiles` of them, which is the stable
+tie-break and removes most of it. What remains is the boundary of the gather itself, which is still BFS
+order; it has not been observed to matter.
 
+## The cost of naming tiles globally
 
-## Word addresses for {p,q} are not canonical, and by how much
+**Measured, 2026-08-08.** A tile's id is an exact integer name, and any correct global name needs
+`Omega(d)` bits — there are exponentially many tiles within distance `d`. So naming is not free, and the
+cost has a particular shape:
 
-**Measured, 2026-08-06.** A regular tiling's tile address is a word over the generators, reduced only
-FREELY (`g g^-1 -> e`). The {p,q} group also has braid relations, so two words can name the same tile
-without being freely equal. If a camera's inbound path differs anywhere from its outbound path, the
-leftover is a relator that free reduction cannot cancel.
-
-Over roughly 100 tile crossings out and back, across eight tilings: **four return to the origin word,
-the rest end 4 to 15 symbols away.** Two things were tried and neither closes it:
-
-* finishing the re-anchor on the exact `containsLocal` predicate rather than a nearest-centre
-  comparison with a tolerance. This halved the incidence (from 8 of 8 to 4 of 8) and is worth keeping
-  on its own merits -- it makes the camera tile a pure function of the view centre, verified as
-  containing it in 4,500 of 4,500 frames -- but it cannot fix a word-theoretic problem;
-* free reduction, which by construction only cancels adjacent inverse pairs.
-
-### A sharper form of the same thing: generators of finite order
-
-**Measured, 2026-08-06.** The drift above is bounded in practice, but the underlying non-canonicality is
-not bounded at all, and there is a clean demonstration. For `{8,3}` with `frameSymmetry: 4` the steps are
-`2*pi/3` rotations about octagon *vertices* — legitimate edge-neighbour moves, since three octagons meet
-at a vertex and pairwise share edges — and such a rotation has **order 3**: `g0^3 = -I`, `g0^6 = +I`.
-
-So the word `"0.0.0.0.0"` has five symbols and names a tile **1.53 units** from the origin, and `g0^5000`
-names that same tile. Word length is not distance, and an address can grow without bound while the tile it
-names does not move.
-
-Consequences beyond spelling: nothing for geometry (the frame composes to the right isometry either way),
-but two practical ones.
-
-* Address strings can grow unboundedly along a bounded journey, so `addressToString` cost and word memory
-  are not bounded by distance travelled. The cons-cell representation keeps extension O(1) and the
-  compound-scroll stress reached only 3,203 symbols over 354 gestures, so this is a latent cost rather
-  than an observed problem — but it is not bounded by anything structural.
-* It defeats the obvious anti-vacuity guard in tests. Asserting `address.len >= n` does NOT establish that
-  an `n`-step walk went anywhere, and refusing to backtrack does not either. Two rounds of vacuous-walk
-  repair were spent learning this; `test/helpers.mjs` now measures real hyperbolic distance instead, and
-  `advanceAddress` throws rather than return a walk that stalled.
-
-Shortlex normalisation would fix the spelling; it would not make word length a distance.
-
-### What it does and does not affect
-
-Not the geometry. The camera tile still contains the view centre, the picture is still a function of
-the view, and a geometric round trip restores the view to 1e-15 (checked at a distance where the global
-view is still well-conditioned enough to be checked at all). The view is the address AND the matrix
-together; only the address's SPELLING drifts.
-
-What it affects is tile IDENTITY, and therefore anything keyed on it:
-
-| case | affected? |
+| what | measured on the Escher atlas, `{8,3}` m=4, 200 tiles, 560 px |
 |---|---|
-| `BinaryTiling` | **No** -- integer addresses are canonical. Verified: 1,144 crossings out to longitude -7.4e11 and back to (0,0) exactly. |
-| the Escher atlas | **No** -- the same data is returned for every tile, so identity is only a cache key. |
-| the diagnostics' colour hash | Yes -- a tile could change colour after a long round trip. It is a diagnostic, and this is exactly the kind of thing it is built to reveal. |
-| a position-dependent {p,q} dataset | Yes. No such dataset exists in this repo, but a user could write one. |
+| steady-state frame | 16.4 ms median; **197 frames in 200 do zero ring multiplies** |
+| first frame of all | 250 ms — every visible tile is named at once |
+| first frame past a tile boundary into unexplored ground | ~130 ms, ~1,800 edges at ~117 ring multiplies each |
+| panning back over ground already walked | free |
+| id text | ~12 characters per tile crossed |
+| a greedy 2,000-tile walk | 1.9 s, 142 MB peak (5,000 tiles: 11.7 s, 520 MB) |
 
-### The rigorous fix, if it is ever needed
+Three things could reduce it, in increasing order of effort:
 
-Coxeter groups are automatic: a DFA recognises shortlex-canonical words, giving a provably unique
-address per tile with no geometric fallback. That is the standard answer and is a self-contained piece
-of work -- build the automaton for the (2,p,q) triangle group and its rotation subgroup, then normalise
-each address after extending it.
+1. **Cheaper canonicalisation.** The 117 divides as 27 for `F_parent . G_g`, 9 for the id vector, and
+   `27(m-1)` to canonicalise, so canonicalisation dominates and grows with `m`. Lex-min over the `m`
+   images of `v_M` rather than over matrices would make it `9m + 27` — a large win for `{12,3}`. It
+   renames every tile, so it is not a change to make casually.
+2. **Amortising the burst.** The spike is entirely "tiles never seen before, all at once". Naming a
+   budget of new tiles per frame, or warming the frontier during idle time, would spread it.
+3. **A smaller name.** The matrix encoding spends ~78 bits per tile step where the information-theoretic
+   floor is ~3. A shortlex normal form over the generators would approach the floor and would share
+   prefixes between tiles, making the store `O(N)` rather than `O(N * d)` — at the cost of building and
+   trusting an automaton per `{p,q}`.
 
-Not done here because the geometry -- the thing that was actually broken and the thing the user asked
-for -- is exact without it, and because a wrong automaton would be a new class of silent bug. The test
-`KNOWN LIMIT: a regular tiling's word address can drift over a long round trip` pins the current
-behaviour and asserts the drift stays small, so a regression that made it unbounded would be caught.
+The store is bounded meanwhile (`NODE_FLOOR`, `ID_CHAR_BUDGET` in `tiling.js`), so memory is linear in
+distance rather than quadratic, and eviction costs only recomputation.

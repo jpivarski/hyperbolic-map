@@ -210,10 +210,10 @@ test("the mode guards refuse in the right mode and name the alternative", () => 
 // ---- panning must not rotate -----------------------------------------------------------------------
 
 test("panTo/panToTile preserve the screen rotation", () => {
-  // Both used to assign a bare `translationToLocal(...).inverse()`, which has screen rotation zero, so
-  // any pan silently levelled the map. Invisible on a page that never rotates; on dungeon-man.html,
-  // which opens at rotation pi because its art is drawn upside down in the cell frame, pressing "jump
-  // to row" turned the whole dungeon over.
+  // Assigning a bare `translationToLocal(...).inverse()` would have screen rotation zero, so any pan
+  // would silently level the map. Invisible on a page that never rotates; on dungeon-man.html, which
+  // opens at rotation pi because its art is drawn upside down in the cell frame, "jump to row" would
+  // turn the whole dungeon over.
   //
   // Tested on the prototype with a stand-in `this`: panMatrix needs no DOM, and the two callers differ
   // only in which guard they run first.

@@ -18,7 +18,6 @@
 // compose overlays. Rotation into each tile's frame is the library's job, never the callback's: the
 // callback only ever sees and returns tile-local coordinates.
 
-import { Isom } from "../../core/isom.js";
 import { compileDrawables } from "../drawable.js";
 import { geodesicArc, Arc } from "../../render/geodesic.js";
 import { halfPlaneToLocal } from "../../core/coords.js";
@@ -42,13 +41,12 @@ export class Atlas {
       styleSheet = null,
       onTileLoad = null,
       onTileError = null,
-      // "off" | "warn" | "throw". An OPT-IN LINT, and off by default.
+      // "off" | "warn" | "throw". An OPT-IN LINT, off by default.
       //
-      // It used to default to "warn", because it used to enforce a real constraint: a tile's frame was
-      // whatever route the walk took to reach it, so art that was not C_m-invariant jumped when the
-      // camera re-anchored. A tile's frame is now canonical -- a function of the tile and nothing else
-      // -- so fully asymmetric art is fine and warning about it would be wrong. What remains is a lint
-      // for art that is MEANT to be rotationally symmetric and has drifted.
+      // Tile frames are canonical, so asymmetric art is perfectly stable and there is nothing here to
+      // enforce. Switch it on when the art is MEANT to be C_m-symmetric -- a repeating pattern like the
+      // Escher atlas, where losing the symmetry means the pattern is no longer the one being drawn --
+      // and it will tell you when it has drifted.
       checkTileSymmetry = "off",
       tileSymmetryTolerance = 1e-6,
       // Below this on-screen tile radius (in CSS pixels) a tile draws its `lod` art instead of its full
@@ -88,20 +86,19 @@ export class Atlas {
     this.tileLocalRadius = Math.sinh((tiling.metrics.circumradius || 1) / 2);
     // Compiled art, memoised on the IDENTITY of the object the callback returned.
     //
-    // On a {p,q} tiling the walk renames many tiles at once when the camera re-anchors, so they all miss
-    // the address-keyed cache together. Measured on the Escher atlas during a drag: the re-anchor frame
-    // recompiled 160 tiles and took 125 ms, against a 16 ms median. But the data itself had not changed
-    // -- the rule says art on such a tiling may only depend on the tile CLASS, so a sane provider
-    // returns one of a few shared objects, and those had already been compiled. Keying on object
-    // identity turns the whole stall into 160 map lookups without needing to know anything about the
-    // provider. A provider that builds a fresh object every call gets today's behaviour, unchanged.
+    // A repeating atlas hands back one of a few shared objects for every tile -- the Escher atlas has
+    // three, one per tile class -- so compiling per tile would redo identical work. Keying on object
+    // identity collapses that to a map lookup without needing to know anything about the provider, and
+    // is what keeps a burst of cache misses cheap: 160 tiles compiled from scratch cost 125 ms against
+    // a 16 ms median frame. A provider that builds a fresh object every call simply misses this memo
+    // and pays the compile, which is correct.
     this._compiled = typeof WeakMap === "function" ? new WeakMap() : null;
   }
 
-  // THE RULE, enforced. See symmetry.js for why this matters and what goes wrong without it.
+  // The symmetry lint. See symmetry.js for what it measures and when it is worth switching on.
   //
-  // Only meaningful for tilings with a non-trivial stabiliser: the binary tiling has none, so its art is
-  // unconstrained and this is skipped entirely.
+  // Only meaningful for tilings with a non-trivial stabiliser: the binary tiling has none, so C_1
+  // symmetry is vacuous and this is skipped entirely.
   verifyTileSymmetry(data) {
     if (this._symmetryChecked || this.checkTileSymmetry === "off") return;
     const m = this.tiling.stabiliserOrder;
@@ -164,17 +161,11 @@ export class Atlas {
 
     // A SYNCHRONOUS callback must be served in THIS frame.
     //
-    // Going through a promise even for data that is already in hand costs a frame, and that frame used
-    // to be visible on a {p,q} tiling: word addresses were not canonical, so when the camera re-anchored
-    // the walk renamed many tiles at once, every renamed tile missed the cache, and every one of them
-    // vanished for exactly one frame. Measured on {7,3} panning one tile spacing in 60 steps: 26 of the
-    // on-screen tiles disappeared together on the single re-anchor frame, plus 1-3 per frame from tiles
-    // entering at the rim. That is the flicker. The binary tiling barely showed it (worst 2) because its
-    // addresses were already canonical and nothing got renamed.
-    //
-    // Canonical ids have since removed the renaming for regular tilings too, so re-anchoring no longer
-    // evicts anything. The synchronous path stays: it is still a frame saved for tiles entering at the
-    // rim, and the reasoning above is the record of why it exists.
+    // Going through a promise even for data already in hand costs a frame, and a tile that is not drawn
+    // for one frame is a tile that visibly blinks. Tiles enter at the rim continuously while panning,
+    // 1-3 per frame, so this is not a rare event -- it is the difference between a clean edge and a
+    // shimmering one. Asynchronous providers cannot avoid the first frame; synchronous ones should not
+    // pay for it.
     let result;
     try {
       result = this.tileData(tile);
@@ -213,9 +204,8 @@ export class Atlas {
       this.cache.set(keyString, empty);
       return empty;
     }
-    // Check THE RULE once, on the first tile that carries artwork: is this art invariant under the tile
-    // stabiliser? If not, it will jump as the camera scrolls, and nothing else in the library will
-    // complain. Once, not per tile: the answer is a property of the art, and the check is O(shapes^2).
+    // Run the symmetry lint once, on the first tile that carries artwork. Once, not per tile: the
+    // answer is a property of the art, and the check is O(shapes^2).
     this.verifyTileSymmetry(data);
     let entry = this._compiled && typeof data === "object" ? this._compiled.get(data) : null;
     if (!entry) {
@@ -252,8 +242,8 @@ export class Atlas {
   // Build the render passes for the current view: one per visible tile, each with its own matrix and
   // clip path.
   // The tiles the last render used, each with the composed matrix that placed it. Kept so overlays and
-  // diagnostics can work in the same frames the renderer used, instead of recomputing a global frame
-  // (which is what the outline overlay in the Escher demo used to do, and cannot any more).
+  // diagnostics can work in the same frames the renderer used; a global frame is not available to them
+  // and recomputing one is exactly what this design exists to avoid.
   //
   // Populated by passes(); `net` maps tile-local coordinates straight to screen-disk coordinates.
   lastTiles = [];

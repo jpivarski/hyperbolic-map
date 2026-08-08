@@ -19,10 +19,9 @@ runs out, which is what Escher was reaching for and could not physically carve.<
 <p>The tile is traced directly from the woodcut and made <strong>exactly C<sub>4</sub>-symmetric by
 construction</strong> &mdash; one 90&deg; sector is traced and repeated by exact rotation. That is not
 decoration: it is what makes this the same pattern Escher drew, in which every fish sits at 90&deg; to
-its neighbours. (It was once required as well &mdash; a tile&rsquo;s frame depended on the route the
-walk took to reach it, so art that was not C<sub>4</sub>-invariant visibly rotated as you scrolled
-across a tile boundary. Frames are canonical now and asymmetric art is stable, which
-<a href="tiling-diagnostics.html">the tiling diagnostics</a> demonstrates.)</p>
+its neighbours. Asymmetric tile art is perfectly stable here (see
+<a href="tiling-diagnostics.html">the tiling diagnostics</a>); it simply would not be <em>this</em>
+pattern.</p>
 
 <div id="map"></div>
 <p class="status"><span id="status">…</span></p>
@@ -51,17 +50,17 @@ construction.</p>
 
 <h2>Why the fish are not Escher&rsquo;s four colours</h2>
 
-<p>Because they provably cannot be. Around an octagon centre Escher&rsquo;s four fish alternate
-green&ndash;orange&ndash;green&ndash;orange, so his colouring is only C<sub>2</sub> while the shape is
-C<sub>4</sub>. Painting C<sub>4</sub> shapes in four different colours fails the stabiliser rule
-outright &mdash; the library&rsquo;s own check scores it 0.36 &mdash; and the fish would change colour
-under you as you scrolled.</p>
+<p>Around an octagon centre Escher&rsquo;s four fish alternate green&ndash;orange&ndash;green&ndash;orange,
+so his colouring is only C<sub>2</sub> while the shape is C<sub>4</sub>. Such a tile is perfectly stable
+to draw &mdash; frames are canonical, so nothing shifts as you scroll &mdash; but it would not reassemble
+into <em>his</em> pattern. Which of the two phases a given octagon shows would be decided by that
+tile&rsquo;s canonical frame, and the canonical frame is fixed by an arithmetic tie-break rather than by
+anything about the picture, so neighbouring octagons would alternate in unrelated senses.</p>
 
 <p>So the four fish in an octagon share a colour, and the variety comes from the <strong>tile
 class</strong> instead. The <code>433</code> group admits a three-class homomorphism, which gives a
-proper 3-colouring of the octagons in which no two neighbours match. Being a homomorphism, it is the
-same whichever route the walk took to reach a tile &mdash; unlike a tile&rsquo;s word address, which is
-not canonical and would flicker.</p>
+proper 3-colouring of the octagons in which no two neighbours match &mdash; a structure of the tiling
+itself, so it looks like a pattern rather than like noise.</p>
 
 <p class="note">Honest about the source: Escher&rsquo;s woodcut is hand-drawn, and the raster it is
 traced from here is 316&nbsp;px across, so the outlines are approximate and the fish are simplified.
@@ -83,8 +82,7 @@ try {
   const tiling = new HyperbolicMap.RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
 
   // One recoloured copy of the tile per CLASS, built once. The class comes from a group homomorphism,
-  // so it is the same whichever route the walk took to a tile -- which is what makes it safe to key art
-  // on, and why the tile's word address is not.
+  // so adjacent octagons never share one and the result reads as a proper 3-colouring of the tiling.
   const BODY_IN_FILE = "#7ba05b";
   const CLASS_COLOURS = ["#79bd68", "#e1ba62", "#cf7050"];
 
@@ -133,9 +131,9 @@ try {
         tileData: (t) => (byTileClass ? byClass[t.classIndex % byClass.length] : byClass[0]),
         clip: clip ? "always" : "never",
         maxTiles: 200,
-        // Opt in to the symmetry lint and make it fatal. Not a correctness requirement any more --
-        // tile frames are canonical, so asymmetric art would be fine -- but THIS art is meant to be
-        // exactly C_4-symmetric, and if it ever stops being so the pattern is no longer Escher's.
+        // Opt in to the symmetry lint and make it fatal. Not a correctness requirement -- tile frames
+        // are canonical, so asymmetric art is fine -- but THIS art has to be exactly C_4-symmetric or
+        // the pattern it assembles into is not Escher's.
         checkTileSymmetry: "throw",
       },
       onAfterDraw: outline

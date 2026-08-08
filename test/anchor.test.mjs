@@ -319,16 +319,11 @@ test("binary addresses round-trip EXACTLY, however long the walk", () => {
 });
 
 test("a regular tiling's address does not drift over a long round trip", () => {
-  // This test used to be called KNOWN LIMIT, and it recorded the defect that canonical ids were built
-  // to remove. A word address is reduced only freely (g g^-1 -> e), but the group also has braid
-  // relations, so two words can name one tile without being freely equal; if the inbound path differed
-  // from the outbound one anywhere, the leftover was a relator that free reduction could not cancel.
-  // Measured over ~100 tile crossings out and back: 4 of 8 tilings came home to the origin word and the
-  // rest ended 4 to 15 symbols away, so the same tile could be handed a different key -- and with it a
-  // different orientation -- after a round trip.
+  // The assertion is EQUALITY, not a bound on the drift, and that is the point: an id is a canonical
+  // coset representative rather than a record of the route taken, so a camera that wanders out along
+  // one path and back along another comes home to the same id and the same orientation. Nothing here
+  // needs a tolerance.
   //
-  // An id is now a canonical group-coset representative rather than a route, so the assertion is
-  // EQUALITY, not a bound on the drift, and it holds at any number of crossings.
   // Up to nine legs, about a hundred tile crossings. Not further, and the reason is the CAMERA, not
   // the addressing: the view matrix is rebased at every crossing, and the residual error of an
   // out-and-back excursion grows with how far out it went. Measured on {4,5}, the view returns to

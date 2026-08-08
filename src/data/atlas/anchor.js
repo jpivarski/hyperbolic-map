@@ -84,9 +84,9 @@ export class Anchor {
     let steps = 0;
     // Monotonicity guard. Each step must bring the view centre strictly closer to the camera tile's
     // centre; that is what makes the descent terminate. Enforcing it here rather than trusting each
-    // tiling's rule means a future tiling with a subtly non-monotone `stepToward` degrades to "stop
-    // early" instead of spinning to the iteration cap -- which is how a 2-cycle presented itself before:
-    // 4,096 steps on a single camera move.
+    // tiling's rule means a tiling with a subtly non-monotone `stepToward` degrades to "stop early"
+    // instead of spinning to the iteration cap -- which is what a 2-cycle looks like: 4,096 steps on a
+    // single camera move.
     let previous = Infinity;
     for (; steps < maxSteps; steps++) {
       this.viewCentreLocal(current, c);
@@ -94,15 +94,15 @@ export class Anchor {
       previous = c[2];
       // Ask the tiling which way to go. Each tiling answers with an EXACT, monotone rule -- the most
       // violated half-plane for a regular tiling, the box test for a binary cell -- so the descent
-      // cannot cycle. An earlier version used a generic nearest-centre comparison with a tolerance,
-      // which is fine for Voronoi cells but wrong for binary ones: mixing it with a containment check
-      // made the two rules fight, and 500 small camera moves cost 143,407 re-anchor steps instead of
-      // about 30.
+      // cannot cycle. It must be the TILING's rule and not a generic nearest-centre comparison with a
+      // tolerance: that suits Voronoi cells but not binary ones, and mixing it with a containment check
+      // makes the two rules fight -- measured, 500 small camera moves then cost 143,407 re-anchor steps
+      // against about 30.
       //
       // The answer is an INDEX INTO the neighbour list, which is why the list's order is part of the
       // Tiling contract. Naming a generator instead cannot work for the binary tiling, whose parent
       // step has two parities: an odd-longitude cell offers only PARENT_ODD, so a request for
-      // PARENT_EVEN silently found nothing and the camera could never move up at all.
+      // PARENT_EVEN finds nothing and the camera can never move up at all.
       const nbrs = this.tiling.neighbours(this.address);
       const dir = this.tiling.stepToward(c[0], c[1]);
       if (dir < 0 || dir >= nbrs.length) break;
@@ -186,17 +186,14 @@ export class Anchor {
       return Math.hypot(A, B);
     };
 
-    // Deduplication, on the ADDRESS. Both tilings now hand out canonical addresses -- the binary one
-    // by construction, a regular one because its id is a canonical coset representative computed in
-    // exact integer arithmetic -- so the key IS the identity and a Set is the whole answer.
+    // Deduplication, on the ADDRESS. Every tiling hands out canonical addresses -- the binary one by
+    // construction from (lat, lon), a regular one because its id is an exact integer name for the tile
+    // -- so the key IS the identity and a Set is the whole answer.
     //
-    // What this replaced is worth recording, because it is the last float-based identity comparison in
-    // the library and it had a distance ceiling. Word addresses were not canonical, so the walk also
-    // deduplicated GEOMETRICALLY: round each relative centre into a 1e-5 grid, then compare against the
-    // neighbouring buckets with an exact invariant, calling two tiles the same if they were within a
-    // quarter of the tile spacing. That works on relative frames (which are O(1)), but it decides
-    // identity by proximity, and any such test eventually meets two distinct tiles closer together than
-    // its own error. It is gone: the exact id has no threshold in it at all.
+    // Note what is NOT here: no geometric comparison, no rounding of centres into buckets, no "these
+    // two are within a quarter of a tile spacing so call them the same". Deciding identity by proximity
+    // has a distance ceiling wherever it is done, because two distinct tiles eventually sit closer
+    // together than the error in the numbers describing them. The exact id has no threshold in it.
     const seenAddress = new Set();
     const alreadySeen = (key) => {
       if (seenAddress.has(key)) return true;
@@ -233,11 +230,11 @@ export class Anchor {
         dist.push(ch);
       }
       // Look before naming. `tiling.generator(g)` moves the tile CENTRE exactly where the real step
-      // does -- they differ only by a rotation about that centre -- so a candidate can be tested for
-      // 4 float multiplies, and only the survivors are turned into addresses. Naming is the expensive
-      // half now: on a regular tiling an address is an exact integer object costing ~117 ring
-      // multiplies to build. Nothing about which tiles are RETURNED changes; the rejected ones were
-      // dequeued and dropped by this same test a moment later.
+      // does -- they differ only by a rotation about that centre -- so a candidate costs 4 float
+      // multiplies to test, and only the survivors are turned into addresses. Naming is the expensive
+      // half: on a regular tiling an address is an exact integer object costing ~117 ring multiplies to
+      // build. Which tiles are RETURNED is unaffected, since a rejected candidate would be dropped by
+      // this same test on dequeue.
       //
       // HONEST SCOPE, measured rather than assumed: this saves nothing on the Escher atlas, because
       // there the walk stops on the TILE BUDGET (`gatherLimit`) long before anything falls outside
@@ -255,9 +252,10 @@ export class Anchor {
       }
     }
 
-    // Always honour the budget. An earlier version only truncated when the queue was still non-empty,
-    // so a walk that gathered past maxTiles and then ran out of candidates returned MORE tiles than
-    // asked for -- a silent budget overrun that a caller sizing its cache to maxTiles would not expect.
+    // Always honour the budget, and note that the condition is on the RESULT and not on the queue.
+    // Truncating only when candidates remain would let a walk that gathered past maxTiles and then ran
+    // out return MORE tiles than asked for -- a silent overrun for a caller sizing its cache to
+    // maxTiles.
     if (out.length > maxTiles) {
       this.lastTruncated = true;
       const order = out.map((_, i) => i).sort((i, j) => dist[i] - dist[j]);

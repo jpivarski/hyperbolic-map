@@ -241,31 +241,30 @@ global ones -- and the cached global frames it no longer keeps were also an unbo
 200,000 tiles of {8,3} is about 150,000 hyperbolic units. The old design could not represent the view
 there at all.
 
-### Getting there took two fixes, and the first attempt was only half of it
+### Where the remaining per-tile cost is: naming, not geometry
 
-The geometry was distance-independent immediately -- that was the point of the rewrite -- but the
-ADDRESS BOOKKEEPING was not, and it dominated:
+The geometry is distance-independent by construction. What is not free is giving each tile its exact
+global id, and the cost has a distinctive shape — a burst when new ground is reached, nothing
+afterwards:
 
-| tiles out | word length | one `addressToString` | one `neighbours` | enumeration | frame |
-|---|---|---|---|---|---|
-| 0 | 0 | 0.05 us | 0.9 us | 0.56 ms | 16.8 ms |
-| 500 | 390 | 4.2 us | 1.3 us | 4.83 ms | 23.4 ms |
-| 5,000 | 3,796 | 43.5 us | 9.8 us | 57.5 ms | 84.2 ms |
+| what | measured, Escher atlas, `{8,3}` m=4, 200 tiles, 560 px |
+|---|---|
+| steady-state frame | 16.4 ms median; **197 frames in 200 of a pan do zero ring multiplies** |
+| first frame of all | 250 ms |
+| first frame past a boundary into unexplored ground | ~130 ms |
+| panning back over ground already walked | free |
 
-1. **Word addresses became cons cells.** An array address made `neighbours()` copy the whole word for
-   every candidate the walk dequeued. A cons cell extends in O(1), and the prefix every tile in a frame
-   shares -- the camera's own address -- is stringified once and memoised. Also: the string key is now
-   skipped entirely for word-addressed tilings, where geometric deduplication is doing the work anyway.
-   Enumeration went to 0.25-0.29 ms at every distance, and the frame flattened through 5,000 tiles.
+Naming one tile is ~117 ring multiplications: 27 for `F_parent . G_g`, 9 for the id vector, and
+`27(m-1)` to canonicalise. It happens once per edge ever traversed and never again, which is what
+`exactMulCount()` exists to let you verify. A frame that crosses into unexplored ground names ~1,800
+edges at once, which is the whole of the 130 ms.
 
-2. **Cache keys stopped being strings.** At 50,000 tiles a word is ~38,000 characters, and using it as a
-   Map key forces the rope to flatten: 200 of those per frame was ~20 ms even though enumeration was
-   0.26 ms. Addresses now carry a hash folded forward as the cell is built, giving an O(1) key of about
-   53 bits, and the readable string is produced only on a cache miss or when an overlay asks for it
-   (`lastTiles[i].id` is a lazy getter). That flattened the curve out to 200,000 tiles.
+An id's text grows about 12 characters per tile crossed, so the node store is bounded by both a node
+count and a character budget (`NODE_FLOOR`, `ID_CHAR_BUDGET`). That keeps memory linear in distance
+rather than quadratic — 23 MB at 500 tiles out, 70 MB at 1,000, 246 MB at 4,000 — and eviction costs
+only recomputation, because nothing depends on node object identity.
 
-Both were found by measuring at increasing distance rather than at one point, which is the only way this
-class of problem shows up.
+`notes/open-questions.md` records the three ways this could be reduced.
 
 ## Atlas flicker and the Escher frame time (2026-08-06, later)
 
@@ -275,23 +274,11 @@ was slow despite only 233 shapes per tile.
 ### The flicker: a synchronous callback was costing a frame
 
 `request()` always went through `Promise.resolve().then(...)`, so even data already in hand arrived a
-microtask late — after the current frame had drawn. On a `{p,q}` tiling that is visible, because word
-addresses are not canonical: when the camera re-anchors the walk renames many tiles at once, they all
-miss the address-keyed cache together, and every one of them returns `null` for that frame.
-
-Measured on `{7,3}`, panning one tile spacing in 60 steps:
-
-| | before | after |
-|---|---|---|
-| frame 30 (the single re-anchor) | **26 tiles missing** | 0 |
-| other frames | 1-3 missing on 18 of 60 | 0 |
-| binary tiling, worst frame | 2 missing | 0 |
-
-Binary was nearly immune all along — canonical addresses, so nothing gets renamed. That asymmetry is
-what identified the cause.
+microtask late — after the current frame had drawn, leaving the tile blank for one frame. Tiles enter at
+the rim continuously while panning, so this was 1-3 tiles blinking on 18 of 60 frames.
 
 Fix: if the callback returns a non-thenable, compile and cache it inline and return it. Asynchronous
-providers are untouched. All nine tilings now pan with **zero** frames missing a tile.
+providers are untouched. All nine tilings pan with **zero** frames missing a tile.
 
 ### The Escher frame time: it really was drawing 46,600 shapes
 
@@ -335,7 +322,8 @@ coverage it measured (ink 0.149, body 0.733, spine 0.118).
 | diagnostics, drag median | — | 6.4 ms, worst 11.8 ms |
 | dungeon atlas, drag median | — | 5.6 ms (unchanged) |
 
-The 125 ms re-anchor frame needed a separate fix: it was recompiling **160 tiles at once**, all renamed
-by the same re-anchor. Compiled art is now memoised on the identity of the object the callback returns,
-so a provider handing back one of a few shared objects — which the stabiliser rule requires on a `{p,q}`
-tiling anyway — recompiles nothing. A provider that builds a fresh object per call is unaffected.
+Compiling is memoised on the identity of the object the callback returns, so a provider handing back one
+of a few shared objects — as a repeating atlas does, one per tile class — recompiles nothing however
+many tiles miss the cache at once. Compiling 160 tiles from scratch costs 125 ms against a 16 ms median,
+so the memo is what keeps a burst of misses affordable. A provider that builds a fresh object per call
+is unaffected and pays the compile.

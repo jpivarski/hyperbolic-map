@@ -54,8 +54,9 @@ function internStyle(out) {
   for (let i = 0; i < STYLE_KEYS.length; i++) key += out[STYLE_KEYS[i]] + "\u0001";
   const hit = styleTable.get(key);
   if (hit) return hit;
-  // Frozen so that a later mutation cannot silently restyle every drawable that shares it -- the one
-  // place that used to mutate a resolved style (a marker's radius) now folds it in before interning.
+  // Frozen so that a later mutation cannot silently restyle every drawable that shares it. Anything
+  // that varies per drawable (a marker's radius) has to be folded in BEFORE interning, not written
+  // onto the resolved style afterwards.
   const frozen = Object.freeze(out);
   if (styleTable.size < STYLE_TABLE_LIMIT) styleTable.set(key, frozen);
   return frozen;

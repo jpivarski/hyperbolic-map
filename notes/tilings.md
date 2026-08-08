@@ -36,7 +36,7 @@ g_k = S^k g₀ S^{−k}                                            S = Rot(2π/p
 ```
 
 Verified for `p = 3,4,5,7,8,9,12`: in SU(1,1); `g_k² = −I` (an involution — so **the edge back to the
-parent has the same index in the child**, making words walk-reversible for free); and `g_k` sends the
+parent has the same index in the child**, before the canonical frame correction); and `g_k` sends the
 tile centre to the edge-`k` neighbour centre at distance `2ψ`.
 
 This works for **odd `p` too**. The edge-midpoint half-turn is always in `[p,q]⁺` — it is the "2" of the
@@ -63,25 +63,28 @@ using `g_k` would silently shred the pattern.
 
 ### Tile keys
 
-Requirement: session-stable keys usable as cache keys and filenames, computable **locally** (a tile at
-`d = 20` sits behind ~`e²⁰` tiles, so BFS-from-root is impossible), duplicate-free, and supporting
-point→tile lookup.
+Requirement: keys that are stable across sessions, usable as cache keys and filenames, computable
+**locally** (a tile at `d = 20` sits behind ~`e²⁰` tiles, so BFS-from-root is impossible),
+duplicate-free, and supporting point→tile lookup.
 
-Chosen: **a word over the generators, canonicalised by a greedy geometric parent rule.** From a tile's
-frame, evaluate the neighbour centres, rank by `(round(log⟨C,O⟩/qs), round(atan2(y,x)/qa))`, and step to
-the strictly-lower-ranked minimum; follow that chain to the root and reverse. `O(depth·p)` — 13 steps
-at `d = 20` for `{8,3}` — memoised per tile. The quantisation is *relative*, so it works at any
-distance.
+Chosen: **the tile's centre in the Coxeter geometric representation of `[p,q]`, held exactly over
+`ℤ[2cos(π/N)]` with BigInt coefficients.**
 
-BFS deduplication uses a spatial hash on `(x/w, y/w)` confirmed by an exact `⟨C,C'⟩ < cosh ψ` check.
-Adjacent centres differ by `~e^{−d}` in those coordinates (2e-9 at `d = 20`) versus ~1e-15 accumulated
-error — six orders of margin.
+A tile is a coset `F · C_m` of the stabiliser, and the canonical representative is the
+lexicographically least matrix in it. Two routes give `M` and `M · P^j`, whose candidate sets
+`{M · P^k}` coincide, so the minimum is route-independent — that is the entire proof, and it needs no
+automaton and no normal form. The representative is at once the tile's id and its canonical frame. The
+published id is the serialized centre `F · v_O` (three ring elements rather than nine); `P` fixes
+`v_O`, so it is the same for every frame in the coset and needs no canonicalisation of its own.
 
-> **This rule is a heuristic, not a theorem.** It is the one item in the whole design that is unproven.
-> The guard is a property test asserting that word↔tile is a bijection over 50,000 tiles. The rigorous
-> alternative is the **Coxeter shortlex normal form** (Coxeter groups are automatic, so a DFA
-> recognises canonical coset representatives and gives duplicate-free enumeration); keep the `Tiling`
-> interface swappable so it can be dropped in. See `open-questions.md`.
+Exactness is the point. The entries grow like `cosh(d/2)`, so past `d ≈ 37` one ulp exceeds the spacing
+between tile centres and no float comparison can decide identity — and *any* threshold fails at some
+distance. Integers have no ceiling. Faithfulness of the geometric representation (Tits; Humphreys
+§5.3–5.4) is what makes matrix equality a definition rather than a heuristic.
+
+Cost: ~117 ring multiplications per tile, once per tile ever, never per frame — 197 of 200 frames of a
+pan perform none. An id's text grows about 12 characters per tile crossed, so the store is bounded (see
+`storeNode`) and a walk of thousands of tiles is real work. See `performance.md`.
 
 ## Binary (Böröczky) tiling
 
@@ -140,31 +143,28 @@ only at a vertex is still reachable through a neighbour) while using the exact b
 Tighten `ρ` to the **screen rectangle**, not the disk: `min(drawRadius, hypot(w,h)/(2·scale))`. At the
 dungeon's `zoom: 3` only `|z| ≲ 0.47` is visible, which roughly quarters the tile count.
 
-## THE STABILISER RULE (2026-08-06)
-
-**Read this before writing any tile art.** It is the constraint that the whole atlas design hangs on,
-and it is invisible until you scroll.
+## The stabiliser, and what it does and does not constrain
 
 A tile's frame is only defined up to the tile's **stabiliser**: the subgroup of the walk group that
 fixes that tile. For `{p,q}` it is `C_m`, the rotations by multiples of `2*pi/m` about the tile centre,
-with `m = frameSymmetry` (default `p`). Measured, not assumed — walk the tile graph keeping one frame
-per tile, and at every collision compute `F_seen^-1 . F_new`: every discrepancy observed is a rotation
-by a multiple of `2*pi/m`, never a translation, never any other angle. Pinned by the test
-`THE RULE: a tile's frame is defined only up to the stabiliser C_m`.
+with `m = frameSymmetry`. Measured, not assumed — walk the tile graph keeping one frame per tile, and
+at every collision compute `F_seen^-1 . F_new`: every discrepancy is a rotation by a multiple of
+`2*pi/m`, never a translation, never any other angle. Pinned by the test
+`two routes to one tile differ by exactly the stabiliser C_m, never more`.
 
-The renderer reaches each tile by the shortest route **from the camera**, so re-anchoring changes the
-routes and with them the representatives. Measured on `{8,3}` m=4, panning one tile spacing in 100
-steps: at step 51 — the one step where the anchor changes — 16 of 30 on-screen tiles change identity
-with zero motion, their frames differing by 0, +-90 or 180 degrees.
+The library spends that freedom once, globally: each tile's frame is the lexicographically least
+element of its coset, and its id is that frame's centre. Both are functions of the tile. **So tile art
+may be fully asymmetric and may depend on its own address.** The acceptance test is check 10 in the
+browser diagnostics: a hundred equal steps across one tile spacing, fully asymmetric art coloured by a
+hash of the id, no discontinuity at any step, on all nine tilings.
 
-So:
+What the stabiliser still decides is what a repeating pattern looks like. The union of one tile's art
+over the whole group is invariant under that group iff the art is stabiliser-invariant; art that is not
+still draws stably, it just yields a decorated tiling with less symmetry than the tiling itself.
 
-* **art must be invariant under `2*pi/m` about the tile centre**;
-* **art must not depend on the word address** — words are not canonical either, so `hash(address)`
-  flickers at a re-anchor.
-
-Per-tile variation is still possible through `tileClass()`, which comes from a homomorphism
-`phi: Gamma -> Z/n` and is therefore the same by every route. From the abelianisation, verified by walk:
+`tileClass()` remains the *structured* per-tile variation: a homomorphism `phi: Gamma -> Z/n` killing
+the stabiliser, under which adjacent tiles never agree. From the abelianisation, verified by an exact
+walk at construction:
 
 | tiling | stabiliser | classes |
 |---|---|---|
@@ -177,19 +177,28 @@ Per-tile variation is still possible through `tileClass()`, which comes from a h
 | `{3,7}` | C_3 | 1 |
 | `{12,3}` | C_12 | 1 |
 | `{9,4}` | C_9 | **2** |
-| binary | trivial | unconstrained (addresses are canonical) |
+| binary | trivial | 1 |
 
-The rule for `m = p`: `phi(g)` has order dividing 2, and going around a vertex forces `q*phi(g) = 0`, so
-there are two classes when `q` is even and one when `q` is odd. For `m < p` the generators are vertex
+For `m = p`: `phi(g)` has order dividing 2, and going around a vertex forces `q*phi(g) = 0`, so there
+are two classes when `q` is even and one when `q` is odd. For `m = p/2` the generators are vertex
 rotations of order `q`, giving `Z/q`.
 
-### How to build art that satisfies it
+## Which frameSymmetry values exist
+
+Only `m = p` and `m = p/2`; anything else throws at construction. `m = p` steps by half-turns about
+edge midpoints, one generator per edge. `m < p` steps by rotations about the `m` vertices whose index
+is a multiple of `p/m`, two generators per vertex, reaching `2m` of the `p` edges — so covering the
+plane needs `2m >= p`, and `m | p` with `m < p` forces `m = p/2`. Measured on the case this rejects:
+`{8,3}` with `m = 2` reaches edges 0, 1, 4 and 5 only, and a 0.75-radius view returns 5 tiles where 17
+belong.
+
+### How to build art that IS stabiliser-symmetric, when you want it
 
 Build one wedge of `2*pi/m` and repeat it by exact rotation. Do not build the whole tile and hope it
 comes out symmetric: in tile-local coordinates the stabiliser is an ordinary Euclidean rotation, so a
 wedge repeated exactly is symmetric to machine precision (measured 6e-17 to 7e-16 for the diagnostics
-pinwheels, 3.9e-17 for the Circle Limit III tile), whereas anything traced or fitted is not (the old
-Escher tile scored **Infinity** — not one of its 90 shapes had a C4 partner).
+pinwheels, 3.9e-17 for the Circle Limit III tile), whereas anything traced or fitted is not — a traced
+Escher tile scores **Infinity** when not one of its 90 shapes has a C4 partner.
 
-The library checks this on the first tile carrying art: `atlas.checkTileSymmetry` is `"warn"` by
-default, `"throw"` to make it fatal, `"off"` to silence it.
+`atlas.checkTileSymmetry` measures it: `"off"` by default, `"warn"` or `"throw"` to opt in. It is a
+lint for art whose symmetry is part of its meaning, not a correctness requirement.

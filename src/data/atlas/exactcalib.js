@@ -11,7 +11,7 @@
 //
 // Nothing in here runs per frame. It runs once per tiling, at construction.
 
-import { exactMatMul, exactMatPow, exactMatVec, exactIdentity, exactBilinear, exactDet3 } from "./exactcoxeter.js";
+import { exactMatMul, exactMatPow, exactDet3 } from "./exactcoxeter.js";
 
 // A float map from the exact hyperboloid model to the Poincare disk, pinned to the library's frame:
 // the tile centre at the origin, the edge-0 midpoint on the +x axis, vertex 0 at angle +pi/p.
@@ -182,10 +182,11 @@ export function checkMultiplyOrder(cx, inter, exactA, exactB, isomA, isomB, tol)
 // (cosh d, sinh d cos psi, -sinh d sin psi), which gives psi. Both come straight out of atan2 and
 // hypot on entries of L, with nothing large ever subtracted from anything large.
 //
-// This replaced an earlier version that transported a probe point at radius 0.5 back through the
-// translation and read the angle there. That is the same decomposition done the expensive way: the
-// probe lands within 1e-9 of the boundary and coming back cancels cosh(d)-sized quantities, which cost
-// eight digits by d = 7 and made the re-anchoring identity test fail on its own measuring instrument.
+// Reading L is what makes this accurate. The same decomposition can be had by sending a probe point
+// through the map and transporting it back through the translation to read the angle, and that route
+// is unusable: the probe lands within 1e-9 of the boundary and coming back cancels cosh(d)-sized
+// quantities, costing eight digits by d = 7 -- enough to make the re-anchoring identity look broken
+// when only its measuring instrument was.
 //
 // Row 0 degenerates when the translation part is small (it is all sinh d), so near d = 0 psi comes
 // instead from row 2 of Rot(-alpha).L, which is (0, sin psi, cos psi) for ANY alpha when d = 0 -- so
@@ -204,8 +205,8 @@ export function exactToIsom(inter, M, Isom, movePointToPoint) {
   //
   // Taken EXACTLY, and that is not fussiness. The float determinant of an isometry is a difference of
   // products of entries of size cosh(d), so by d = 23 it is 1 computed as a difference of numbers near
-  // 1e30: pure noise, with a sign that flips at random. The first version of this guard rejected
-  // perfectly good frames for exactly that reason.
+  // 1e30: pure noise, with a sign that flips at random. A float version of this guard rejects perfectly
+  // good frames.
   const det = exactDet3(R, M);
   if (!R.equals(det, R.one())) {
     throw new Error("hyperbolic-map: exactToIsom needs an orientation-preserving element; this one reflects");

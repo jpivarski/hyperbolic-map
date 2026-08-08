@@ -1,19 +1,14 @@
 // Does a tile's artwork have C_m rotational symmetry? An OPT-IN LINT, for art that is meant to.
 //
-// THE RULE, and why it is no longer a rule. A tile's frame is defined only up to the tile stabiliser
-// C_m (m = `frameSymmetry`, default p): the walk used to reach each tile by the shortest route from the
-// CAMERA, so when the camera crossed into a new tile the routes changed and every tile's frame could
-// change by a rotation of 2*pi*k/m about its own centre. Art that was not invariant under that simply
-// rotated on screen as you scrolled -- measured on {8,3} m=4, 16 of 30 on-screen tiles jumped by a
-// multiple of 90 degrees at a single re-anchor -- and since it was invisible until you scrolled, the
-// library warned about it by default.
+// This measures; it does not enforce. Tile frames are canonical -- a tile's frame is a function of the
+// tile and not of the route the walk took to it -- so asymmetric art draws identically however you
+// scroll, and there is no correctness requirement here for it to check.
 //
-// The freedom is still there in the group; what changed is that the library now spends it once and for
-// all. Each tile has a canonical frame -- the lexicographically least element of its coset, computed
-// exactly -- so the route no longer decides anything and fully asymmetric art is stable. This file
-// therefore no longer enforces anything; it measures. It is off by default and stays here because art
-// that is SUPPOSED to be C_m-symmetric (the Escher atlas, the clock face) still benefits from being
-// told when it has drifted. See notes/tilings.md and docs/MATH.md section 6.
+// What it is FOR is art whose symmetry is part of its meaning. The Escher atlas traces one 90-degree
+// sector of a fish and repeats it four times by exact rotation: that C_4 symmetry is what makes the
+// result Escher's pattern rather than a different one, and if an edit ever breaks it the picture is
+// wrong in a way no other check would notice. Switch this on for such art and leave it off otherwise.
+// See notes/tilings.md and docs/MATH.md section 6.
 //
 // The check is deliberately on the RAW drawables in tile-local coordinates: a rotation about the tile
 // centre is an ordinary Euclidean rotation there, so this is exact and needs no geometry.

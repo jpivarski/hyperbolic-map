@@ -1860,3 +1860,65 @@ that resizing; and the four fixed-size pages plus dungeon-man render at their or
 spurious warning.
 
 README updated -- the shrink-wrap paragraph now names the 300 px symptom and says the widget warns.
+
+---
+
+## 2026-08-08 — Canonical tile identity: exact ids over Z[2cos(pi/N)]
+
+**What.** A `{p,q}` tile now has a canonical id and a canonical frame, both functions of the tile
+rather than of the route the camera took to reach it. Tile art may be fully asymmetric and may depend
+on its own address. Three new dependency-free modules -- `exactring.js`, `exactcoxeter.js`,
+`exactcalib.js` -- plus a node store in `RegularTiling`.
+
+**Why.** A tile is a coset `F . C_m` of its stabiliser, and the renderer previously named it by the
+route it happened to take, so the same tile got different names and different orientations depending on
+where the camera was. Asymmetric art rotated at every tile crossing: measured on `{8,3}` m=4, 16 of 30
+on-screen tiles turned by a multiple of 90 degrees at a single re-anchor. The fix is to choose the
+lexicographically least element of the coset once and for all. Two routes give `M` and `M . P^j`, whose
+candidate sets `{M . P^k}` coincide, so the minimum is route-independent -- the whole proof, with no
+automaton and no normal form.
+
+**Exact, because float identity has a ceiling.** Frame entries grow like `cosh(d/2)`, so past `d ~ 37`
+one ulp exceeds the spacing between tile centres and no float test can separate two tiles. Integers
+have no ceiling. The representation is the Coxeter geometric one over `Z[mu]`, `mu = 2cos(pi/N)`, with
+BigInt coefficients; faithfulness (Tits) is what makes matrix equality a *definition* of group equality.
+The published id is the serialized centre `F . v_O` -- three ring elements, not nine, and canonical
+automatically because `P` fixes `v_O`.
+
+**One error found in the design document before coding.** It gave `lambda_n = D_{N/n}(mu)` alongside
+the `n = 3` shortcut (`N = p` when `q = 3`). The Dickson identity needs `n | N`; with `N = 8, n = 3` the
+division truncates and silently yields `sqrt(2)` instead of `1`. The Coxeter relations failed for
+`{8,3}`, `{7,3}` and `{3,7}` until `lambdaFor` special-cased it. It is now an assert with a regression
+test.
+
+**Two simplifications the design missed.** Conjugation by `P` is a pure permutation of generator
+indices with no residual angle, so the transport table is `m x |gens|` small integers; and folding
+`P^k` into each walk step keeps every frame canonical, so the walk forward never needs the table at all.
+Stepping BACK does -- hence `reverseGenerator(address, gen)`, which is NOT `inverseGenerator(gen)`.
+Using the plain inverse index lands on a real but wrong neighbour.
+
+**A pre-existing bug found by sweeping `frameSymmetry`.** Any divisor of `p` was accepted, but for
+`m < p` the generators are vertex rotations reaching `2m` of the `p` edges, so only `m = p` and
+`m = p/2` can cover the plane. `{8,3}` with `m = 2` constructed happily, reached edges 0, 1, 4 and 5,
+and returned 5 tiles for a view holding 17. Now throws.
+
+**Measured.**
+
+| | |
+|---|---|
+| steady-state frame, Escher atlas | 16.4 ms median; 197 frames in 200 do zero ring multiplies |
+| first frame; first frame into unexplored ground | 250 ms; ~130 ms |
+| id length | ~12 characters per tile crossed |
+| escher-atlas pixels | identical inside `r < 0.8`; 1,070 of 313,600 differ at the rim, from `minFeaturePx` threshold flips |
+| binary tiling | byte-identical, 0 of 691,200 channels |
+| browser checks | 1-10 pass, including the new check 10 |
+
+**What it cost.** Naming tiles globally needs `Omega(d)` bits, so a long excursion is no longer free:
+the extreme-distance tests dropped from 100,000 tiles to 1,000, and check 2's translation-invariance
+distance from 5,000 to 2,000. `{3,7}` is no longer byte-identical under translation -- 1 to 4 channels
+of 409,600 differ by one level of 255, because canonicalisation is not equivariant under translation and
+a tile turned by 120 degrees rasterises its last bit differently. The node store is bounded so memory is
+linear in distance rather than quadratic.
+
+**Left.** Performance, deliberately deferred to a later pass; `notes/open-questions.md` records the
+three routes (cheaper canonicalisation, amortising the burst, a shortlex normal form).

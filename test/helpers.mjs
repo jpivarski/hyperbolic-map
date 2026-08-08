@@ -72,23 +72,20 @@ export function diskToHalfPlaneDirect(zx, zy) {
   return [(nr * dr + ni * di) / dd, (ni * dr - nr * di) / dd];
 }
 
-// Walk a tiling's addresses n steps and GUARANTEE the walk travelled, by measuring the geometry rather
-// than by counting symbols.
+// Walk a tiling's addresses n steps and GUARANTEE the walk travelled, by measuring the geometry.
 //
-// Two traps here, both of which produced silently vacuous tests in this project.
+// COUNTING STEPS IS NOT MEASURING DISTANCE, and the two traps below are why every test that wants to be
+// "far out" has to come through here.
 //
-// The first: `extendAddress(a, i % generatorCount())` looks like a walk and is not. Free reduction
-// cancels a generator against its inverse, and for {8,3} with frameSymmetry 4 the generators pair up as
-// inverses (0<->1, 2<->3, ...), so cycling the index alternately extends and cancels -- 5,000 steps left
-// the address at length ZERO.
+// The first: `extendAddress(a, i % generatorCount())` looks like a walk and is not. For {8,3} with
+// frameSymmetry 4 the generators pair up as inverses (0<->1, 2<->3, ...), so cycling the index steps
+// out and immediately back -- thousands of steps, no distance at all.
 //
-// The second is subtler and defeated the first fix. Refusing to backtrack does NOT make a walk travel,
-// because a {p,q} generator can have FINITE ORDER. Measured, {8,3} m=4's generator 0 is a 2*pi/3 rotation
-// about an octagon vertex: g^3 = -I, g^6 = +I. It is a perfectly good edge-neighbour step -- three
-// octagons meet at each vertex and pairwise share edges -- but the word "0.0.0.0.0" has five symbols and
-// names a tile 1.53 units away, and g0^5000 is still 1.53 units away. So WORD LENGTH IS NOT DISTANCE,
-// and an assertion on `address.len` cannot detect a walk that is going in circles. That is what the old
-// `addressDistance` did.
+// The second is subtler and defeats a plain no-backtracking rule, because a {p,q} generator can have
+// FINITE ORDER. {8,3} m=4's generator 0 is a 2*pi/3 rotation about an octagon vertex: g^3 = -I. It is a
+// perfectly good edge-neighbour step -- three octagons meet at each vertex and pairwise share edges --
+// but five of them name a tile 1.53 units away and five thousand are still 1.53 units away. A walk can
+// go in circles forever while its step count grows.
 //
 // So this walk is greedy-outward: at each step it takes the neighbour that most increases the distance
 // travelled, and it verifies that the distance strictly grew. Ties broken by the seeded PRNG so
@@ -127,9 +124,9 @@ export function advanceAddressWithDistance(tiling, n, seed = 12345) {
     const offset = Math.floor(rand() * nbrs.length);
     for (let k = 0; k < nbrs.length; k++) {
       const cand = nbrs[(k + offset) % nbrs.length];
-      // stepFrame, not generator: since addresses became canonical the walk step carries a C_m
-      // correction, and accumulating the bare generator would build a frame that no longer
-      // corresponds to the address chain it is walking.
+      // stepFrame, not generator: a walk step carries the C_m correction that lands in the child's
+      // canonical frame, so accumulating the bare generator would build a frame belonging to no address
+      // at all.
       const g = tiling.stepFrame(address, cand.gen);
       // (ar,ai,br,bi) * g, in SU(1,1): [[a,b],[conj b, conj a]].
       const nar = ar * g.ar - ai * g.ai + br * g.br + bi * g.bi;
