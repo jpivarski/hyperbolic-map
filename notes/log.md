@@ -2735,3 +2735,69 @@ defaults, every documented method is on `HyperbolicViewport`, and every hook is 
 `npm run check`; `npm test` **184/184**; `npm run build`. Every link and anchor in every `.md` and
 `.html` resolves. All six pages load with every link, anchor and image returning 200. Diagnostics
 checks 1 and 2 unchanged.
+
+
+## 2026-08-08-o — Release prep 11: the whole-repo check, and what is left for Jim
+
+Issue #4's last box before it hands back. Everything below that could be fixed without changing
+behaviour or making a judgement call **was** fixed, in this commit or the previous one; everything
+that is a decision is listed at the end and nothing was done to it.
+
+### Fixed here
+
+Three atlas options reach the `Atlas` constructor through `Object.assign({styleSheet}, opts.atlas)`
+and so are fully user-settable, and none of them were documented: `onTileLoad(tile, drawables)`,
+`onTileError(tile, err)` and `tileSymmetryTolerance`. Now in the atlas options block. (`styleSheet` is
+plumbing the viewport fills in and is deliberately not advertised.)
+
+The Options section said flatly "An unrecognized option name raises an error". True at the top level,
+where `normalizeOptions` checks; **not** true inside `atlas`, which is destructured, so
+`atlas: { maxTiels: 5 }` is accepted and ignored. The sentence now says which is which.
+
+### Checked and clean
+
+* **Node 18 floor.** No API newer than it anywhere in `src/` — `structuredClone`, `toSorted`,
+  `findLast`, `Object.groupBy`, `Object.hasOwn` all absent. (`hasOwnData` in `viewport.js` is a local
+  variable that trips a naive grep.)
+* **Packaging.** `npm pack --dry-run` ships exactly `src/`, `dist/`, `README.md`, `LICENSE`,
+  `package.json` and nothing else: no notes, dev, test, bench, docs or tools. No warnings.
+* **Both entry points load.** ESM entry resolves with 55 exports; the IIFE bundle evaluates in a clean
+  `vm` realm and exposes 56.
+* **No `TODO`, `FIXME`, `XXX` or `HACK` anywhere** outside `notes/`.
+* **No duplicate element ids** on any of the six pages; 22 on the documentation page, all unique.
+* Every option in the tables exists with the documented default; every documented method is on
+  `HyperbolicViewport`; every documented hook is a real option.
+* `npm run check`; `npm test` **184/184**; `npm run build`; `audit_atlas_math.py` **31/31**;
+  `audit_atlas_numeric.py` **7/7**. Machine idle throughout (load 0.70 on 16 cores before, 1.46 after,
+  GPU 31 % / 66 MiB).
+
+### FLAGGED FOR JIM — nothing was changed for any of these
+
+1. **`types/index.d.ts` does not exist**, and both `package.json`'s `exports["."].types` and its
+   `files` list name it. A TypeScript consumer resolves the package and finds no types where the
+   manifest promises them. This is already its own box on issue #4 and is left for it.
+2. **`exports["."].script`** is not a condition Node or the bundlers implement; nothing reads it. It
+   is harmless, but if the intent was "give a `<script>` user the IIFE", the field that tools actually
+   honour is `unpkg` or `jsdelivr`. A packaging decision.
+3. **The IIFE global carries `VERSION`; the ESM entry does not.** `dev/build.mjs` injects it and
+   `test/bundle.test.mjs` asserts it, so `HyperbolicMap.VERSION` works while
+   `import { VERSION } from "hyperbolic-map"` does not. The bundle test checks that the bundle is a
+   superset of the ESM surface, so it cannot catch this. Either add it to `src/index.js` or drop it —
+   but it is a public-surface decision, made one commit after the freeze, so it is Jim's.
+4. **A misspelled key inside `atlas` is silently ignored** where a misspelled top-level option throws.
+   Documented as of this commit, but making the atlas strict too would be the better fix and is a
+   behaviour change.
+5. **`tools/README.md`'s "bit-for-bit identical" round-trip claim** does not reproduce for a *freshly
+   generated* SVG: `--coords local`, `disk` and `halfplane` all come back with a worst coordinate
+   delta around 1e-12 to 4e-11, and `drawables_to_svg.py` prints that delta itself. What does hold,
+   and was re-verified after the rename, is the committed artifact: `escher-atlas-drawables.svg` reads
+   back to `escher-atlas.json` byte-for-byte, all 96 drawables. Pre-existing, unrelated to anything in
+   this branch, and the wording is Jim's to choose.
+6. **`docs/relativity.json` is the Jumping Man demo's data.** The name is from the 2011 database and
+   no longer matches the page. Renaming is trivial; leaving it is also fine. Cosmetic.
+7. **`jumping-man.html` opens "In the Dungeon Man demo, we saw…"** — a reading order that the old
+   gallery implied and that nothing enforces now. The README grid does put Dungeon Man first. Prose,
+   so left alone.
+8. **The GitHub URLs 404 until the repo is renamed.** Every `github.com/jpivarski/hyperbolic-map` link
+   and `jpivarski.github.io/hyperbolic-map/` — the README grid, all five page navs, the SVG namespace.
+   That rename is its own box on issue #4.

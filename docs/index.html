@@ -86,7 +86,7 @@ straight again.</p>
 <p>Everything below is the reference for what else those two files can say.</p>
 
 <h2 id="options">Options</h2>
-<p>All are optional except that either a <code>container</code> or a <code>canvas</code> must be supplied. An unrecognized option name raises an error.</p>
+<p>All are optional except that either a <code>container</code> or a <code>canvas</code> must be supplied. An unrecognized option name raises an error — at the top level, that is; keys inside <code>atlas</code> are destructured and a misspelled one is silently ignored, so check that block by eye.</p>
 
 <h3 id="where-it-draws">Where it draws</h3>
 <table>
@@ -540,6 +540,9 @@ const viewport = new HyperbolicViewport({
     maxTiles: 200,
     cacheSize: 512,
     lodPx: 11,        // below this on-screen tile radius, use the tile's `lod` art if any
+    onTileLoad: (tile, drawables) => {},   // a tile's data arrived and compiled
+    onTileError: (tile, err) => {},        // tileData threw or rejected; that tile is skipped
+    tileSymmetryTolerance: 1e-6,           // what counts as symmetric for checkTileSymmetry
   },
   // Optional: open on a given tile rather than the origin, however far out it is.
   // The address must be one of THIS tiling's own—a node object for RegularTiling (usually
