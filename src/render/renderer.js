@@ -22,8 +22,8 @@ import { capThreshold } from "../core/minkowski.js";
 // only thing that makes sense when the projection compresses distance towards the rim. The base is
 // 14pt = 14 * 96/72 px. Reading the multiplier as a pixel height instead makes every glyph
 // sub-pixel and silently drops all the text.
-export const FONT_SCALE = 0.05;
-export const BASE_FONT_PX = (14 * 96) / 72;
+const FONT_SCALE = 0.05;
+const BASE_FONT_PX = (14 * 96) / 72;
 
 const scratch = [0, 0];
 const arc = new Arc();
@@ -44,7 +44,7 @@ function ensureVertexCapacity(n) {
   vertY = new Float64Array(cap);
 }
 
-export class RenderStats {
+class RenderStats {
   constructor() {
     this.reset();
   }

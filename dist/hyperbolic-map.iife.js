@@ -4353,7 +4353,7 @@ function matchGenerators(cx, generators, p, m, tol) {
 // Which sign of rotation the exact P corresponds to. P is rho^(p/m), a rotation by 2*pi/m about the
 // tile centre; whether that reads as Isom.rotation(+2pi/m) or (-2pi/m) depends on conventions this
 // file refuses to guess. Returns +1 or -1.
-function calibrateSpin(cx, inter, P, m, Isom, tol) {
+function calibrateSpin(inter, P, m, Isom, tol) {
   const eps = tol || 1e-9;
   const pAct = (zx, zy) => inter.actOnDisk(P, zx, zy);
   for (const sign of [1, -1]) {
@@ -4503,10 +4503,10 @@ function exactToIsom(inter, M, Isom, movePointToPoint) {
 const NODE_FLOOR = 4096;
 const ID_CHAR_BUDGET = 4e6;
 
-// Boundary edge kinds. Geodesics are circles orthogonal to the unit circle; horocycles are circles
-// internally TANGENT to it. The binary tiling needs both.
+// The `kind` tag on what `boundaryLocal()` returns, saying how to trace the edges. A {p,q} tile is
+// bounded by geodesics -- circles orthogonal to the unit circle. The binary cell is its own kind
+// ("binary-cell"), because two of its four sides are horocycles and Atlas traces it specially.
 const EDGE_GEODESIC = "geodesic";
-const EDGE_HOROCYCLE = "horocycle";
 
 // ---------------------------------------------------------------------------------------------
 // Regular {p, q}
@@ -4970,7 +4970,7 @@ class RegularTiling {
     this.intertwiner = matched.intertwiner;
     this.exactP = exactMatPow(this.exact.R, this.exact.rho, p / this.m);
     // Whether the exact P reads as a +2pi/m or -2pi/m rotation is discovered, never assumed.
-    this.spin = calibrateSpin(this.exact, this.intertwiner, this.exactP, this.m, Isom);
+    this.spin = calibrateSpin(this.intertwiner, this.exactP, this.m, Isom);
 
     this.exactPPow = [exactIdentity(this.exact.R)];
     for (let k = 1; k < this.m; k++) {

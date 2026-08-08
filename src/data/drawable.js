@@ -81,7 +81,7 @@ function resolveStyle(spec, styleSheet, extra) {
 }
 
 // A single compiled drawable.
-export class Drawable {
+class Drawable {
   constructor(kind) {
     this.kind = kind; // "path" | "text" | "marker"
     this.xs = null;

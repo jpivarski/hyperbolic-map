@@ -110,22 +110,3 @@ export function imageLayer(spec) {
     },
   };
 }
-
-// A small "you are here" crosshair drawn on top, to show an overlay layer (z >= 0).
-export function crosshairLayer({ z = 10, colour = "rgba(0,0,0,0.35)", size = 8 } = {}) {
-  return {
-    z,
-    draw(ctx, view) {
-      ctx.save();
-      ctx.strokeStyle = colour;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(view.cx - size, view.cy);
-      ctx.lineTo(view.cx + size, view.cy);
-      ctx.moveTo(view.cx, view.cy - size);
-      ctx.lineTo(view.cx, view.cy + size);
-      ctx.stroke();
-      ctx.restore();
-    },
-  };
-}

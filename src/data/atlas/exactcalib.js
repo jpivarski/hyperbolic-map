@@ -137,7 +137,7 @@ export function matchGenerators(cx, generators, p, m, tol) {
 // Which sign of rotation the exact P corresponds to. P is rho^(p/m), a rotation by 2*pi/m about the
 // tile centre; whether that reads as Isom.rotation(+2pi/m) or (-2pi/m) depends on conventions this
 // file refuses to guess. Returns +1 or -1.
-export function calibrateSpin(cx, inter, P, m, Isom, tol) {
+export function calibrateSpin(inter, P, m, Isom, tol) {
   const eps = tol || 1e-9;
   const pAct = (zx, zy) => inter.actOnDisk(P, zx, zy);
   for (const sign of [1, -1]) {

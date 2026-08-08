@@ -48,10 +48,10 @@ import { movePointToPoint } from "../../core/isom.js";
 const NODE_FLOOR = 4096;
 const ID_CHAR_BUDGET = 4e6;
 
-// Boundary edge kinds. Geodesics are circles orthogonal to the unit circle; horocycles are circles
-// internally TANGENT to it. The binary tiling needs both.
-export const EDGE_GEODESIC = "geodesic";
-export const EDGE_HOROCYCLE = "horocycle";
+// The `kind` tag on what `boundaryLocal()` returns, saying how to trace the edges. A {p,q} tile is
+// bounded by geodesics -- circles orthogonal to the unit circle. The binary cell is its own kind
+// ("binary-cell"), because two of its four sides are horocycles and Atlas traces it specially.
+const EDGE_GEODESIC = "geodesic";
 
 // ---------------------------------------------------------------------------------------------
 // Regular {p, q}
@@ -515,7 +515,7 @@ export class RegularTiling {
     this.intertwiner = matched.intertwiner;
     this.exactP = exactMatPow(this.exact.R, this.exact.rho, p / this.m);
     // Whether the exact P reads as a +2pi/m or -2pi/m rotation is discovered, never assumed.
-    this.spin = calibrateSpin(this.exact, this.intertwiner, this.exactP, this.m, Isom);
+    this.spin = calibrateSpin(this.intertwiner, this.exactP, this.m, Isom);
 
     this.exactPPow = [exactIdentity(this.exact.R)];
     for (let k = 1; k < this.m; k++) {

@@ -118,7 +118,7 @@ test("SPIN and MUL_ORDER are pinned by executed comparison, not by assumption", 
     const { exactGenerators, intertwiner } = matchGenerators(cx, t.generators, spec.p, t.m);
     const P = exactMatPow(cx.R, cx.rho, spec.p / t.m);
 
-    const spin = calibrateSpin(cx, intertwiner, P, t.m, Isom);
+    const spin = calibrateSpin(intertwiner, P, t.m, Isom);
     assert.ok(spin === 1 || spin === -1, `{${spec.p},${spec.q}}: SPIN`);
 
     // P must act as selfRotation (up to the spin sign), since that is what the library calls it.

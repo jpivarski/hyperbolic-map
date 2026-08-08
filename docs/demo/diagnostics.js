@@ -85,7 +85,7 @@ export function colourFor(addressString) {
 // for the case where every tile should look different.
 const CLASS_HUES = [210, 25, 140, 300, 60, 180];
 
-export function colourForClass(classIndex, classCount) {
+function colourForClass(classIndex, classCount) {
   if (classCount <= 1) return "hsl(210 58% 47%)";
   const hue = CLASS_HUES[classIndex % CLASS_HUES.length];
   return `hsl(${hue} ${58 + ((classIndex * 7) % 18)}% ${44 + ((classIndex * 5) % 14)}%)`;

@@ -24,8 +24,6 @@
 //   5. every active pointer is tracked in a Map, so destroy() can release captures deterministically.
 // ---------------------------------------------------------------------------------------------
 
-import { ViewState } from "../core/view.js";
-
 export const MODE_IDLE = "idle";
 export const MODE_PAN = "pan";
 export const MODE_ROTATE = "rotate";

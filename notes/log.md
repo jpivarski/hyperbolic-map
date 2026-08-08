@@ -2241,3 +2241,59 @@ JSON is one tile of a tiling, and `tools/README.md`, `test/escher-colors.test.mj
 
 Verified in the browser: `index.html` lists four examples and every link resolves; `escher.html`
 renders the full four-colour Circle Limit III with a clean console.
+
+
+## 2026-08-08-g — Release prep 3/6: dead code, and how little of it there was
+
+Issue #4, fourth box. Approach was mechanical first, judgement second: scripted passes over `src/`
+and `docs/demo/` for unused imports, unreferenced top-level declarations, never-called class methods,
+never-read option keys, never-read `stats` fields, unused function parameters, and exports with no
+consumer anywhere in the repo. Worth recording the **negative** result, because it is the more useful
+half: of 49 viewport options every one is read, of every `stats` field every one is read, no method is
+unreferenced, and there is not a single commented-out code block or `TODO`/`FIXME`/`HACK` marker in
+the tree. The list below is all of it.
+
+### Genuinely unreachable, deleted
+
+* `EDGE_HOROCYCLE` in `tiling.js`. Exported, never produced, never consumed — and the comment above it
+  ("the binary tiling needs both") was **false**: `BinaryTiling.boundaryLocal()` returns
+  `kind: "binary-cell"`, a bare string, and `Atlas.clipPathFor` tests for exactly that. Comment
+  rewritten to say what the two kinds actually are.
+* `crosshairLayer` in `docs/demo/layers.js`. Never imported by any page.
+* `import { ViewState }` in `src/input/pointer.js`. Nothing in the file uses it.
+* The `cx` parameter of `calibrateSpin`. Its two siblings in `exactcalib.js` do use their `cx`, so
+  signature symmetry was the only argument for keeping it, and that is not an argument. Two call
+  sites updated.
+* The `let viewport / function build() / build()` wrapper in `docs/escher.html` — a rebuild hook with
+  no rebuilder, left over from when the page had checkboxes. Inlined.
+
+### Inert `export` keywords, demoted to module-private
+
+`package.json`'s `exports` map exposes only `"."`, so a name that is neither in the `src/index.js`
+barrel nor imported by another module is not reachable from outside the package: the `export` is a
+claim about reachability that is not true. Demoted: `Drawable`, `FONT_SCALE`, `BASE_FONT_PX`,
+`RenderStats`, `EDGE_GEODESIC`, and `colourForClass` in the demo diagnostics. `check-bundle` now
+counts 82 exported names instead of 88, which is the honest number.
+
+### Deliberately kept, so this is not re-litigated
+
+* Everything re-exported from `src/index.js`. That *is* the public surface; "the repo does not call
+  it" says nothing.
+* `exactMulCount` / `resetExactMulCount` — they exist precisely to be measured from outside.
+* `normaliseOptionsForTesting`.
+* The nine `check*` exports in `diagnostic-checks.js` and the four `*CompoundScroll` exports. The
+  file's own comment explains why they are individually exported: the whole suite exceeds the
+  MCP protocol timeout and a driver has to run them one at a time. Confirmed the hard way again
+  below.
+* Four unused function parameters that exist to satisfy an interface — `reverseGenerator(address, …)`
+  and `stepFrame(address, …)` on `BinaryTiling` (the {p,q} versions need the address), and
+  `passes(view /* , onReady */)` on `SourceSet`. All three already carry a comment saying so.
+
+### Verified
+
+`npm run check` — 82 exported, 52 top-level, no collisions. `npm test` — **179/179**. `npm run build`.
+All four demo pages render. All ten browser diagnostics pass, run one at a time (2 together still
+times out, and `runAllChecks()` certainly does): ground truth 9.29e-14; translation invariance 45/45
+out to 5,107 hyperbolic units; ownership 6980/6980 and 0 seam pixels; 0 stray pixels beyond the rim;
+address round-trip 9/9; boundedness max|V| 1.0000; picking 14463/14463; smoothness 45/45; hundred-step
+scroll 9/9 tilings within budget.

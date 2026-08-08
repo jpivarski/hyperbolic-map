@@ -101,44 +101,40 @@ try {
     return built;
   }
 
-  let viewport = null;
-  function build() {
-    if (viewport) viewport.destroy();
-    viewport = new HyperbolicMap.HyperbolicViewport({
-      container: "#map",
-      aspectRatio: 1,
-      autoResize: true,
-      zoom: 0.95,
-      minZoom: 0.6,
-      maxZoom: 4,
-      interactRadius: 0.92,
-      background: "#fdf9f0",
-      rimFill: "#f5d6ab",
-      pageBackground: "#ffffff",
-      // The tile carries real line work, so most of what a far-out tile contributes is smaller than a
-      // pixel. Dropping it costs nothing visible and most of the frame time.
-      minFeaturePx: 1.2,
-      interactMinFeaturePx: 2.0,
-      decimateTolerancePx: 0.5,
-      atlas: {
-        tiling: tiling,
-        // The same drawables for every tile, in one of twelve palettes. The callback does no geometry --
-        // the library rotates the art into each tile's frame -- and no color arithmetic either: the
-        // permutation is the tile's own group element, so this is a map lookup.
-        tileData: (t) => variantFor(t.colorIndex, t.colorPermutation),
-        clip: "always",
-        maxTiles: 200,
-        // The symmetry lint is OFF here, and it has to be. The outlines are C_4 but the coloring is
-        // deliberately only C_2 -- opposite fish match, adjacent ones do not -- which is Escher's design
-        // and the whole reason the color symmetry exists. A lint that measures whether a rotated shape
-        // lands on one of the same color therefore cannot pass, and should not.
-        checkTileSymmetry: "off",
-      },
-    });
-    window.viewport = viewport;
-    window.tiling = tiling;
-  }
-  build();
+  const viewport = new HyperbolicMap.HyperbolicViewport({
+    container: "#map",
+    aspectRatio: 1,
+    autoResize: true,
+    zoom: 0.95,
+    minZoom: 0.6,
+    maxZoom: 4,
+    interactRadius: 0.92,
+    background: "#fdf9f0",
+    rimFill: "#f5d6ab",
+    pageBackground: "#ffffff",
+    // The tile carries real line work, so most of what a far-out tile contributes is smaller than a
+    // pixel. Dropping it costs nothing visible and most of the frame time.
+    minFeaturePx: 1.2,
+    interactMinFeaturePx: 2.0,
+    decimateTolerancePx: 0.5,
+    atlas: {
+      tiling: tiling,
+      // The same drawables for every tile, in one of twelve palettes. The callback does no geometry --
+      // the library rotates the art into each tile's frame -- and no color arithmetic either: the
+      // permutation is the tile's own group element, so this is a map lookup.
+      tileData: (t) => variantFor(t.colorIndex, t.colorPermutation),
+      clip: "always",
+      maxTiles: 200,
+      // The symmetry lint is OFF here, and it has to be. The outlines are C_4 but the coloring is
+      // deliberately only C_2 -- opposite fish match, adjacent ones do not -- which is Escher's design
+      // and the whole reason the color symmetry exists. A lint that measures whether a rotated shape
+      // lands on one of the same color therefore cannot pass, and should not.
+      checkTileSymmetry: "off",
+    },
+  });
+  // Exposed for the browser console and for bench/sweep.js, which drives whatever page is open.
+  window.viewport = viewport;
+  window.tiling = tiling;
 } catch (err) {
   errorBox(err);
 }
