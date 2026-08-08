@@ -924,7 +924,7 @@ test("a fatal symmetry lint is fatal, and does not degrade to one silently missi
   // turns a TILE failure into a skipped tile. So the strictest setting produced the mildest symptom:
   // the first tile requested -- the one under the camera -- was cached empty and never drawn, every
   // later tile skipped the already-run check and drew fine, and the only trace was a console.error.
-  // On escher-atlas.html that was a single blank octagon in the middle of an otherwise perfect
+  // On escher.html that was a single blank octagon in the middle of an otherwise perfect
   // Circle Limit III. A lint and a broken tile are different kinds of failure and must not share a
   // handler.
   const tiling = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });

@@ -2224,3 +2224,20 @@ and what happened is that those files existed.
 `npm run check` ok; `npm test` **179/179**, unchanged — no test read either dataset. `clock.html` and
 `jumping-man.html` (the two callers of the edited `loadDrawables`) load and render with a clean
 console apart from the usual `favicon.ico` 404.
+
+
+## 2026-08-08-f — Release prep 2/6: `escher-atlas.html` is now `escher.html`
+
+Issue #4, third box, and the direct consequence of the previous entry: with the single-patch page
+gone there is only one Escher demo, so the `-atlas` disambiguator names nothing. `git mv` plus three
+repointed references — the page's own "See the code in" self-link, the `docs/index.html` gallery
+entry (its title drops from "Infinite Circle Limit III" back to plain "Circle Limit III"), and one
+comment in `test/anchor.test.mjs` that cites the page as the place a blank-octagon bug showed up.
+
+`docs/escher-atlas.json`, `docs/escher-atlas-drawables.svg` and `docs/demo/escher-colors.js` keep
+their names. Those are the *atlas tile* artefacts, not the page, and the name is still accurate: the
+JSON is one tile of a tiling, and `tools/README.md`, `test/escher-colors.test.mjs` and
+`test/anchor.test.mjs` all refer to it by that name.
+
+Verified in the browser: `index.html` lists four examples and every link resolves; `escher.html`
+renders the full four-colour Circle Limit III with a clean console.
