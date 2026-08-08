@@ -2422,3 +2422,108 @@ belongs to the HUMAN read-through box, not to a rename.
 banner now reads `hyperbolic-map 0.1.0`). `grep -rn hyperbolic-map-widget` finds nothing outside this
 log. Browser: `index.html` — title and `<h1>` read `hyperbolic-map`, all four gallery links and both
 `MATH.md` links return 200; `escher.html` renders with an empty console.
+
+
+## 2026-08-08-j — Release prep 6/6: doubles instead of BigInt where they fit. Naming is 2.4x faster.
+
+Issue #4's last box before the human checkpoint, and its sub-question was specific: "can any BigInt
+operations be replaced with normal integers if all values are within some specified thresholds?"
+**Yes.** The threshold is not a distance in tiles, it is a bound checked per operation, and it is
+worth about 2.4x on tile naming and 2x on the two frames a user actually notices.
+
+Full numbers, with load readings, in `notes/performance.md`. The exactness argument and its
+verification are in `notes/math-audit.md` — put there rather than only here because a later pass
+seeing identity-critical integers held in doubles will want to "fix" it, and that file exists to stop
+exactly that.
+
+### Measured before deciding anything
+
+Coefficients grow ~2 bits per tile step for `{8,3}`, so the small range covers only the first dozen
+tiles from the origin — but that is where every demo sits and where the 250 ms first frame is spent.
+A ring multiply costs 840-1100 ns at 20-bit coefficients and 342 ns for the identical algorithm over
+doubles, so the ceiling was about 3x.
+
+**And a negative result worth as much as the positive one:** micro-optimizing the BigInt
+representation buys nothing. Hoisting `mul`'s scratch buffer (three allocations per multiply gone) and
+skipping the minimal polynomial's zero coefficients measured **1 188 ns against 1 100** — no faster.
+Allocation was never the cost. Recorded in `performance.md` and `open-questions.md` so it is not
+re-derived.
+
+### The change, all inside `src/data/atlas/exactring.js`
+
+An element's coefficients are all Number or all BigInt, never mixed. Born small, **promoted
+permanently** the first time an operation would leave the exactly-integral range, never demoted. The
+invariant is that no stored coefficient exceeds 2^52, which leaves one doubling of headroom, so every
+bail-out inspects a value that is **still exact** — a check placed after the arithmetic had rounded
+would be worthless, and that is the one way this could have been silently wrong.
+
+Because representation is a function of history rather than of value, everything observable had to be
+made representation-independent, and each of those is load-bearing:
+
+* `serialize` — `String(5)` and `String(5n)` are both `"5"`, and a Number coefficient cannot reach the
+  1e21 where exponent notation would start. **This decides the text of every public tile id.**
+* `cmp` — `<` between a Number and a BigInt is defined to compare mathematical values exactly. **This
+  decides which member of a coset is canonical, hence which id every tile gets.** Rewritten to use `<`
+  in both directions rather than `!==` then `<`, because `5 !== 5n`.
+* `equals` / `isZero` — `0` and `0n` are both falsy; mixed pairs fall through to `<`.
+* `toNumber` — `Number()` of either.
+
+A BigInt input still gives a BigInt result, so `ExactRing` — which the barrel exports specifically so
+that the Coxeter relations can be checked from outside — still behaves for a caller writing BigInt
+literals, and `reduce` is BigInt-in/BigInt-out.
+
+Also hoisted `this.mu()` out of `dicksonOfMu`'s loop, which was reallocating it every iteration.
+
+### How it is known not to have renamed a single tile
+
+This is the risk that mattered: an id is a public name that goes into user caches and onto disk.
+
+* **Golden ids, now a committed test.** 380 ids per tiling (300 breadth-first, then an 80-step wander
+  that pushes coefficients past 2^52 and onto the BigInt path) for ten `{p,q}` tilings, hashed. The
+  hashes were generated from the **pre-change** implementation and matched exactly afterwards. The
+  test says in its own text not to update the fixture to match a failing run.
+* A wider one-off comparison of the old and new builds over **4,600 ids across ten tilings**:
+  byte-for-byte identical. Promotion was confirmed to actually occur during it — `{12,3}` at step 26
+  of the wander, `{5,4}` at step 48 — so the far half of that comparison exercised the BigInt path.
+* **Ring-multiply counts identical** tiling by tiling, and 2,907,216 in both runs of the browser pan.
+  Same algorithm, same operations, faster arithmetic.
+* Five new tests in `test/exactring.test.mjs` attack the representation directly: 300 random pairs per
+  ring in all four small/big pairings across every observable; values driven astride the limit; and an
+  assertion that repeated squaring really does cross the boundary, so the test cannot pass vacuously.
+
+### What it bought
+
+| | before | after |
+|---|---|---|
+| naming 609 tiles, `{8,3}` m=4 (node) | 49.5 ms | **19.6 ms** |
+| naming 865 tiles, `{12,3}` (node) | 99.6 ms | **42.2 ms** |
+| `escher.html` first frame (Chrome, 620 px) | 101-125 ms | **46-59 ms** |
+| median naming frame in a 200-frame pan | 42.3 ms | **19.3 ms** |
+| worst naming frame in that pan | 58.3 ms | **28.7 ms** |
+| steady frame (180 of those 200 do zero ring work) | 7.8 ms | 7.9 ms |
+
+Steady state is untouched, as it must be: it does no exact arithmetic at all.
+
+### One thing to be aware of, flagged for Jim
+
+The previous commit froze the API, and this one **widens a value type** on an exported class: an
+`ExactRing` element used to be documented as "a plain array of `deg` BigInts" and is now "a plain array
+of `deg` integers, all Number or all BigInt". Names and signatures did not move, every method behaves
+identically, and code that goes through the ring's own comparisons is unaffected — but code that reads
+coefficients directly and assumes BigInt would break. Exactly one thing in this repository did:
+`logAbsExact` in `test/helpers.mjs`, which widens first now. This commit is separable if that trade is
+not wanted.
+
+### Also added
+
+`npm run bench` grew a naming section — per-tiling build time, time to name 500+ tiles, and the ring
+multiplies each took — so this is re-measurable rather than a number in a file. It inherits the
+existing load-average guard that refuses to report when the machine is busy.
+
+### Verified
+
+`npm run check`; `npm test` **184/184** (179 before, 5 new); `npm run build`;
+`dev/audit_atlas_math.py` **31/31**; `dev/audit_atlas_numeric.py` **7/7**. All ten browser diagnostics
+pass with output **string-identical** to the run before this change, including check 9's full
+per-tiling breakdown and check 10's nine budget lines. Machine idle for every measurement (load
+0.23-0.52 on 16 cores, GPU 31 % / 66 MiB, checked before and after).

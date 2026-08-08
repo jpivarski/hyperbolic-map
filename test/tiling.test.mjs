@@ -1138,3 +1138,83 @@ test("a tiling with no color symmetry, and the binary tiling, report nothing rat
   assert.equal(b.colorPermutation(b.originAddress()), null);
   assert.equal(b.colorIndex(b.originAddress()), 0);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Golden tile ids
+//
+// An id is the tile's PUBLIC NAME. It goes into user caches and onto disk as a filename, and
+// `ExactRing.cmp`'s comment says it plainly: change the order and every id in every user cache is
+// silently renamed. Nothing else in this suite would notice a change that renamed every tile
+// consistently -- every other test compares the library against itself.
+//
+// So these hashes are recorded from the implementation as it stood when tile identity was declared
+// final, and they are not to be "updated to match" a failing run. A failure here means a change
+// renamed tiles, and the question is whether that was intended, not whether the fixture is stale.
+//
+// The list per tiling is 300 tiles in breadth-first order followed by an 80-step deterministic
+// wander. The wander matters: it is what pushes coefficients past 2^52 and onto the BigInt path, so
+// this fixture covers both coefficient representations rather than only the small one.
+// ---------------------------------------------------------------------------------------------
+
+const GOLDEN_IDS = [
+  { p: 8, q: 3, frameSymmetry: 4, sha: "fe7678cb425675bc8cb55667221bebbc", lastLen: 87 },
+  { p: 8, q: 3, sha: "4b1753ebf7a7be18543791739b4be084", lastLen: 158 },
+  { p: 7, q: 3, sha: "498cee03985332ad2e1d50851817edb1", lastLen: 99 },
+  { p: 5, q: 4, sha: "cf91b6cda88475e2f29b49321e6e0e82", lastLen: 142 },
+  { p: 4, q: 5, sha: "98934d560e2f751f67e4f2e176068ae2", lastLen: 57 },
+  { p: 6, q: 4, sha: "10cf64a12bcefca445e94669b52297e1", lastLen: 31 },
+  { p: 3, q: 7, sha: "b004bed7aa7b0ab883393270948d117e", lastLen: 25 },
+  { p: 12, q: 3, sha: "07d6d0706332377cfa8dce3a374d51e4", lastLen: 281 },
+  { p: 9, q: 4, sha: "ca0afc2446efd346d943e96daa31ab6c", lastLen: 572 },
+  { p: 5, q: 5, sha: "4ea432dcf14d57e7cb065aa14681576e", lastLen: 82 },
+];
+
+function goldenIdList(tiling) {
+  const ids = [tiling.addressToString(tiling.originAddress())];
+  const seen = new Set(ids);
+  let frontier = [tiling.originAddress()];
+  while (seen.size < 300 && frontier.length) {
+    const next = [];
+    for (const a of frontier) {
+      for (const nb of tiling.neighbors(a)) {
+        const k = tiling.addressToString(nb.address);
+        if (!seen.has(k)) {
+          seen.add(k);
+          ids.push(k);
+          next.push(nb.address);
+        }
+      }
+    }
+    frontier = next;
+  }
+  ids.length = 300;
+  let a = tiling.originAddress();
+  for (let i = 0; i < 80; i++) {
+    const nbs = tiling.neighbors(a);
+    a = nbs[(i * 3 + 1) % nbs.length].address;
+    ids.push(tiling.addressToString(a));
+  }
+  return ids;
+}
+
+test("tile ids are exactly what they were: the recorded names have not moved", async () => {
+  const { createHash } = await import("node:crypto");
+  for (const g of GOLDEN_IDS) {
+    const spec = { p: g.p, q: g.q };
+    if (g.frameSymmetry) spec.frameSymmetry = g.frameSymmetry;
+    const ids = goldenIdList(new RegularTiling(spec));
+    const name = `{${g.p},${g.q}} m=${g.frameSymmetry || "default"}`;
+    assert.equal(ids.length, 380, `${name}: wrong number of ids`);
+    assert.equal(
+      ids[ids.length - 1].length,
+      g.lastLen,
+      `${name}: the far walk no longer ends where it did -- ${ids[ids.length - 1]}`,
+    );
+    assert.equal(
+      createHash("sha256").update(ids.join("\n")).digest("hex").slice(0, 32),
+      g.sha,
+      `${name}: TILE IDS CHANGED. Every id in every user cache would be renamed by this. ` +
+        `Do not update the fixture without deciding that the rename is what you meant.`,
+    );
+  }
+});

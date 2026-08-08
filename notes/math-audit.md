@@ -337,3 +337,45 @@ At 5000 tiles all nine lose the old route entirely (overflow, NaN, or error abov
 anchored path holds at 1.3e-15. Note {3,7}: its tiles are small, so it degrades *later* in tile count
 and its 500-tile error of 0.54 disk units is still catastrophic — the failure tracks hyperbolic
 distance, not tile count.
+
+
+## The exact ring's two coefficient representations (2026-08-08)
+
+Recorded here rather than only in the log because this is exactly the kind of change a later pass
+would try to "fix" back: identity-critical code holding integers in **doubles** looks like a mistake
+and is not.
+
+`ExactRing` holds a coefficient as a Number while it fits the exactly-integral range and promotes it,
+permanently, to BigInt the moment an operation would leave that range. Doubles are 2.4x faster and
+coefficients start tiny; they grow about 2 bits per tile step, so far from the origin everything is
+BigInt anyway and nothing is lost there.
+
+**Why it is exact, not approximately exact.** Every value in the ring is an integer, and every integer
+of magnitude at most 2^53 is exactly representable as a double. The invariant is that a *stored*
+coefficient never exceeds 2^52, which leaves one doubling of headroom, so:
+
+| operation | why the result is exact | the check |
+|---|---|---|
+| `a + b`, `a - b` | both operands ≤ 2^52, so the true result is ≤ 2^53 | result out of range → redo in BigInt |
+| convolution | every product ≤ `amax*bmax`, every coefficient a sum of ≤ `deg` of them | one test, `amax*bmax*deg ≤ 2^52`, before starting |
+| reduction step | `f*poly[j]` needs its own bound; then `c[k] - f*poly[j]` ≤ 2^53 | `\|f\|*max\|poly\| ≤ 2^52` before the step, result in range after each write |
+
+Each bail-out inspects a value that is **still exact**, which is the whole design: a check placed after
+the arithmetic had already rounded would be worthless. Nothing is ever demoted, so an element's
+representation is a function of its history and two elements holding the same value may differ in it —
+which is why `serialize`, `cmp`, `equals`, `isZero` and `toNumber` are all written to be
+representation-independent, and why that property is what the tests attack.
+
+**Verification.** `test/exactring.test.mjs` compares the two paths on 300 random pairs for each of
+N = 4, 5, 8, 12, 24, in all four small/big pairings, on `serialize`, `equals`, `cmp`, `isZero`,
+`toNumber` and `neg`; drives values astride the limit directly; and requires that repeated squaring
+actually crosses the promotion boundary rather than passing vacuously.
+
+**The strong check** is `test/tiling.test.mjs`'s golden ids: 380 recorded ids for each of ten `{p,q}`
+tilings, hashed. Those hashes were generated from the BigInt-only implementation *before* this change
+and matched it exactly afterwards; a wider one-off comparison covered 4,600 ids across the same ten
+tilings, byte-for-byte identical. Since an id is the tile's public name, that is the claim that
+matters: the optimization renamed nothing.
+
+The ring-multiply counts are unchanged tiling by tiling (e.g. 150,399 for a 609-tile `{8,3}` walk
+before and after), so this is the same algorithm doing the same operations, not a different one.

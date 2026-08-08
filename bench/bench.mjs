@@ -15,6 +15,8 @@
 import { readFileSync } from "node:fs";
 import { Isom, localCompanion } from "../src/core/isom.js";
 import { Cap, capMayBeVisible, capThreshold } from "../src/core/minkowski.js";
+import { RegularTiling } from "../src/data/atlas/tiling.js";
+import { exactMulCount, resetExactMulCount } from "../src/data/atlas/exactring.js";
 
 const FORCE = process.argv.includes("--force");
 const CORES = (() => {
@@ -103,6 +105,54 @@ const results = [
   }),
 ];
 
+// ---- naming ----
+//
+// The other cost in a frame, and the one with a completely different shape: giving each newly reached
+// tile its exact global id. It happens once per edge ever traversed and never again, so it does not
+// show up in a steady-state frame at all -- it shows up as the first frame, and as the spike when a
+// pan crosses into ground never visited. That is what this measures, and why it is timed per tile
+// rather than per second.
+//
+// `exactMulCount` is reported alongside: it is the algorithm's own work counter, so a change that
+// speeds this up while leaving the count alone is an arithmetic improvement, and one that moves the
+// count has changed what is being computed.
+const NAMING = [
+  { p: 8, q: 3, frameSymmetry: 4 },
+  { p: 7, q: 3 },
+  { p: 3, q: 7 },
+  { p: 12, q: 3 },
+];
+const naming = [];
+for (const spec of NAMING) {
+  const c0 = process.hrtime.bigint();
+  const tiling = new RegularTiling(spec);
+  const c1 = process.hrtime.bigint();
+  resetExactMulCount();
+  const seen = new Set([tiling.addressToString(tiling.originAddress())]);
+  let frontier = [tiling.originAddress()];
+  while (seen.size < 500 && frontier.length) {
+    const next = [];
+    for (const a of frontier) {
+      for (const nb of tiling.neighbors(a)) {
+        const k = tiling.addressToString(nb.address);
+        if (!seen.has(k)) {
+          seen.add(k);
+          next.push(nb.address);
+        }
+      }
+    }
+    frontier = next;
+  }
+  const c2 = process.hrtime.bigint();
+  naming.push({
+    label: `{${spec.p},${spec.q}} m=${spec.frameSymmetry || spec.p}`,
+    constructMs: Number(c1 - c0) / 1e6,
+    nameMs: Number(c2 - c1) / 1e6,
+    tiles: seen.size,
+    muls: exactMulCount(),
+  });
+}
+
 const before = loadAverage();
 const after = loadAverage();
 
@@ -119,6 +169,15 @@ for (const r of results) {
   const per = r.perSecond;
   const rate = per > 1e6 ? `${(per / 1e6).toFixed(1)} M/s` : `${(per / 1e3).toFixed(1)} k/s`;
   console.log(`  ${r.label.padEnd(wide)}  ${rate.padStart(10)}   (${r.totalMs.toFixed(0)} ms for ${r.iterations.toLocaleString()})`);
+}
+console.log("");
+console.log("  naming tiles (exact ids; once per tile ever, never per frame)");
+for (const n of naming) {
+  console.log(
+    `  ${n.label.padEnd(12)} build ${n.constructMs.toFixed(1).padStart(6)} ms   ` +
+      `name ${n.tiles} tiles ${n.nameMs.toFixed(1).padStart(6)} ms   ` +
+      `${n.muls.toLocaleString().padStart(9)} ring muls, ${(n.nameMs * 1e6 / n.muls).toFixed(0).padStart(4)} ns each`,
+  );
 }
 console.log("");
 

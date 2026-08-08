@@ -327,3 +327,84 @@ of a few shared objects — as a repeating atlas does, one per tile class — re
 many tiles miss the cache at once. Compiling 160 tiles from scratch costs 125 ms against a 16 ms median,
 so the memo is what keeps a burst of misses affordable. A provider that builds a fresh object per call
 is unaffected and pays the compile.
+
+
+## 2026-08-08 — Naming tiles: replacing BigInt with doubles where they fit
+
+**Machine load.** Idle throughout. One-minute load average 0.23-0.52 on 16 cores before and after every
+run below; GPU (RTX 3060) 31 % with 66 MiB used, which is the desktop and nothing else. Re-checked
+after each measurement.
+
+Issue #4's last box asked specifically whether BigInt could be replaced by ordinary integers "if all
+values are within some specified thresholds". The answer is yes, worth about **2.4x on tile naming**,
+and the threshold is not a distance in tiles — it is a bound checked per operation.
+
+### What was measured first
+
+| measurement | result |
+|---|---|
+| coefficient growth, `{8,3}`, walking outward | ~**2 bits per tile step**; past 2^24 by step 12, past 2^48 by step 24 |
+| `ExactRing.mul`, N = 24 (deg 8), 20-bit coefficients | 840-1100 ns |
+| same, 40-bit | 3 840 ns |
+| same, 400-bit | 10 470 ns |
+| same, 2000-bit | 99 100 ns |
+| the identical algorithm over doubles, small coefficients | **342 ns** |
+| `BigInt(number)` / `Number(bigint)` / bigint mul / number mul | 2.9 / 8.1 / 4.5 / **1.0** ns |
+
+So the ceiling was a factor of about three, and it applies only while coefficients fit the
+exactly-integral range of a double.
+
+### The negative result, recorded so it is not re-attempted
+
+Micro-optimizing the **existing** BigInt representation buys **nothing**. A version with the scratch
+buffer hoisted out of `mul` (removing three allocations per multiply) and the reduction loop skipping
+the minimal polynomial's zero coefficients measured **1 188 ns against 1 100** — i.e. no faster, and
+inside the noise. Allocation is not the cost here; BigInt operation cost is, and it is 4.5 ns against
+a double's 1.0 ns however the loop is arranged.
+
+### What was done
+
+Two coefficient representations inside `ExactRing`, small (Number) until an operation would leave the
+exactly-integral range and BigInt permanently thereafter. See `notes/math-audit.md` for why each step
+is exact and how it is verified; the short version is that the invariant is "no stored coefficient
+exceeds 2^52", which leaves a factor of two of headroom, so every bail-out inspects a value that has
+not yet rounded.
+
+### Naming, node, `npm run bench` (which prints the load average and refuses to report when busy)
+
+| tiling | tiles named | before | after | |
+|---|---|---|---|---|
+| `{8,3}` m=4 | 609 | 49.5 ms | **19.6 ms** | 2.5x |
+| `{7,3}` m=7 | 617 | 74.4 ms | **28.3 ms** | 2.6x |
+| `{3,7}` m=3 | 742 | 27.9 ms | **12.1 ms** | 2.3x |
+| `{12,3}` m=12 | 865 | 99.6 ms | **42.2 ms** | 2.4x |
+| `{8,3}` tiling construction | — | 32.8 ms | **15.5 ms** | 2.1x |
+
+Ring-multiply counts are **identical** before and after in every row (150,399 / 321,147 / 127,359 /
+434,160), which is the check that this is the same algorithm and not a different one.
+
+### In the browser: `docs/escher.html`, Chrome, 620 px, fresh page each time
+
+Building a fresh `{8,3}` m=4 tiling and rendering the first frame, three runs:
+
+| | before | after |
+|---|---|---|
+| first frame (names every visible tile) | 101-125 ms | **46-59 ms** |
+| second frame, same view | 8.5-9.8 ms | 7.1-9.2 ms |
+
+A 200-frame pan across new ground, driven through `getCamera`/`setCamera`, counting ring multiplies
+per frame so the two kinds of frame can be separated:
+
+| | before | after |
+|---|---|---|
+| frames doing **zero** ring work | 180 / 200 | 180 / 200 |
+| median of those | 7.8 ms | 7.9 ms |
+| median frame that names tiles | **42.3 ms** | **19.3 ms** |
+| worst frame that names tiles | **58.3 ms** | **28.7 ms** |
+
+Total ring multiplies over the pan was 2,907,216 in **both** runs, and the 180/20 split is the same, so
+the two runs did identical work and the comparison is of arithmetic speed alone. The steady state is
+untouched, as it must be: it does no exact arithmetic at all.
+
+The user-visible effect is on the two moments that were never smooth — the first frame, and the stutter
+when a pan reaches ground never walked before. Both are now about half what they were.

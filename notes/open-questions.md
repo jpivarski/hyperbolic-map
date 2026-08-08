@@ -69,14 +69,25 @@ cost has a particular shape:
 | id text | ~12 characters per tile crossed |
 | a greedy 2,000-tile walk | 1.9 s, 142 MB peak (5,000 tiles: 11.7 s, 520 MB) |
 
-Three things could reduce it, in increasing order of effort:
+Four things could reduce it. The first has since been **done**; the rest are open, in increasing order
+of effort:
 
+0. ~~**Faster ring arithmetic.**~~ **Closed 2026-08-08.** Coefficients are now held as Numbers while
+   they fit the exactly-integral range of a double and promoted to BigInt only when they stop fitting.
+   Naming got **2.4x faster**, the first frame of `docs/escher.html` went 101-125 ms → 46-59 ms and a
+   naming frame mid-pan 42.3 → 19.3 ms median, with tile ids byte-identical and ring-multiply counts
+   unchanged. Numbers, method and the exactness argument: `notes/performance.md` and
+   `notes/math-audit.md`. **Also closed: micro-optimizing the BigInt representation itself is a dead
+   end** — hoisting the scratch buffer and skipping the polynomial's zero coefficients measured no
+   faster at all. Do not re-attempt that one.
 1. **Cheaper canonicalization.** The 117 divides as 27 for `F_parent . G_g`, 9 for the id vector, and
    `27(m-1)` to canonicalize, so canonicalization dominates and grows with `m`. Lex-min over the `m`
    images of `v_M` rather than over matrices would make it `9m + 27` — a large win for `{12,3}`. It
-   renames every tile, so it is not a change to make casually.
+   renames every tile, so it is not a change to make casually, and the golden-id fixture in
+   `test/tiling.test.mjs` now exists precisely so that such a rename cannot happen quietly.
 2. **Amortising the burst.** The spike is entirely "tiles never seen before, all at once". Naming a
-   budget of new tiles per frame, or warming the frontier during idle time, would spread it.
+   budget of new tiles per frame, or warming the frontier during idle time, would spread it. This is
+   now the largest remaining win, because it attacks the shape of the cost rather than its constant.
 3. **A smaller name.** The matrix encoding spends ~78 bits per tile step where the information-theoretic
    floor is ~3. A shortlex normal form over the generators would approach the floor and would share
    prefixes between tiles, making the store `O(N)` rather than `O(N * d)` — at the cost of building and
@@ -84,3 +95,6 @@ Three things could reduce it, in increasing order of effort:
 
 The store is bounded meanwhile (`NODE_FLOOR`, `ID_CHAR_BUDGET` in `tiling.js`), so memory is linear in
 distance rather than quadratic, and eviction costs only recomputation.
+
+The table above is from 2026-08-07 and its two naming rows are now roughly halved; the shape it
+describes — a burst on new ground, free on old — is unchanged, which is the part worth keeping.

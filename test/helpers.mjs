@@ -167,12 +167,18 @@ export function advanceAddressWithDistance(tiling, n, seed = 12345) {
 
 // log|x| for a ring element, evaluated safely at ANY size.
 //
-// The coefficients are BigInts that grow about 1.44 bits per unit of hyperbolic distance, so a tile
-// 500 steps out has coefficients of a few thousand bits and `Number(c)` is simply Infinity. Shifting
-// every coefficient down by the same amount and adding the shift back in logs keeps ~900 bits of the
-// leading part -- around 850 bits more than a double needs -- so the only way this could lose the
-// answer is cancellation nearly that deep, which cosh(d) >= 1 rules out.
-function logAbsExact(R, a) {
+// The coefficients grow about 1.44 bits per unit of hyperbolic distance, so a tile 500 steps out has
+// coefficients of a few thousand bits and `Number(c)` is simply Infinity. Shifting every coefficient
+// down by the same amount and adding the shift back in logs keeps ~900 bits of the leading part --
+// around 850 bits more than a double needs -- so the only way this could lose the answer is
+// cancellation nearly that deep, which cosh(d) >= 1 rules out.
+//
+// The shift needs BigInts, and a near-origin element may be carrying its coefficients as Numbers
+// (see the two representations in exactring.js), so widen first. This is a measuring helper, not a
+// hot path, and it is the one place in the tests that looks at coefficients rather than going
+// through the ring's own comparisons.
+function logAbsExact(R, element) {
+  const a = element.map((c) => (typeof c === "bigint" ? c : BigInt(c)));
   let widest = 0;
   for (const c of a) {
     const mag = c < 0n ? -c : c;
