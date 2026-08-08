@@ -1,15 +1,19 @@
-// Does a tile's artwork satisfy the symmetry the tiling requires of it?
+// Does a tile's artwork have C_m rotational symmetry? An OPT-IN LINT, for art that is meant to.
 //
-// THE RULE. In a {p,q} atlas a tile's frame is defined only UP TO the tile stabiliser C_m (m =
-// `frameSymmetry`, default p). The walk reaches each tile by the shortest route from the CAMERA, so
-// when the camera crosses into a new tile the routes change and every tile's frame can change by a
-// rotation of 2*pi*k/m about its own centre. Nothing can prevent that -- it is a property of the group,
-// not of the implementation -- so the art must be invariant under it. Art that is not simply rotates on
-// screen as you scroll: measured on {8,3} m=4, 16 of 30 on-screen tiles jumped by a multiple of 90
-// degrees at a single re-anchor.
+// THE RULE, and why it is no longer a rule. A tile's frame is defined only up to the tile stabiliser
+// C_m (m = `frameSymmetry`, default p): the walk used to reach each tile by the shortest route from the
+// CAMERA, so when the camera crossed into a new tile the routes changed and every tile's frame could
+// change by a rotation of 2*pi*k/m about its own centre. Art that was not invariant under that simply
+// rotated on screen as you scrolled -- measured on {8,3} m=4, 16 of 30 on-screen tiles jumped by a
+// multiple of 90 degrees at a single re-anchor -- and since it was invisible until you scrolled, the
+// library warned about it by default.
 //
-// This is very easy to get wrong and completely invisible until you scroll, so the library checks it
-// rather than only documenting it. See notes/tilings.md and docs/MATH.md section 6.
+// The freedom is still there in the group; what changed is that the library now spends it once and for
+// all. Each tile has a canonical frame -- the lexicographically least element of its coset, computed
+// exactly -- so the route no longer decides anything and fully asymmetric art is stable. This file
+// therefore no longer enforces anything; it measures. It is off by default and stays here because art
+// that is SUPPOSED to be C_m-symmetric (the Escher atlas, the clock face) still benefits from being
+// told when it has drifted. See notes/tilings.md and docs/MATH.md section 6.
 //
 // The check is deliberately on the RAW drawables in tile-local coordinates: a rotation about the tile
 // centre is an ordinary Euclidean rotation there, so this is exact and needs no geometry.
@@ -112,14 +116,10 @@ export function tileSymmetryMessage(residual, m, tilingName) {
   return (
     `hyperbolic-map: this tile's artwork is not invariant under rotation by 360/${m} degrees about the ` +
     `tile centre (worst mismatch ${residual.toExponential(2)} in tile-local units).\n` +
-    `  ${tilingName} has tile stabiliser C_${m}, which means a tile's frame is only defined UP TO that ` +
-    `rotation.\n` +
-    `  The walk reaches each tile by the shortest route from the camera, so the route -- and with it the ` +
-    `rotation -- changes\n` +
-    `  as you scroll. Art that is not C_${m}-invariant will visibly JUMP when the camera crosses a tile ` +
-    `boundary.\n` +
-    `  Fix the art (build it from one wedge repeated ${m} times), or choose a tiling whose stabiliser is ` +
-    `trivial.\n` +
-    `  Set atlas.checkTileSymmetry to "off" to silence this, or "throw" to make it fatal.`
+    `  ${tilingName} has tile stabiliser C_${m}. This is a LINT, not an error: tile frames are canonical, ` +
+    `so asymmetric art\n` +
+    `  is stable as you scroll, and you only asked to be told because this art is meant to be ` +
+    `C_${m}-symmetric.\n` +
+    `  Build it from one wedge repeated ${m} times, or set atlas.checkTileSymmetry to "off".`
   );
 }

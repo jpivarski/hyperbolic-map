@@ -42,10 +42,14 @@ export class Atlas {
       styleSheet = null,
       onTileLoad = null,
       onTileError = null,
-      // "warn" | "throw" | "off". See symmetry.js: on a {p,q} tiling a tile's frame is only defined up
-      // to the stabiliser C_m, so art that is not C_m-invariant jumps when the camera re-anchors. That
-      // is invisible until you scroll, so it is checked on the first tile rather than only documented.
-      checkTileSymmetry = "warn",
+      // "off" | "warn" | "throw". An OPT-IN LINT, and off by default.
+      //
+      // It used to default to "warn", because it used to enforce a real constraint: a tile's frame was
+      // whatever route the walk took to reach it, so art that was not C_m-invariant jumped when the
+      // camera re-anchored. A tile's frame is now canonical -- a function of the tile and nothing else
+      // -- so fully asymmetric art is fine and warning about it would be wrong. What remains is a lint
+      // for art that is MEANT to be rotationally symmetric and has drifted.
+      checkTileSymmetry = "off",
       tileSymmetryTolerance = 1e-6,
       // Below this on-screen tile radius (in CSS pixels) a tile draws its `lod` art instead of its full
       // art, if it supplied any. See passes().
@@ -160,13 +164,17 @@ export class Atlas {
 
     // A SYNCHRONOUS callback must be served in THIS frame.
     //
-    // Going through a promise even for data that is already in hand costs a frame, and on a {p,q}
-    // tiling that frame is visible: word addresses are not canonical, so when the camera re-anchors the
-    // walk renames many tiles at once, every renamed tile misses the cache, and every one of them
-    // vanishes for exactly one frame. Measured on {7,3} panning one tile spacing in 60 steps: 26 of the
+    // Going through a promise even for data that is already in hand costs a frame, and that frame used
+    // to be visible on a {p,q} tiling: word addresses were not canonical, so when the camera re-anchored
+    // the walk renamed many tiles at once, every renamed tile missed the cache, and every one of them
+    // vanished for exactly one frame. Measured on {7,3} panning one tile spacing in 60 steps: 26 of the
     // on-screen tiles disappeared together on the single re-anchor frame, plus 1-3 per frame from tiles
     // entering at the rim. That is the flicker. The binary tiling barely showed it (worst 2) because its
-    // addresses are canonical and nothing gets renamed.
+    // addresses were already canonical and nothing got renamed.
+    //
+    // Canonical ids have since removed the renaming for regular tilings too, so re-anchoring no longer
+    // evicts anything. The synchronous path stays: it is still a frame saved for tiles entering at the
+    // rim, and the reasoning above is the record of why it exists.
     let result;
     try {
       result = this.tileData(tile);

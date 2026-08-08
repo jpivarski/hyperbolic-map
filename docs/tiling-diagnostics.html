@@ -26,22 +26,26 @@
 <body>
 <h1>Tiling diagnostics</h1>
 
-<p class="rule"><b>THE RULE this page exists to demonstrate.</b> A tile&rsquo;s frame is defined only
-<b>up to the tile stabiliser C<sub>m</sub></b> (m&nbsp;=&nbsp;<code>frameSymmetry</code>, default
-<code>p</code>). The renderer reaches each tile by the shortest route from the <em>camera</em>, so when
-the camera crosses into a new tile the routes change and every tile&rsquo;s frame may change by a
-rotation of 2&pi;k/m about its own centre. That is a property of the group, not a bug. So tile art must
-be <b>invariant under rotation by 2&pi;/m</b>, and must <b>not depend on the tile&rsquo;s word
-address</b> &mdash; word addresses are not canonical, so two routes to one tile can spell it
-differently. Break either half and the art looks fine standing still and <b>jumps as you scroll</b>.</p>
+<p class="rule"><b>THE RULE this page used to demonstrate, and no longer has to.</b> A tile&rsquo;s
+frame is defined only <b>up to the tile stabiliser C<sub>m</sub></b>
+(m&nbsp;=&nbsp;<code>frameSymmetry</code>, default <code>p</code>). The renderer used to reach each tile
+by the shortest route from the <em>camera</em>, so when the camera crossed into a new tile the routes
+changed and every tile&rsquo;s frame could change by a rotation of 2&pi;k/m about its own centre
+&mdash; and its word address changed too, since two routes to one tile spell it differently. Tile art
+therefore had to be invariant under rotation by 2&pi;/m and had to ignore its own address, or it looked
+fine standing still and <b>jumped as you scrolled</b>.</p>
+
+<p class="rule"><b>What replaced it.</b> The freedom is still in the group; the library now spends it
+once instead of leaving it to the route. Each tile&rsquo;s frame is the lexicographically least element
+of its coset, computed exactly in integer arithmetic, and its <b>id</b> is that frame&rsquo;s tile
+centre &mdash; both functions of the tile alone. So <b>tile art may now be fully asymmetric and may
+depend on the tile id</b>, at any distance. The motifs built to demonstrate the old rule are kept
+because they are the sharpest test of the new behaviour: select <b>asymmetric</b> and <b>colour by id
+hash</b>, then scroll. Nothing may change discontinuously.</p>
 
 <p class="note">The default artwork is a <b>pinwheel</b>: one wedge of 2&pi;/m carrying a curved blade
-and an off-axis dot, repeated m times by exact rotation. That is symmetric to machine precision by
-construction and as asymmetric as the rule permits &mdash; no mirror, no rotation finer than 2&pi;/m
-&mdash; so a mirrored, rotated or misplaced tile still stands out. Select <b>illegal</b> to see what
-breaking the rule looks like, and <b>colour by address hash</b> to break just the addressing half. The
-binary tiling is exempt from both: its stabiliser is trivial and its addresses are canonical, which is
-why it was always the one that scrolled cleanly.</p>
+and an off-axis dot, repeated m times by exact rotation. Being C<sub>m</sub>-symmetric, it is precisely
+the motif that <em>cannot</em> reveal a frame rotation, so it is the control rather than the test.</p>
 
 <p class="note"><b>The property to check by eye:</b> a regular tiling is homogeneous, so however far
 you scroll, the picture should look exactly as it did at the origin. Use the distance buttons to jump
@@ -67,12 +71,12 @@ underneath: it must stay near 1 forever.</p>
     </fieldset>
     <fieldset>
       <legend>artwork</legend>
-      <label><input type="radio" name="motif" value="art" checked> tile art: a C<sub>m</sub> pinwheel (as asymmetric as the rule allows)</label>
-      <label><input type="radio" name="motif" value="legal"> legal outline motif (thin strokes)</label>
-      <label><input type="radio" name="motif" value="illegal"> <b>illegal</b>: breaks the rule, jumps as you scroll</label>
+      <label><input type="radio" name="motif" value="art" checked> tile art: a C<sub>m</sub> pinwheel (the control: cannot show a frame rotation)</label>
+      <label><input type="radio" name="motif" value="sym"> C<sub>m</sub>-symmetric outline motif (thin strokes)</label>
+      <label><input type="radio" name="motif" value="asym"> <b>asymmetric</b>: the acceptance test &mdash; must not jump as you scroll</label>
       <label><input type="radio" name="motif" value="fill"> flat fill (shows tile ownership)</label>
       <label><input type="radio" name="motif" value="over"> overflowing fill (tests clipping)</label>
-      <label><input type="checkbox" id="hashColour"> colour by address hash (<b>illegal</b> on {p,q}: addresses are not canonical)</label>
+      <label><input type="checkbox" id="hashColour"> colour by tile-id hash (once the sharpest way to make {p,q} art jump)</label>
       <label><input type="checkbox" id="clip" checked> clip each tile to its own boundary</label>
       <label><input type="checkbox" id="outline"> outline tile boundaries</label>
     </fieldset>
@@ -82,7 +86,7 @@ underneath: it must stay near 1 forever.</p>
       <button data-jump="5">5</button>
       <button data-jump="50">50</button>
       <button data-jump="500">500</button>
-      <button data-jump="5000">5000</button>
+      <button data-jump="2000">2000</button>
       <button data-jump="0">back to origin</button>
     </fieldset>
     <div id="readout"></div>
@@ -213,8 +217,14 @@ try {
       `frame         ${s.frameMs ? s.frameMs.toFixed(1) + " ms" : "-"}`;
   }
 
-  // Jump N tiles away by walking the ADDRESS only -- no global coordinate is formed, which is exactly
-  // why 5000 tiles is as cheap and as accurate as 1.
+  // Jump N tiles away by walking the ADDRESS only -- no global coordinate is ever formed, which is why
+  // the picture 2000 tiles out is exactly as ACCURATE as the one at 1.
+  //
+  // Not as cheap, though, and it used to be -- the button went to 5000 and now stops at 2000. Each new
+  // tile gets a canonical id computed in exact integer arithmetic, and an id's width grows with
+  // distance: measured on {8,3} m=4, a greedy 5000-tile walk costs 11.7 s and peaks at 520 MB, against
+  // 1.9 s and 142 MB at 2000. That is the price of naming tiles globally. Rendering, once you are
+  // there, is unaffected -- which is the whole point.
   function jump(n) {
     let address = n === 0 ? tiling.originAddress() : viewport.atlas.anchor.address;
     let s = 2246 + n;

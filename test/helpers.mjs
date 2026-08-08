@@ -105,6 +105,10 @@ export function advanceAddressWithDistance(tiling, n, seed = 12345) {
     return s / 4294967296;
   };
   let address = tiling.originAddress();
+  // Each step as {from, gen}, so a caller can retrace it. The `from` matters: with canonical addresses
+  // the index that walks back out of the child is `tiling.reverseGenerator(from, gen)`, which needs to
+  // know which edge was taken from where.
+  const path = [];
   // The accumulated frame, held in LOG-SCALED form so it never overflows: entries are kept at unit
   // magnitude and the discarded scale accumulates in `logScale`. Only a test may form this at all -- it
   // is precisely the global quantity the renderer must never build.
@@ -123,7 +127,10 @@ export function advanceAddressWithDistance(tiling, n, seed = 12345) {
     const offset = Math.floor(rand() * nbrs.length);
     for (let k = 0; k < nbrs.length; k++) {
       const cand = nbrs[(k + offset) % nbrs.length];
-      const g = tiling.generator(cand.gen);
+      // stepFrame, not generator: since addresses became canonical the walk step carries a C_m
+      // correction, and accumulating the bare generator would build a frame that no longer
+      // corresponds to the address chain it is walking.
+      const g = tiling.stepFrame(address, cand.gen);
       // (ar,ai,br,bi) * g, in SU(1,1): [[a,b],[conj b, conj a]].
       const nar = ar * g.ar - ai * g.ai + br * g.br + bi * g.bi;
       const nai = ar * g.ai + ai * g.ar - br * g.bi + bi * g.br;
@@ -136,6 +143,7 @@ export function advanceAddressWithDistance(tiling, n, seed = 12345) {
     ai = best.nai;
     br = best.nbr;
     bi = best.nbi;
+    path.push({ from: address, gen: best.cand.gen });
     address = best.cand.address;
     const m = Math.max(Math.abs(ar), Math.abs(ai), Math.abs(br), Math.abs(bi));
     if (m > 1e120) {
@@ -157,12 +165,42 @@ export function advanceAddressWithDistance(tiling, n, seed = 12345) {
   // d = 2 acosh(|a|); for |a| >> 1 that is 2(log|a| + log 2), which is what avoids the overflow.
   const la = logAbsA();
   const distance = la > 20 ? 2 * (la + Math.LN2) : 2 * Math.acosh(Math.max(1, Math.exp(la)));
-  return { address, distance };
+  return { address, distance, path };
 }
 
-// The hyperbolic distance an address sits at, measured from its own symbols -- NOT from their count.
+// log|x| for a ring element, evaluated safely at ANY size.
 //
-// Regular tilings: compose the word's generators, log-scaled so any depth is representable.
+// The coefficients are BigInts that grow about 1.44 bits per unit of hyperbolic distance, so a tile
+// 500 steps out has coefficients of a few thousand bits and `Number(c)` is simply Infinity. Shifting
+// every coefficient down by the same amount and adding the shift back in logs keeps ~900 bits of the
+// leading part -- around 850 bits more than a double needs -- so the only way this could lose the
+// answer is cancellation nearly that deep, which cosh(d) >= 1 rules out.
+function logAbsExact(R, a) {
+  let widest = 0;
+  for (const c of a) {
+    const mag = c < 0n ? -c : c;
+    if (mag !== 0n) {
+      const bits = mag.toString(2).length;
+      if (bits > widest) widest = bits;
+    }
+  }
+  const shift = widest > 900 ? BigInt(widest - 900) : 0n;
+  let s = 0;
+  for (let i = R.deg - 1; i >= 0; i--) s = s * R.muFloat + Number(a[i] >> shift);
+  return Math.log(Math.abs(s)) + Number(shift) * Math.LN2;
+}
+
+// The hyperbolic distance an address sits at, measured from the address itself.
+//
+// Regular tilings: straight from the defining formula in the hyperboloid model,
+//
+//     cosh d(O, F.O) = -B(O_hat, F O_hat) = B(v_O, F v_O) / B(v_O, v_O)
+//
+// with v_O the tile-centre vector and B the Coxeter form. Deliberately NOT the route
+// `globalFrameForTesting` takes (intertwiner -> SU(1,1) -> distanceMoved), so the two remain
+// independent witnesses; the cross-check test below compares them where both are valid. The doubled
+// Gram matrix the library stores is 2B, and the factor of two cancels in the ratio.
+//
 // Binary tiling: `lat` is exact and each latitude step is a translation of log 2, giving a lower bound
 // that is all an anti-vacuity assertion needs.
 export function addressDistance(tiling, address) {
@@ -170,33 +208,19 @@ export function addressDistance(tiling, address) {
     const lat = address.lat < 0n ? -address.lat : address.lat;
     return Number(lat) * Math.LN2;
   }
-  const gens = [];
-  for (let a = address; a && a.len > 0; a = a.prev) gens.push(a.gen);
-  gens.reverse();
-  let ar = 1;
-  let ai = 0;
-  let br = 0;
-  let bi = 0;
-  let logScale = 0;
-  for (const gi of gens) {
-    const g = tiling.generator(gi);
-    const nar = ar * g.ar - ai * g.ai + br * g.br + bi * g.bi;
-    const nai = ar * g.ai + ai * g.ar - br * g.bi + bi * g.br;
-    const nbr = ar * g.br - ai * g.bi + br * g.ar + bi * g.ai;
-    const nbi = ar * g.bi + ai * g.br - br * g.ai + bi * g.ar;
-    ar = nar;
-    ai = nai;
-    br = nbr;
-    bi = nbi;
-    const m = Math.max(Math.abs(ar), Math.abs(ai), Math.abs(br), Math.abs(bi));
-    if (m > 1e120) {
-      ar /= m;
-      ai /= m;
-      br /= m;
-      bi /= m;
-      logScale += Math.log(m);
+  const { R, G, vO } = tiling.exact;
+  const F = address.F;
+  const image = [0, 1, 2].map((i) =>
+    R.add(R.add(R.mul(F[i][0], vO[0]), R.mul(F[i][1], vO[1])), R.mul(F[i][2], vO[2])));
+  const form = (u, v) => {
+    let s = R.zero();
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) s = R.add(s, R.mul(R.mul(G[i][j], u[i]), v[j]));
     }
-  }
-  const la = Math.log(Math.hypot(ar, ai)) + logScale;
-  return la > 20 ? 2 * (la + Math.LN2) : 2 * Math.acosh(Math.max(1, Math.exp(la)));
+    return s;
+  };
+  // log cosh d, so the answer survives distances where cosh d itself overflows.
+  const logCosh = logAbsExact(R, form(vO, image)) - logAbsExact(R, form(vO, vO));
+  // For large d, cosh d = e^d / 2 to far better than a double can tell.
+  return logCosh > 20 ? logCosh + Math.LN2 : Math.acosh(Math.max(1, Math.exp(logCosh)));
 }

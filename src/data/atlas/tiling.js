@@ -27,6 +27,16 @@
 
 import { Isom } from "../../core/isom.js";
 import { halfPlaneToLocal, localToHalfPlane } from "../../core/coords.js";
+import { buildExactCoxeter, exactIdentity, exactMatMul, exactMatPow, exactMatVec, exactMatEquals, serializeExactVector } from "./exactcoxeter.js";
+import { matchGenerators, calibrateSpin, exactToIsom } from "./exactcalib.js";
+import { movePointToPoint } from "../../core/isom.js";
+
+// How much of the discovered tile graph a RegularTiling keeps. See `storeNode` for why there is a
+// budget at all. The floor is comfortably larger than any one frame's working set (a 200-tile
+// neighbourhood with its fringe), so ordinary panning never evicts anything it is about to want; the
+// character budget is what bounds memory once ids grow long far from the origin.
+const NODE_FLOOR = 4096;
+const ID_CHAR_BUDGET = 4e6;
 
 // Boundary edge kinds. Geodesics are circles orthogonal to the unit circle; horocycles are circles
 // internally TANGENT to it. The binary tiling needs both.
@@ -136,9 +146,6 @@ function regularTileClass(p, q, m, generators, inverseIndex) {
   return out;
 }
 
-// The shared root of every word address. `str` is pre-filled so the memoisation has a base case.
-const REGULAR_ROOT = { gen: -1, prev: null, len: 0, str: "root", h1: 2166136261, h2: 987654321, cls: 0 };
-
 export class RegularTiling {
   // `frameSymmetry` (m, a divisor of p) is the rotational symmetry the tile art is promised to have.
   // It selects the walk group so that the tile stabiliser is C_m, which is what makes "the same data
@@ -238,93 +245,295 @@ export class RegularTiling {
       return [zx * k, zy * k];
     });
 
-    // Addresses are words, so two different words can name the same tile: the walk must deduplicate
-    // geometrically. (Contrast BinaryTiling, whose integer addresses are canonical.)
-    this.addressesAreCanonical = false;
-
     // The tile-class homomorphism. See tileClass() for what it is for and why it is sound.
     const cls = regularTileClass(p, q, this.m, this.generators, this.inverseIndex);
     this.classModulus = cls.modulus;
     this.classStep = cls.step;
+
+    // ---- EXACT IDENTITY AND ORIENTATION ----
+    //
+    // A tile-with-frame is an element of the walk group, and two routes to one tile differ by an
+    // element of the stabiliser C_m. So a TILE is a coset F.C_m, and its canonical representative --
+    // the lexicographically least matrix in that coset -- is simultaneously its unique id and its
+    // canonical orientation. One object solves identity and orientation together.
+    //
+    // Computed in the Coxeter reflection representation over Z[mu] with BigInt entries, because the
+    // float version of this question has a distance ceiling (~37) and integers do not.
+    //
+    // WHAT IT COSTS, measured on the Escher atlas ({8,3} m=4, 200 tiles, 560 px), because it is not
+    // free and the shape of the cost is worth knowing:
+    //
+    //   * steady state is unchanged -- 16.4 ms median frame against 17.3 ms before, and 197 frames in
+    //     200 of a pan do ZERO ring multiplies. Naming happens once per tile ever, not per frame, and
+    //     `exactMulCount()` is exported so that claim can be checked rather than believed.
+    //   * a frame that reaches tiles never seen before pays for all of them at once: ~1,800 edges
+    //     around a 200-tile view at ~117 ring multiplies each, so the first frame costs 250 ms against
+    //     40 ms, and the frame where a pan first crosses into unexplored ground costs ~130 ms against
+    //     ~32 ms. Panning back over the same ground costs nothing.
+    //
+    // The 117 divides as 27 for F_parent . G_g, 9 for the id vector, and 27(m-1) to canonicalise --
+    // so the canonicalisation dominates and grows with m. Replacing lex-min over MATRICES with lex-min
+    // over the m images of v_M would make that 9m + 27, which is worth doing if {12,3} ever matters;
+    // it would change every id, so it is not worth doing casually.
+    this.exact = buildExactCoxeter(p, q);
+    const matched = matchGenerators(this.exact, this.generators, p, this.m);
+    this.exactGenerators = matched.exactGenerators;
+    this.intertwiner = matched.intertwiner;
+    this.exactP = exactMatPow(this.exact.R, this.exact.rho, p / this.m);
+    // Whether the exact P reads as a +2pi/m or -2pi/m rotation is discovered, never assumed.
+    this.spin = calibrateSpin(this.exact, this.intertwiner, this.exactP, this.m, Isom);
+
+    this.exactPPow = [exactIdentity(this.exact.R)];
+    for (let k = 1; k < this.m; k++) {
+      this.exactPPow.push(exactMatMul(this.exact.R, this.exactPPow[k - 1], this.exactP));
+    }
+    // Float rotations by 2*pi*k/m about a tile's own centre, precomputed: the walk multiplies by one
+    // of these on every step and must never build them per frame.
+    this.rotP = [];
+    for (let k = 0; k < this.m; k++) {
+      this.rotP.push(Isom.rotation((this.spin * 2 * Math.PI * k) / this.m));
+    }
+
+    // The transport permutation. Conjugating by P permutes the generator set -- they are built as
+    // rho^k . base . rho^-k with k closed under adding p/m -- so
+    //
+    //     P^j . Gx[g] . P^-j = Gx[pi[j][g]]
+    //
+    // exactly, with no leftover rotation. (The design this came from allowed for a residual angle
+    // tau_j(g); it is identically zero, and the check below would throw if it were not.) The walk
+    // itself does not need this table, because folding P^k into each step keeps every frame canonical.
+    // Stepping BACK does: see reverseGenerator.
+    this.piTransport = [];
+    this.piInverse = [];
+    for (let j = 0; j < this.m; j++) {
+      const row = new Array(this.generators.length).fill(-1);
+      const inv = new Array(this.generators.length).fill(-1);
+      const Pj = this.exactPPow[j];
+      const PjInv = this.exactPPow[(this.m - j) % this.m];
+      for (let g = 0; g < this.generators.length; g++) {
+        const conj = exactMatMul(this.exact.R, exactMatMul(this.exact.R, Pj, this.exactGenerators[g]), PjInv);
+        let found = -1;
+        for (let h = 0; h < this.exactGenerators.length; h++) {
+          if (exactMatEquals(this.exact.R, conj, this.exactGenerators[h])) {
+            found = h;
+            break;
+          }
+        }
+        if (found < 0) {
+          throw new Error(
+            `hyperbolic-map: {${p},${q}} m=${this.m}: P^${j} does not permute the generators, so the ` +
+              "walk group is not what this construction assumes",
+          );
+        }
+        row[g] = found;
+        inv[found] = g;
+      }
+      if (inv.includes(-1)) throw new Error(`hyperbolic-map: transport row ${j} is not a permutation`);
+      this.piTransport.push(row);
+      this.piInverse.push(inv);
+    }
+
+    // Every tile ever discovered, keyed by its canonical id. Nodes are persistent and shared, so
+    // reaching a tile by a second route returns the SAME object -- which is what makes the id, the
+    // frame and the tile-data cache slot route-independent.
+    this.nodes = new Map();
+    this.idChars = 0;
+    this.rootNode = this.internNode(exactIdentity(this.exact.R), 0);
+
+    // Integer addresses in the sense that matters: one tile, one id, at any distance.
+    this.addressesAreCanonical = true;
+  }
+
+  // Compare two exact matrices in a fixed total order: row-major, entrywise, using the ring's own
+  // order. This is what "lexicographically least" means, and it is what picks the canonical coset
+  // representative -- so it is frozen. Changing it renames every id in every cache.
+  cmpExact(A, B) {
+    const R = this.exact.R;
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        const c = R.cmp(A[i][j], B[i][j]);
+        if (c !== 0) return c;
+      }
+    }
+    return 0;
+  }
+
+  // The canonical representative of the coset M.C_m, its id, and which power of P got us there.
+  //
+  // Two routes to one tile give M and M.P^j; the candidate sets {M.P^k} and {M.P^j.P^k} are the SAME
+  // SET, so the minimum over them is identical. That is the entire proof of route-independence -- no
+  // automaton, no normal form, no parent heuristic.
+  //
+  // Canonicalising over C_m and NOT the full C_p matters: a canonical frame must stay inside the set
+  // of frames the walk can actually produce. Over C_p, roughly half of {8,3} m=4's tiles would be
+  // corrected by an odd multiple of 45 degrees, which is not a symmetry of C_4 art, and the Escher
+  // pattern would shatter.
+  // The tile id of any frame for a tile: the serialized centre F.v_O. Because P fixes v_O this is the
+  // same for every frame in the coset, so it needs no canonicalisation and is cheap enough to compute
+  // before deciding whether the tile is new.
+  idExact(M) {
+    const R = this.exact.R;
+    return serializeExactVector(R, exactMatVec(R, M, this.exact.vO), this.p, this.q, this.m);
+  }
+
+  canonicalExact(M) {
+    const R = this.exact.R;
+    const I = exactIdentity(R);
+    let bestK = 0;
+    let best = M;
+    // IDENTITY-FIRST TIE-BREAK. Only the origin tile's coset contains I, and letting I win its own
+    // coset keeps the origin tile's canonical frame equal to the identity. Without this the origin
+    // canonicalises to whichever P^k happens to sort first -- P^2, a half-turn, for {8,3} m=4 -- and
+    // although everything downstream stays self-consistent, the whole picture is rotated by a
+    // constant relative to the un-anchored global frame, so globalFrameForTesting disagrees with the
+    // walk and every existing pixel baseline shifts. Any fixed rule is equally canonical; this is the
+    // one that costs nothing and preserves what the demos already look like.
+    if (this.cmpExact(M, I) === 0) return { F: I, k: 0 };
+    for (let k = 1; k < this.m; k++) {
+      const cand = exactMatMul(R, M, this.exactPPow[k]);
+      if (this.cmpExact(cand, I) === 0) return { F: cand, k };
+      if (this.cmpExact(cand, best) < 0) {
+        best = cand;
+        bestK = k;
+      }
+    }
+    return { F: best, k: bestK };
+  }
+
+  // Look up or create the node for the coset of M.
+  internNode(M, cls) {
+    const id = this.idExact(M);
+    const hit = this.nodes.get(id);
+    if (hit) return hit;
+    const { F } = this.canonicalExact(M);
+    return this.storeNode({ F, id, cls, edges: new Map() });
+  }
+
+  // Add a node to the store and keep the store bounded.
+  //
+  // WHY BOUNDED. An id is one string per tile ever visited and its length grows linearly with distance
+  // (measured on {8,3} m=4: about 12 characters per tile crossed), so retaining every node makes the
+  // memory of a long pan grow like the SQUARE of the distance travelled -- 93 MB at 1,000 tiles out,
+  // 734 MB at 4,000. That is a property of naming tiles globally at all, not of this encoding: there
+  // are exponentially many tiles within distance d, so any correct global name needs Omega(d) bits.
+  //
+  // Eviction is safe because nothing anywhere depends on node object identity -- `addressEquals`
+  // compares ids, and re-deriving an evicted node costs one canonicalisation. Evicting also CLEARS the
+  // dropped node's edges, so a dropped node cannot keep the rest of its subtree alive through a live
+  // neighbour's edge cache.
+  //
+  // The budget is on retained id characters rather than node count, because that is the thing that
+  // actually grows; the floor on count is what keeps a frame's working set resident so that steady-state
+  // panning still does no exact arithmetic at all.
+  storeNode(node) {
+    this.nodes.set(node.id, node);
+    this.idChars += node.id.length;
+    while (this.nodes.size > NODE_FLOOR && this.idChars > ID_CHAR_BUDGET) {
+      // Map iterates in insertion order, so this drops the least recently created node.
+      const oldest = this.nodes.keys().next();
+      if (oldest.done) break;
+      const victim = this.nodes.get(oldest.value);
+      if (victim === this.rootNode) {
+        // The origin is inserted first, so it would block every eviction; move it to the back instead.
+        // It is kept forever because `originAddress()` hands it out and losing its edges would make
+        // every route through the origin redo exact work.
+        this.nodes.delete(oldest.value);
+        this.nodes.set(oldest.value, victim);
+        continue;
+      }
+      this.nodes.delete(oldest.value);
+      this.idChars -= victim.id.length;
+      victim.edges.clear();
+    }
+    return node;
   }
 
   // ---- addressing ----
   //
-  // A word address is a CONS CELL, not an array: { gen, prev, len } with the string form memoised.
+  // An address is a NODE in the tile graph: { F, id, cls, edges }, with F the tile's canonical exact
+  // frame and `id` its canonical name. It replaced a cons-cell word address, and the reason is not
+  // performance but meaning: a word is a route, and the same tile reached by two routes got two words,
+  // two cache slots and two orientations. Reaching it now returns the same id whatever the route, which
+  // is what lets tile art be fully asymmetric.
   //
-  // The array version was correct but quadratic in the wrong place. `neighbours()` is called for every
-  // candidate the walk dequeues, and `concat` copies the whole word each time, while `addressToString`
-  // rebuilt it from scratch. Measured at 5,000 tiles from the origin (word length 3,796): one
-  // `addressToString` cost 43 microseconds and one `neighbours` 9.8, so a single frame's enumeration
-  // spent 57 ms on address bookkeeping alone and the frame time went from 17 ms to 84 ms. The geometry
-  // was already distance-independent; only the labelling was not.
-  //
-  // With a cons cell, extending is O(1) and the prefix that every tile in a frame shares -- the camera's
-  // own address -- is stringified once and then reused.
+  // Words were also quadratic in the wrong place. At 5,000 tiles out the word was 3,796 symbols and one
+  // `addressToString` cost 43 microseconds, so a frame spent 57 ms on labelling alone. An id is built
+  // once per tile ever discovered and is a field read thereafter.
 
   originAddress() {
-    return REGULAR_ROOT;
+    return this.rootNode;
   }
 
-  // A cheap, collision-resistant key for cache lookups. O(1) per address, because it is folded from the
-  // parent's hash when the cell is created.
+  // The id IS the key. It is a field read: canonicalisation happened once, when the node was created.
   //
-  // The string form cannot serve this purpose far from the origin: a word address is one symbol per tile
-  // crossed, so at 50,000 tiles it is ~38,000 characters, and using it as a Map key forces the rope to
-  // flatten. Measured, that put 200 such keys at ~20 ms per frame even though enumeration itself stayed
-  // at 0.26 ms. Two independent 32-bit folds give ~53 bits, so a collision across millions of tiles is
-  // negligible -- and a collision would only mean two tiles sharing a cache slot, which for the
-  // position-independent data an atlas usually carries is invisible anyway.
+  // The old word-hash key existed because a word address is one symbol per tile crossed and
+  // stringifying it per frame cost ~20 ms at 5,000 tiles. That problem is gone -- an id is computed
+  // once per tile ever, not once per frame -- and in exchange the key is now genuinely canonical, so
+  // a tile keeps its cache slot when the camera re-anchors instead of being renamed and re-fetched.
   addressKey(address) {
-    return address.h1 * 4294967296 + address.h2;
+    return address.id;
   }
 
   addressToString(address) {
-    if (address.str !== null) return address.str;
-    // Walk back to the nearest ancestor whose string is already known, then build forward. Iterative
-    // rather than recursive: a word can be thousands of symbols long and recursion would overflow.
-    const pending = [];
-    let node = address;
-    while (node.str === null) {
-      pending.push(node);
-      node = node.prev;
-    }
-    let s = node.str;
-    for (let i = pending.length - 1; i >= 0; i--) {
-      s = s === "root" ? String(pending[i].gen) : `${s}.${pending[i].gen}`;
-      pending[i].str = s;
-    }
-    return address.str;
+    return address.id;
   }
 
   addressEquals(a, b) {
-    if (a === b) return true;
-    if (a.len !== b.len) return false;
-    let x = a;
-    let y = b;
-    while (x !== y && x.len > 0) {
-      if (x.gen !== y.gen) return false;
-      x = x.prev;
-      y = y.prev;
-    }
-    return true;
+    return a === b || a.id === b.id;
   }
 
-  // Append a generator, cancelling it against the last one if they are mutual inverses. Free
-  // reduction only -- it keeps words short and makes an out-and-back walk return the SAME address,
-  // which is what the round-trip property test checks. It is not a full normal form: the {p,q}
-  // reflection group has braid relations too, so two genuinely different words can still name one
-  // tile. That is why the walk deduplicates geometrically as well, and why notes/open-questions.md
-  // records the Coxeter shortlex automaton as the rigorous upgrade.
+  // Step to a neighbour. Nodes are interned, so the second route to a tile returns the same object.
+  //
+  // The edge also records the float step to use: not the bare generator, but the generator followed
+  // by the rotation that lands in the CHILD'S canonical frame. Folding the correction into the step
+  // is what keeps every frame the walk produces canonical, so nothing downstream has to know that a
+  // correction happened -- `net` is already right, and clipping, picking and boundary overlays are
+  // untouched (the tile polygon is C_p-invariant and P is in C_p).
+  //
+  // Exact arithmetic happens HERE, once per edge ever traversed, and never again.
   extendAddress(address, gen) {
-    if (address.len > 0 && this.inverseIndex[address.gen] === gen) return address.prev;
-    // Fold the hash forward as the cell is built, so addressKey is O(1) forever after.
-    const h1 = (Math.imul(address.h1 ^ (gen + 1), 16777619) >>> 0);
-    const h2 = (Math.imul(address.h2 + gen * 2654435761, 2246822519) >>> 0) ^ (h1 >>> 13);
-    // And the tile class, likewise O(1). See tileClass(): unlike the word itself, this IS canonical.
-    const n = this.classModulus;
-    const cls = n > 1 ? (address.cls + this.classStep[gen]) % n : 0;
-    return { gen, prev: address, len: address.len + 1, str: null, h1, h2: h2 >>> 0, cls };
+    const hit = address.edges.get(gen);
+    if (hit) return hit.node;
+    const R = this.exact.R;
+    const M = exactMatMul(R, address.F, this.exactGenerators[gen]);
+    const id = this.idExact(M);
+    const { F, k } = this.canonicalExact(M);
+    let child = this.nodes.get(id);
+    if (!child) {
+      const n = this.classModulus;
+      const cls = n > 1 ? (((address.cls + this.classStep[gen]) % n) + n) % n : 0;
+      child = this.storeNode({ F, id, cls, edges: new Map() });
+    }
+    // F_child = F_parent . Gx[gen] . P^k, so the float step is the generator then that rotation.
+    const step = this.generators[gen].mul(this.rotP[k]).normalize();
+    address.edges.set(gen, { node: child, k, step });
+    return child;
+  }
+
+  // The float isometry for one walk step, in canonical frames. The walk uses this instead of
+  // generator(gen); the difference is the C_m correction folded in.
+  stepFrame(address, gen) {
+    const hit = address.edges.get(gen);
+    if (hit) return hit.step;
+    this.extendAddress(address, gen);
+    return address.edges.get(gen).step;
+  }
+
+  // Which generators lead out of this tile, WITHOUT building any of the neighbours.
+  //
+  // This exists so the walk can decide whether it wants a neighbour before paying for it. Naming a
+  // tile costs exact integer arithmetic -- one matmul, m-1 more to canonicalise, and a mat-vec for the
+  // id -- and the walk discards most of what it looks at: it explores about eight candidates per tile
+  // and keeps a couple of hundred in total. Measured on the Escher atlas before this existed, a frame
+  // that crossed a tile boundary named ~800 new tiles, spent 210,000 ring multiplies and took 154 ms
+  // against a 17 ms median. The centre of a neighbour can be found from the plain generator, with no
+  // exact work at all, which is enough to reject it.
+  neighbourGens() {
+    if (!this._gensAll) {
+      this._gensAll = [];
+      for (let g = 0; g < this.generators.length; g++) this._gensAll.push(g);
+    }
+    return this._gensAll;
   }
 
   neighbours(address) {
@@ -341,6 +550,22 @@ export class RegularTiling {
 
   inverseGenerator(i) {
     return this.inverseIndex[i];
+  }
+
+  // The generator that steps from `extendAddress(address, gen)` BACK to `address`.
+  //
+  // NOT `inverseGenerator(gen)`, and this is the one place where canonical frames cost something. The
+  // child's canonical frame is F_p . Gx[g] . P^k, so a step h out of the child reads as
+  //
+  //     F_p . Gx[g] . P^k . Gx[h]  =  F_p . Gx[g] . Gx[pi_k(h)] . P^k
+  //
+  // which lands back on the parent exactly when pi_k(h) is the inverse of g. Applying the plain
+  // inverse index instead lands on a DIFFERENT neighbour of the child -- a real tile, so nothing
+  // throws; the walk just quietly fails to come home. (`inverseGenerator` still means what it always
+  // meant: the index whose isometry is the inverse. It is the frame that moved, not the name.)
+  reverseGenerator(address, gen) {
+    const hit = address.edges.get(gen) || (this.extendAddress(address, gen), address.edges.get(gen));
+    return this.piInverse[hit.k][this.inverseIndex[gen]];
   }
 
   generatorCount() {
@@ -448,17 +673,10 @@ export class RegularTiling {
   // near-origin regime where the naive one is still trustworthy, and so the mpmath oracle has
   // something to check. Deliberately named to be greppable.
   globalFrameForTesting(address) {
-    // The word runs newest-first through the cons chain, but the frame is a product read oldest-first,
-    // so collect and reverse.
-    const gens = [];
-    for (let node = address; node.len > 0; node = node.prev) gens.push(node.gen);
-    gens.reverse();
-    let m = Isom.identity();
-    for (let i = 0; i < gens.length; i++) {
-      m = m.mul(this.generators[gens[i]]);
-      if ((i & 7) === 7) m.normalize();
-    }
-    return m.normalize();
+    // Now exact underneath: the node carries its canonical frame as an integer matrix, and this is
+    // just the float image of it. Still diagnostic-only -- the entries grow like cosh(d/2), which is
+    // precisely why the render path composes relative frames instead.
+    return exactToIsom(this.intertwiner, address.F, Isom, movePointToPoint);
   }
 }
 
@@ -648,6 +866,46 @@ export class BinaryTiling {
     return a.lat === b.lat && a.lon === b.lon;
   }
 
+  // Which generators lead out of this cell, WITHOUT building any of the neighbours. See the note on
+  // RegularTiling.neighbourGens. The parent step is the one that varies: a cell offers PARENT_EVEN or
+  // PARENT_ODD according to its own longitude parity, never both.
+  neighbourGens(address) {
+    const even = (address.lon & 1n) === 0n;
+    return [BIN_RIGHT, BIN_LEFT, BIN_CHILD0, BIN_CHILD1, even ? BIN_PARENT_EVEN : BIN_PARENT_ODD];
+  }
+
+  // The neighbour reached by one generator. Same arithmetic as `neighbours`, one entry at a time, so a
+  // caller that has already decided which way it is going does not build the other four.
+  //
+  // A cell has only ONE parent, and which of PARENT_EVEN / PARENT_ODD names it depends on the cell's
+  // own longitude parity. Asking for the wrong one is a caller error rather than a different cell:
+  // saying PARENT_EVEN from an odd-longitude cell once made the camera unable to move up at all, and it
+  // then chased downward until the latitude ran to several hundred digits. So it throws.
+  extendAddress(address, gen) {
+    const { lat, lon } = address;
+    const even = (lon & 1n) === 0n;
+    switch (gen) {
+      case BIN_RIGHT: return { lat, lon: lon + 1n };
+      case BIN_LEFT: return { lat, lon: lon - 1n };
+      case BIN_CHILD0: return { lat: lat - 1n, lon: lon * 2n };
+      case BIN_CHILD1: return { lat: lat - 1n, lon: lon * 2n + 1n };
+      case BIN_PARENT_EVEN:
+      case BIN_PARENT_ODD: {
+        if ((gen === BIN_PARENT_EVEN) !== even) {
+          throw new Error(
+            `hyperbolic-map: cell (${lat},${lon}) has longitude parity ${even ? "even" : "odd"}, so its ` +
+              `parent is reached by ${even ? "BIN_PARENT_EVEN" : "BIN_PARENT_ODD"}, not generator ${gen}`,
+          );
+        }
+        // Floor division: BigInt / truncates toward zero, so -1n/2n is 0n where the parent of cell -1
+        // must be cell -1. Off-by-one here would break the western hemisphere only.
+        return { lat: lat + 1n, lon: lon >= 0n ? lon / 2n : -((-lon + 1n) / 2n) };
+      }
+      default:
+        throw new Error(`hyperbolic-map: unknown binary generator ${gen}`);
+    }
+  }
+
   // The ORDER of this list is part of the contract: `stepToward` returns an index into it.
   neighbours(address) {
     const { lat, lon } = address;
@@ -671,6 +929,23 @@ export class BinaryTiling {
 
   inverseGenerator(i) {
     return BINARY_INVERSE[i];
+  }
+
+  // No stabiliser, so no frame correction, so stepping back really is the inverse generator. Present
+  // so a caller can walk back on either tiling without asking which one it has.
+  //
+  // The one wrinkle is the parent step's two parities: PARENT_EVEN and PARENT_ODD are inverse to
+  // CHILD0 and CHILD1 respectively, and a cell offers only the one that matches its own longitude, so
+  // callers must still look the returned index up in `neighbours` rather than assume it is present.
+  reverseGenerator(address, gen) {
+    return BINARY_INVERSE[gen];
+  }
+
+  // The stabiliser is trivial here, so a cell's frame is unique and the walk step is just the
+  // generator -- no canonical correction exists to fold in. Present so the walk can call the same
+  // method on either tiling.
+  stepFrame(address, gen) {
+    return BINARY_GENERATORS[gen];
   }
 
   generatorCount() {

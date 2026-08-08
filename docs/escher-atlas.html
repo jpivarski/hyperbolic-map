@@ -18,10 +18,11 @@ runs out, which is what Escher was reaching for and could not physically carve.<
 
 <p>The tile is traced directly from the woodcut and made <strong>exactly C<sub>4</sub>-symmetric by
 construction</strong> &mdash; one 90&deg; sector is traced and repeated by exact rotation. That is not
-decoration: a tile&rsquo;s frame is only defined up to the stabiliser C<sub>4</sub>, so art that is not
-C<sub>4</sub>-invariant visibly rotates as you scroll across a tile boundary. See
-<a href="tiling-diagnostics.html">the tiling diagnostics</a>, where you can switch between art that
-obeys the rule and art that breaks it.</p>
+decoration: it is what makes this the same pattern Escher drew, in which every fish sits at 90&deg; to
+its neighbours. (It was once required as well &mdash; a tile&rsquo;s frame depended on the route the
+walk took to reach it, so art that was not C<sub>4</sub>-invariant visibly rotated as you scrolled
+across a tile boundary. Frames are canonical now and asymmetric art is stable, which
+<a href="tiling-diagnostics.html">the tiling diagnostics</a> demonstrates.)</p>
 
 <div id="map"></div>
 <p class="status"><span id="status">…</span></p>
@@ -132,7 +133,9 @@ try {
         tileData: (t) => (byTileClass ? byClass[t.classIndex % byClass.length] : byClass[0]),
         clip: clip ? "always" : "never",
         maxTiles: 200,
-        // Fail loudly if the art ever stops obeying the stabiliser rule.
+        // Opt in to the symmetry lint and make it fatal. Not a correctness requirement any more --
+        // tile frames are canonical, so asymmetric art would be fine -- but THIS art is meant to be
+        // exactly C_4-symmetric, and if it ever stops being so the pattern is no longer Escher's.
         checkTileSymmetry: "throw",
       },
       onAfterDraw: outline

@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 
 import { Isom } from "../src/core/isom.js";
 import { localDistance, halfPlaneToLocal, localToHalfPlane } from "../src/core/coords.js";
-import { wrapAngle, advanceAddress, addressDistance } from "./helpers.mjs";
+import { wrapAngle, advanceAddress, advanceAddressWithDistance, addressDistance } from "./helpers.mjs";
 import {
   RegularTiling,
   BinaryTiling,
@@ -440,22 +440,35 @@ test("the neighbourhood walk is IDENTICAL however far the camera has travelled",
   // The sharpest statement of the fix. A regular tiling is homogeneous, so the set of relative frames
   // around the camera cannot depend on where the camera is -- and now it provably does not, because
   // nothing in the computation knows.
+  // Compared to twelve decimals, with values below that treated as zero.
+  //
+  // This used to be bit-for-bit string equality, and it no longer can be: each walk step now carries a
+  // C_m correction whose power of P depends on WHICH tile it is, so the float products are associated
+  // differently at different places even though the geometry is the same. What differs is the last bit
+  // -- a coordinate that is +0 at the origin comes out as -1.2e-16 far away -- and printing that with
+  // toFixed(12) yields "-0.000000000000" against "0.000000000000". Twelve decimals is the precision
+  // this test asserts; below it, zero is zero.
+  //
+  // Note this compares tile CENTRES, not frames. The frames genuinely do differ between locations, by
+  // a rotation of each tile about its own centre -- that is the canonical orientation doing its job.
+  const sig = (tiles) => tiles
+    .map((x) => toLocal(x.rel).map((v) => (Math.abs(v) < 1e-12 ? 0 : v).toFixed(12)).join(","))
+    .sort()
+    .join("|");
   for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 7, q: 3 }, { p: 5, q: 4 }]) {
     const t = new RegularTiling(spec);
-    const reference = new Anchor(t).neighbourhood(Isom.identity(), 0.62, 200)
-      .map((x) => toLocal(x.rel).map((v) => v.toFixed(12)).join(","))
-      .sort()
-      .join("|");
-    for (const walk of [1, 7, 60, 500, 5000]) {
+    const reference = sig(new Anchor(t).neighbourhood(Isom.identity(), 0.62, 200));
+    // 1,000 tiles rather than the 5,000 this once used: an exact id is one BigInt matrix per tile and
+    // its width grows with distance, so a 5,000-tile walk now costs seconds of arithmetic rather than
+    // milliseconds. 1,000 tiles is ~1,500 hyperbolic units, still forty times past where a global
+    // float frame ceases to exist, which is the regime this test was written to defend.
+    for (const walk of [1, 7, 60, 200, 1000]) {
       const anchor = new Anchor(t);
       anchor.address = advanceAddress(t, walk, 700 + walk);
       assert.ok(addressDistance(t, anchor.address) >= walk * 0.25,
         `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
-      const got = anchor.neighbourhood(Isom.identity(), 0.62, 200)
-        .map((x) => toLocal(x.rel).map((v) => v.toFixed(12)).join(","))
-        .sort()
-        .join("|");
-      assert.equal(got, reference, `{${spec.p},${spec.q}} differs after ${walk} tile steps`);
+      assert.equal(sig(anchor.neighbourhood(Isom.identity(), 0.62, 200)), reference,
+        `{${spec.p},${spec.q}} differs after ${walk} tile steps`);
     }
   }
 });
@@ -480,9 +493,21 @@ test("the binary walk is identical under latitude shift, which IS its exact symm
 });
 
 test("the walk terminates and stays bounded even at absurd distance", () => {
+  // THIS TEST USED TO GO TO 100,000 TILES, and the reduction is a real loss worth stating plainly.
+  //
+  // The float walk genuinely was O(1) at any distance, because it never named a tile globally. Canonical
+  // ids do name them, and naming is what costs: there are exponentially many tiles within distance d, so
+  // any correct global name needs Omega(d) bits, and the exact matrices spend about 12 characters per
+  // tile crossed. Walking 100,000 tiles would mean 100,000 names of a megabyte each. Measured on
+  // {8,3} m=4 with the current store: 23 MB at 500 tiles, 70 MB at 1,000, 246 MB at 4,000 -- linear,
+  // because the store is bounded, but with a coefficient that is the id length.
+  //
+  // 1,000 tiles is about 1,500 hyperbolic units, forty times past where a global float frame dies, so
+  // the property this test was written to defend -- the walk itself does not care how far out it is --
+  // is still being exercised. The ceiling is now memory and BigInt width rather than precision.
   for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 3, q: 7 }]) {
     const t = new RegularTiling(spec);
-    for (const walk of [0, 1000, 100000]) {
+    for (const walk of [0, 200, 1000]) {
       const anchor = new Anchor(t);
       anchor.address = advanceAddress(t, walk, 700 + walk);
       assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
@@ -603,18 +628,23 @@ test("no holes: every point is owned by exactly one tile (regular tilings)", () 
 // ---- addressing ----
 
 test("addresses round-trip: walk out and back returns the same address", () => {
-  // Free reduction in extendAddress is what makes this hold for word-addressed tilings; for the binary
-  // tiling the integers make it automatic.
+  // Canonical ids make this exact rather than approximate: coming home returns the same id, not merely
+  // the same place. What it must use is `reverseGenerator`, NOT `inverseGenerator` -- the child's
+  // canonical frame differs from the frame the step produced by a power of P, and conjugating by P
+  // permutes the generators, so the index that walks back is a different one. Using the plain inverse
+  // index lands on a real but WRONG neighbour, which is exactly the sort of failure that looks like
+  // nothing until a hundred steps later.
   for (const spec of REGULARS) {
     const t = new RegularTiling(spec);
-    let a = t.originAddress();
-    const path = [];
-    for (let i = 0; i < 200; i++) {
-      const g = (i * 7 + 3) % t.generatorCount();
-      path.push(g);
-      a = t.extendAddress(a, g);
+    // The greedy outward walk, not a fixed arithmetic sequence of generator indices. `(i * 7 + 3) % n`
+    // used to be the path here, and for {7,3} -- seven generators -- it is the CONSTANT 3, one
+    // finite-order generator applied two hundred times, which travels 2.7 units and comes home for free.
+    // The anti-vacuity assertion below is what found that.
+    let { address: a, path } = advanceAddressWithDistance(t, 200, 90210 + spec.p);
+    assert.ok(addressDistance(t, a) > 20, `{${spec.p},${spec.q}} only reached ${addressDistance(t, a)}`);
+    for (let i = path.length - 1; i >= 0; i--) {
+      a = t.extendAddress(a, t.reverseGenerator(path[i].from, path[i].gen));
     }
-    for (let i = path.length - 1; i >= 0; i--) a = t.extendAddress(a, t.inverseGenerator(path[i]));
     assert.ok(
       t.addressEquals(a, t.originAddress()),
       `{${spec.p},${spec.q}} did not return to the origin: ${t.addressToString(a)}`,
@@ -653,31 +683,49 @@ test("a tile reached two different ways is recognised as one tile", () => {
   }
 });
 
-test("a {p,q} generator can have FINITE ORDER, so word length is not distance", () => {
-  // The reason `addressDistance` measures geometry instead of counting symbols, pinned as a fact rather
+test("a {p,q} generator can have FINITE ORDER, so a long walk can be standing still", () => {
+  // The reason `addressDistance` measures geometry instead of counting steps, pinned as a fact rather
   // than left in a comment.
   //
   // {8,3} with frameSymmetry 4 takes its steps with 2*pi/3 rotations about octagon VERTICES -- legitimate
   // edge-neighbour moves, since three octagons meet at each vertex and pairwise share edges. But such a
-  // rotation has order 3 in the isometry group (g^3 = -I, g^6 = +I), so the word "0.0.0.0.0" has five
-  // symbols and names a tile 1.53 units away, and g0 to the 5000th is still 1.53 units away.
+  // rotation has order 3 in the isometry group (g^3 = -I, g^6 = +I), so five steps of generator 0 name
+  // a tile 1.53 units away, and five thousand are still 1.53 units away.
   //
-  // A walk that merely refuses to backtrack can therefore circle forever while its address grows without
-  // bound. Two rounds of test repair in this project were spent on exactly that.
+  // A walk that merely refuses to backtrack can therefore circle forever. Two rounds of test repair in
+  // this project were spent on exactly that.
   const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
   const g0 = t.generator(0);
   const I = Isom.identity();
   assert.ok(!sameIsometry(g0.mul(g0), I), "g0 should NOT be an involution for m=4");
   assert.ok(sameIsometry(g0.mul(g0).mul(g0), I), "g0 should have order 3 as an isometry for m=4");
 
-  // The consequence, stated on addresses: a long word can name a near tile.
+  // The consequence, stated on addresses -- and stating it now takes the transport table, which is
+  // itself worth pinning.
+  //
+  // Repeating generator INDEX 0 is no longer the same thing as repeating the group element g0. Each
+  // step lands in the child's canonical frame, which differs from the frame the step produced by a
+  // power of P, so the next "index 0" is a different geometric move. To follow g0 itself, transport the
+  // index through the accumulated correction: if the walked frame is W and the canonical frame is
+  // W . P^j, then W . g0 is reached by generator pi_{-j}(0).
+  const seen = new Set();
   let a = t.originAddress();
-  for (let i = 0; i < 60; i++) a = t.extendAddress(a, 0);
-  assert.equal(a.len, 60, "the word really is 60 symbols long");
+  let j = 0;
+  for (let i = 0; i < 60; i++) {
+    const h = t.piTransport[(t.m - j) % t.m][0];
+    const next = t.extendAddress(a, h);
+    j = (j + a.edges.get(h).k) % t.m;
+    a = next;
+    seen.add(t.addressToString(a));
+  }
+  assert.ok(t.addressEquals(a, t.originAddress()), `60 turns of an order-3 generator should be home, got ${a.id}`);
   assert.ok(
-    addressDistance(t, a) < 2,
-    `60 symbols of one order-3 generator should stay within 2 units, got ${addressDistance(t, a)}`,
+    addressDistance(t, a) < 1e-12,
+    `60 turns of one order-3 generator should end at the origin, got ${addressDistance(t, a)}`,
   );
+  // ...and it visited only three distinct tiles on the way, which is the fact itself: sixty steps, no
+  // distance at all.
+  assert.equal(seen.size, 3, `g0 should cycle through exactly three tiles, saw ${seen.size}`);
 
   // Whereas the plain {8,3} generators ARE edge half-turns, and square to -I (audit claim 9).
   const t0 = new RegularTiling({ p: 8, q: 3 });
@@ -693,16 +741,37 @@ test("addressDistance agrees with the tiling's own frame builder near the origin
   // error in exactly this multiply made a walk look like it travelled 2,524 units when its address sat
   // at 1.1, and it was invisible until the two routes were compared.)
   let worst = 0;
+  let compared = 0;
+  let reached = 0;
   for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 8, q: 3 }, { p: 7, q: 3 }, { p: 5, q: 4 }, { p: 3, q: 7 }, { p: 12, q: 3 }]) {
     const t = new RegularTiling(spec);
     for (let n = 0; n <= 12; n++) {
-      const a = advanceAddress(t, n, 4000 + n);
-      // Small enough that a global frame is still perfectly well conditioned.
-      const want = t.globalFrameForTesting(a).distanceMoved();
-      worst = Math.max(worst, Math.abs(addressDistance(t, a) - want));
+      const { address, distance } = advanceAddressWithDistance(t, n, 4000 + n);
+      // The tolerance TRACKS THE CONDITIONING of the thing being compared against, rather than being a
+      // flat number chosen to make the test pass. A global frame reads its translation off as a disk
+      // radius r = tanh(d/2), and recovering d = 2 atanh(r) amplifies any error in r by
+      // 2 / (1 - r^2) = 2 cosh^2(d/2), which is e^d / 2. So the agreement that can be expected decays
+      // like e^d, and it does: measured on {8,3} m=4, 2.3e-15 at the origin, 9.3e-10 at d = 12.2,
+      // 4.1e-7 at d = 18.3 -- a factor of 446 across 6.1 units, against e^6.1 = 446. Different tilings
+      // sit at different heights on that curve ({5,4} runs about ten times above {8,3}), so the constant
+      // below is set an order of magnitude above the worst of them; a real disagreement would have to be
+      // beyond every tiling's float noise to hide under it. Past d ~ 37 there is no global frame at all
+      // to compare with: |beta| saturates at 1 and it returns NaN.
+      if (distance > 20) continue;
+      const want = t.globalFrameForTesting(address).distanceMoved();
+      const tol = Math.max(1e-13, 5e-13 * Math.exp(distance));
+      const err = Math.abs(addressDistance(t, address) - want);
+      assert.ok(err < tol, `{${spec.p},${spec.q}} at d=${distance.toFixed(1)}: off by ${err}, tolerance ${tol}`);
+      worst = Math.max(worst, err);
+      reached = Math.max(reached, distance);
+      compared++;
     }
   }
-  assert.ok(worst < 1e-9, `addressDistance disagrees with globalFrameForTesting by ${worst}`);
+  // Anti-vacuity: the `continue` above must not have skipped the interesting cases, and the agreement
+  // near the origin must be genuinely tight rather than merely inside a distance-inflated budget.
+  assert.ok(compared > 40, `only ${compared} comparisons were actually made`);
+  assert.ok(reached > 10, `the furthest comparison was only ${reached} units out`);
+  assert.ok(worst > 0, "the two computations agreed to the last bit everywhere, which is too good");
 });
 
 test("advanceAddress refuses to return a walk that did not travel", () => {

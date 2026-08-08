@@ -9,7 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { advanceAddress, addressDistance } from "./helpers.mjs";
+import { advanceAddress, addressDistance, wrapAngle } from "./helpers.mjs";
 
 import { Isom } from "../src/core/isom.js";
 import { ViewState, ROTATION_COMPASS } from "../src/core/view.js";
@@ -57,6 +57,56 @@ function signature(anchor, matrix, radius, maxTiles) {
     .map((t) => [t.rel.ar, t.rel.ai, t.rel.br, t.rel.bi].map((v) => v.toFixed(11)).join(","))
     .sort()
     .join("|");
+}
+
+// Where a tile sits, as a sortable key. Sub-1e-11 magnitudes are printed as +0 so that a -1.2e-16
+// coordinate does not read as a different place from +0.
+function centreKey(rel) {
+  const z = rel.applyToDisk(0, 0, [0, 0]);
+  return z.map((v) => (Math.abs(v) < 1e-11 ? 0 : v).toFixed(11)).join(",");
+}
+
+// The neighbourhood as {centres, byCentre}: the sorted set of tile positions, and each position's
+// frame.
+//
+// Positions and frames have to be looked at separately now, and that is the whole point of canonical
+// orientation. A regular tiling is homogeneous, so the POSITIONS around any tile are the same as
+// around the origin -- that is still exactly true and is what these tests check. The FRAMES are not:
+// a tile's frame is now an absolute property of that tile rather than of the route to it, so the same
+// arrangement seen from a different place has each tile turned by some multiple of 2*pi/m about its
+// own centre. `frameDefects` measures those turns and insists they are exactly that.
+function layout(anchor, matrix, radius, maxTiles) {
+  const byCentre = new Map();
+  for (const t of anchor.neighbourhood(matrix, radius, maxTiles)) byCentre.set(centreKey(t.rel), t.rel);
+  return { centres: [...byCentre.keys()].sort().join("|"), byCentre };
+}
+
+// For every tile the two layouts share, the angle between the two frames. Both frames send the tile's
+// own centre to the same point, so their ratio fixes that centre and is a pure rotation about it.
+function frameDefects(a, b) {
+  const out = [];
+  for (const [key, relA] of a.byCentre) {
+    const relB = b.byCentre.get(key);
+    if (!relB) continue;
+    const d = relA.inverse().mul(relB).normalize();
+    // A rotation is [[e^{i t/2}, 0], [0, e^{-i t/2}]] up to sign, acting as z -> e^{i t} z.
+    out.push({ key, angle: 2 * Math.atan2(d.ai, d.ar), translation: Math.hypot(d.br, d.bi) });
+  }
+  return out;
+}
+
+// Assert that two layouts describe the same arrangement of tiles, differing only by each tile's own
+// stabiliser rotation.
+function assertSameArrangement(t, ref, got, what) {
+  assert.equal(got.centres, ref.centres, `${what}: the tiles are in different places`);
+  const defects = frameDefects(ref, got);
+  assert.ok(defects.length > 5, `${what}: only ${defects.length} tiles compared`);
+  const quantum = (2 * Math.PI) / t.m;
+  for (const d of defects) {
+    assert.ok(d.translation < 1e-9, `${what}: frames at ${d.key} differ by a TRANSLATION of ${d.translation}`);
+    const off = Math.abs(wrapAngle(d.angle - Math.round(d.angle / quantum) * quantum));
+    assert.ok(off < 1e-9, `${what}: frames at ${d.key} differ by ${d.angle}, not a multiple of 2pi/${t.m}`);
+  }
 }
 
 // Drive the camera through a compound itinerary, re-anchoring as a real frame loop would.
@@ -112,20 +162,23 @@ test("compound motion in many directions keeps the view matrix O(1)", () => {
   assert.ok(rb.worstV < 10, `binary max|V| reached ${rb.worstV}`);
 });
 
-test("after compound motion the neighbourhood is still identical to the origin's", () => {
+test("after compound motion the neighbourhood is still the same arrangement of tiles", () => {
   // The strongest statement available for a homogeneous tiling: having wandered a long way by a
-  // complicated route, the local picture must be exactly what it was at the start.
+  // complicated route, the local picture must be what it was at the start.
+  //
+  // "Identical" up to each tile's own stabiliser rotation, not identical byte for byte, and the
+  // difference is the point of canonical orientation rather than a weakening. Lex-min over the coset
+  // is not equivariant under translating the whole tiling, so the canonical frame of a tile far out is
+  // not the translate of the canonical frame of the corresponding tile here. What IS preserved is
+  // everything geometric: the same tiles in the same places, each turned about its own centre by a
+  // multiple of 2*pi/m -- which is exactly the freedom the tile stabiliser has always had.
   for (const spec of REGULARS) {
     const t = new RegularTiling(spec);
-    const reference = signature(new Anchor(t), Isom.identity(), 0.7, 120);
+    const reference = layout(new Anchor(t), Isom.identity(), 0.7, 120);
     const r = compoundWalk(t, 55 + spec.p, 30, 25);
     // Re-centre the camera on its own tile so the comparison is of the same view, not the same drift.
-    const got = signature(r.anchor, Isom.identity(), 0.7, 120);
-    assert.equal(
-      got,
-      reference,
-      `{${spec.p},${spec.q}} neighbourhood differs after ${r.anchor.reanchorCount} tile crossings`,
-    );
+    const got = layout(r.anchor, Isom.identity(), 0.7, 120);
+    assertSameArrangement(t, reference, got, `{${spec.p},${spec.q}} after ${r.anchor.reanchorCount} crossings`);
   }
 });
 
@@ -134,7 +187,7 @@ test("long hauls in eight directions all behave the same", () => {
   // behaving differently from the others. Compare all eight against each other, not against a constant.
   for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 7, q: 3 }, { p: 5, q: 4 }, { p: 3, q: 7 }]) {
     const t = new RegularTiling(spec);
-    const reference = signature(new Anchor(t), Isom.identity(), 0.7, 120);
+    const reference = layout(new Anchor(t), Isom.identity(), 0.7, 120);
     for (let k = 0; k < 8; k++) {
       const bearing = (2 * Math.PI * k) / 8;
       const anchor = new Anchor(t);
@@ -146,11 +199,8 @@ test("long hauls in eight directions all behave the same", () => {
         V = V.mul(shift).normalize();
       }
       assert.ok(anchor.reanchorCount > 20, `{${spec.p},${spec.q}} bearing ${k} crossed only ${anchor.reanchorCount}`);
-      assert.equal(
-        signature(anchor, Isom.identity(), 0.7, 120),
-        reference,
-        `{${spec.p},${spec.q}} bearing ${k} ends in a different-looking neighbourhood`,
-      );
+      assertSameArrangement(t, reference, layout(anchor, Isom.identity(), 0.7, 120),
+        `{${spec.p},${spec.q}} bearing ${k}`);
       assert.ok(maxEntry(V) < 10, `{${spec.p},${spec.q}} bearing ${k}: max|V| = ${maxEntry(V)}`);
     }
   }
@@ -268,61 +318,68 @@ test("binary addresses round-trip EXACTLY, however long the walk", () => {
   );
 });
 
-test("KNOWN LIMIT: a regular tiling's word address can drift over a long round trip", () => {
-  // Documented rather than asserted away, because it is a real property of word addressing.
+test("a regular tiling's address does not drift over a long round trip", () => {
+  // This test used to be called KNOWN LIMIT, and it recorded the defect that canonical ids were built
+  // to remove. A word address is reduced only freely (g g^-1 -> e), but the group also has braid
+  // relations, so two words can name one tile without being freely equal; if the inbound path differed
+  // from the outbound one anywhere, the leftover was a relator that free reduction could not cancel.
+  // Measured over ~100 tile crossings out and back: 4 of 8 tilings came home to the origin word and the
+  // rest ended 4 to 15 symbols away, so the same tile could be handed a different key -- and with it a
+  // different orientation -- after a round trip.
   //
-  // A {p,q} address is a word over the generators, reduced only freely (g g^-1 -> e). The group also has
-  // braid relations, so two words can name one tile without being freely equal -- and if the inbound
-  // path differs from the outbound one anywhere, the leftover is a relator that free reduction cannot
-  // cancel. Measured over ~100 tile crossings out and back: 4 of 8 tilings return to the origin word and
-  // the rest end 4 to 15 symbols away.
-  //
-  // What this does NOT affect: the geometry. The camera tile still contains the view centre and the
-  // picture is still a function of the view, because the view is the address AND the matrix together --
-  // the preceding tests pin both. What it affects is tile IDENTITY, so a position-dependent {p,q}
-  // dataset could see the same tile handed a different key after a round trip. The binary tiling is
-  // immune (canonical integer addresses), and the shipped Escher atlas is immune (identical data in
-  // every tile). notes/open-questions.md records the Coxeter shortlex automaton as the rigorous fix.
-  //
-  // The assertion is that the drift stays SMALL. If it ever became unbounded, that would be a genuine
-  // regression -- the walk failing to reduce at all.
-  let worst = 0;
+  // An id is now a canonical group-coset representative rather than a route, so the assertion is
+  // EQUALITY, not a bound on the drift, and it holds at any number of crossings.
+  // Up to nine legs, about a hundred tile crossings. Not further, and the reason is the CAMERA, not
+  // the addressing: the view matrix is rebased at every crossing, and the residual error of an
+  // out-and-back excursion grows with how far out it went. Measured on {4,5}, the view returns to
+  // within 2.8e-12 of where it started after 3 legs, 7.8e-8 after 6, 9.9e-4 after 9 and 0.12 after 12
+  // -- and 0.12 is most of a tile, so at twelve legs the camera really has ended up somewhere else and
+  // the address is right to say so. (Checked against the pre-canonical code: 1.5e-12, 1.5e-8, 2.4e-3,
+  // 0.13. Same drift, so it is the float excursion and not the exact ids.) The residual is asserted
+  // below, so this cannot quietly become a test of nothing.
   for (const spec of REGULARS) {
-    const t = new RegularTiling(spec);
-    const anchor = new Anchor(t);
-    let V = Isom.identity();
-    const rand = rng(31 + spec.p);
-    const legs = [];
-    for (let leg = 0; leg < 12; leg++) {
-      const b = rand() * Math.PI * 2;
-      const n = 5 + Math.floor(rand() * 25);
-      legs.push({ b, n });
-      const step = Isom.translationToDisk(-0.1 * Math.cos(b), -0.1 * Math.sin(b));
-      for (let i = 0; i < n; i++) {
-        V = step.mul(V);
-        const { shift } = anchor.reanchor(V);
-        V = V.mul(shift).normalize();
+    for (const legCount of [3, 6, 9]) {
+      const t = new RegularTiling(spec);
+      const anchor = new Anchor(t);
+      let V = Isom.identity();
+      const rand = rng(31 + spec.p);
+      const legs = [];
+      for (let leg = 0; leg < legCount; leg++) {
+        const b = rand() * Math.PI * 2;
+        const n = 5 + Math.floor(rand() * 25);
+        legs.push({ b, n });
+        const step = Isom.translationToDisk(-0.1 * Math.cos(b), -0.1 * Math.sin(b));
+        for (let i = 0; i < n; i++) {
+          V = step.mul(V);
+          const { shift } = anchor.reanchor(V);
+          V = V.mul(shift).normalize();
+        }
       }
-    }
-    const outLen = anchor.address.len;
-    for (let leg = legs.length - 1; leg >= 0; leg--) {
-      const { b, n } = legs[leg];
-      const step = Isom.translationToDisk(0.1 * Math.cos(b), 0.1 * Math.sin(b));
-      for (let i = 0; i < n; i++) {
-        V = step.mul(V);
-        const { shift } = anchor.reanchor(V);
-        V = V.mul(shift).normalize();
+      // Anti-vacuity: the outbound trip must actually have crossed tiles, or coming home is free.
+      const crossings = anchor.reanchorCount;
+      assert.ok(crossings > legCount, `{${spec.p},${spec.q}} only crossed ${crossings} tiles outbound`);
+      const away = anchor.address;
+      assert.ok(!t.addressEquals(away, t.originAddress()), `{${spec.p},${spec.q}} never left the origin`);
+      for (let leg = legs.length - 1; leg >= 0; leg--) {
+        const { b, n } = legs[leg];
+        const step = Isom.translationToDisk(0.1 * Math.cos(b), 0.1 * Math.sin(b));
+        for (let i = 0; i < n; i++) {
+          V = step.mul(V);
+          const { shift } = anchor.reanchor(V);
+          V = V.mul(shift).normalize();
+        }
       }
+      const residual = V.applyToDisk(0, 0, [0, 0]);
+      assert.ok(
+        Math.hypot(residual[0], residual[1]) < 1e-2,
+        `{${spec.p},${spec.q}} the CAMERA did not come back: residual ${Math.hypot(residual[0], residual[1])}`,
+      );
+      assert.ok(
+        t.addressEquals(anchor.address, t.originAddress()),
+        `{${spec.p},${spec.q}} went out over ${crossings} crossings and came back to a different tile`,
+      );
     }
-    const drift = anchor.address.len;
-    worst = Math.max(worst, drift);
-    assert.ok(
-      drift <= 40,
-      `{${spec.p},${spec.q}} went out ${outLen} symbols over ${anchor.reanchorCount} crossings and came ` +
-        `back ${drift} symbols from the origin -- drift should be small, not proportional to the walk`,
-    );
   }
-  assert.ok(worst < 40, `worst drift ${worst}`);
 });
 
 test("re-anchoring cannot oscillate, even with the view exactly on a tile boundary", () => {

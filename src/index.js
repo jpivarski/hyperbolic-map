@@ -21,8 +21,20 @@ import { geodesicArc, Arc } from "./render/geodesic.js";
 import { Atlas, CLIP_AUTO, CLIP_ALWAYS, CLIP_NEVER } from "./data/atlas/atlas.js";
 import { Anchor } from "./data/atlas/anchor.js";
 import { RegularTiling, BinaryTiling, binaryDrawOrder, regularMetrics, BINARY_LOCAL_HALF_WIDTH, BINARY_LOCAL_Y_LOW, BINARY_LOCAL_Y_HIGH, BIN_RIGHT, BIN_LEFT, BIN_CHILD0, BIN_CHILD1, BIN_PARENT_EVEN, BIN_PARENT_ODD } from "./data/atlas/tiling.js";
+// The exact machinery behind canonical tile ids. Not needed to USE a tiling -- an id is just the string
+// `addressToString` hands you -- but exported so that the claim can be checked from outside: build the
+// Coxeter group for any {p,q} and see that the relations hold, or watch `exactMulCount` stay flat across
+// a rendered frame, which is the assertion that no exact arithmetic happens per frame.
+import { ExactRing, minPolyFor2Cos, exactMulCount, resetExactMulCount } from "./data/atlas/exactring.js";
+import { buildExactCoxeter, serializeExactVector } from "./data/atlas/exactcoxeter.js";
 
 export {
+  ExactRing,
+  minPolyFor2Cos,
+  exactMulCount,
+  resetExactMulCount,
+  buildExactCoxeter,
+  serializeExactVector,
   Atlas,
   Anchor,
   CLIP_AUTO,

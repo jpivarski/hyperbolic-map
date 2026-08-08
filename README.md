@@ -324,16 +324,16 @@ viewport.atlas.tileSymmetry;   // { residual, checked, m, ok }; residual = 0 mea
 
 Use the `RegularTiling({p, q, frameSymmetry})` class.
 
-The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever `1/p + 1/q < 1/2`. An address is a word over the generator indices—a walk from the origin tile. Treat it as opaque: it is stored as a linked cell (`{gen, prev, len, …}`) rather than an array, so that extending one is $\mathcal{O}(1)$ and a walk thousands of steps long stays cheap. Use `addressToString` for a printable form. Two different words can name the same tile (the group has braid relations), so the walk also deduplicates geometrically; see `notes/open-questions.md` for the measured extent of that and the Coxeter automaton that would remove it.
+The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever `1/p + 1/q < 1/2`. An address is a **canonical id**: one tile, one address, whatever route the walk took to reach it. Treat it as opaque and use `addressToString` (or `addressKey`) for a printable form. Underneath it is the tile's centre in the Coxeter reflection representation of `[p,q]`, held exactly in `ℤ[2cos(π/N)]` with BigInt coefficients, which is why identity has no distance ceiling. Addresses were once words over the generator indices, and two different words could name one tile; that is what made tile art jump as you scrolled.
 
-`frameSymmetry` (a divisor of `p`, default `p`) declares the rotational symmetry your art has, and it selects the walk group so that the tile stabiliser is exactly `C_m`. If your art is not invariant under rotations of `2π/m`, polygons will appear to rotate abruptly at certain points as you scroll.
+`frameSymmetry` (a divisor of `p`, default `p`) selects the walk group, so that the tile stabiliser is exactly `C_m`. It used to be a promise about your art: a tile's frame was whatever route reached it, so art that was not invariant under `2π/m` rotated abruptly as you scrolled. Each tile now has a canonical frame — the lexicographically least element of its coset, chosen once and for all — so **your art may be fully asymmetric and may depend on the address**. What `frameSymmetry` still decides is which group the tiling is built from, and hence what pattern it makes.
 
 Lowering `m` makes the rule easier to satisfy (less symmetry demanded of the art) at the cost of a larger generator set. For M.C. Escher's _Circle Limit III_ it must be `4`, not `8`: the pattern has 4-fold centres at the octagon centres, and the natural general-purpose generator—a half-turn about an edge midpoint—is outside that group entirely.
 
 The tiling also exposes what the rule needs:
 
 ```js
-tiling.stabiliserOrder;   // m: art must be invariant under rotation by 2*pi/m
+tiling.stabiliserOrder;   // m: the tile stabiliser is C_m (art need not be C_m-symmetric)
 tiling.selfRotation;      // that rotation, as an Isom
 tiling.classModulus;      // how many distinct tile classes exist (1 = every tile identical)
 tiling.tileClass(addr);   // 0 .. classModulus-1, the same by every route
@@ -357,12 +357,13 @@ A new tiling can be constructed in the following way:
   addressEquals(a, b),
   neighbours(address),                        // [{ address, gen }] gen indexes the table
   generator(i),                               // Isom, CONSTANT: neighbour-local → tile local
-  inverseGenerator(i),                        // the index that undoes generator i
+  inverseGenerator(i),                        // the index whose isometry undoes generator i
+  reverseGenerator(address, i),               // the index that steps BACK -- not the same thing
   generatorCount(),
   containsLocal(x, y, tol?),                  // is this tile-local point inside this tile?
   boundaryLocal(),                            // for clipping, in tile-local coordinates
   addressesAreCanonical,                      // true if one tile has exactly one address
-  stabiliserOrder,                            // m: art must be invariant under 2*pi/m
+  stabiliserOrder,                            // m: the tile stabiliser is C_m
   selfRotation,                               // rotation as an Isom (identity when m = 1)
   classModulus,                               // number of tile classes (1 = all must match)
   tileClass(address),                         // 0 .. classModulus-1, path-independent

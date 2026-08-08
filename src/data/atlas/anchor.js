@@ -107,7 +107,10 @@ export class Anchor {
       const dir = this.tiling.stepToward(c[0], c[1]);
       if (dir < 0 || dir >= nbrs.length) break;
       const chosen = nbrs[dir];
-      const g = this.tiling.generator(chosen.gen);
+      // stepFrame, not generator: on a {p,q} tiling the step carries the C_m correction that lands
+      // in the neighbour's CANONICAL frame, so V_c is always the view in the anchor's canonical
+      // frame rather than in whichever frame the route happened to produce.
+      const g = this.tiling.stepFrame(this.address, chosen.gen);
       shift = shift.mul(g).normalize();
       current = current.mul(g).normalize();
       this.address = chosen.address;
@@ -135,7 +138,7 @@ export class Anchor {
       const nbrs = this.tiling.neighbours(address);
       const dir = this.tiling.stepToward(px, py);
       if (dir < 0 || dir >= nbrs.length) break;
-      const g = this.tiling.generator(nbrs[dir].gen);
+      const g = this.tiling.stepFrame(address, nbrs[dir].gen);
       rel = rel.mul(g).normalize();
       address = nbrs[dir].address;
       // Re-express the point in the new tile's frame.
@@ -183,62 +186,21 @@ export class Anchor {
       return Math.hypot(A, B);
     };
 
-    // Deduplication. Word addresses are not canonical -- two different words can name one tile -- so
-    // those tilings also need a geometric check. That check is now trivially reliable: the relative
-    // frames are O(1) and carry ~1e-15 of error, against a tile spacing of order 0.3, so a rounded
-    // grid plus an exact invariant comparison has ~13 orders of margin. (The previous design had to
-    // grow the quantum with distance and still produced duplicates, because it was comparing numbers
-    // that had already cancelled away most of their digits.)
+    // Deduplication, on the ADDRESS. Both tilings now hand out canonical addresses -- the binary one
+    // by construction, a regular one because its id is a canonical coset representative computed in
+    // exact integer arithmetic -- so the key IS the identity and a Set is the whole answer.
+    //
+    // What this replaced is worth recording, because it is the last float-based identity comparison in
+    // the library and it had a distance ceiling. Word addresses were not canonical, so the walk also
+    // deduplicated GEOMETRICALLY: round each relative centre into a 1e-5 grid, then compare against the
+    // neighbouring buckets with an exact invariant, calling two tiles the same if they were within a
+    // quarter of the tile spacing. That works on relative frames (which are O(1)), but it decides
+    // identity by proximity, and any such test eventually meets two distinct tiles closer together than
+    // its own error. It is gone: the exact id has no threshold in it at all.
     const seenAddress = new Set();
-    const grid = new Map();
-    const accX = [];
-    const accY = [];
-    const accW = [];
-    const CELL = 1e-5;
-    const dupCosh = Math.cosh(spacing / 4);
-    const geometric = !tiling.addressesAreCanonical;
-
-    // For tilings whose addresses are canonical (the binary one) the string IS the identity, so keying
-    // on it is both cheap and complete. For word-addressed tilings it is neither: two words can name one
-    // tile, so a geometric check is needed anyway, and stringifying every candidate the walk dequeues
-    // cost 57 ms per frame at 5,000 tiles from the origin. So: string key only where it is the answer.
-    const alreadySeen = (rel, key) => {
-      if (!geometric) {
-        if (seenAddress.has(key)) return true;
-        seenAddress.add(key);
-        return false;
-      }
-      rel.applyToDisk(0, 0, buf);
-      const zx = buf[0];
-      const zy = buf[1];
-      const k = 1 / Math.sqrt(Math.max(1e-300, 1 - zx * zx - zy * zy));
-      const lx = zx * k;
-      const ly = zy * k;
-      const lw = Math.sqrt(1 + lx * lx + ly * ly);
-      const gx = Math.floor(zx / CELL);
-      const gy = Math.floor(zy / CELL);
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const bucket = grid.get((gx + dx) * 8191 + (gy + dy));
-          if (!bucket) continue;
-          for (let i = 0; i < bucket.length; i++) {
-            const j = bucket[i];
-            const A = accW[j] * lw - accX[j] * lx - accY[j] * ly;
-            const B = accX[j] * ly - accY[j] * lx;
-            if (Math.hypot(A, B) < dupCosh) return true;
-          }
-        }
-      }
-      const home = gx * 8191 + gy;
-      let bucket = grid.get(home);
-      if (!bucket) {
-        bucket = [];
-        grid.set(home, bucket);
-      }
-      bucket.push(accX.length);
-      accX.push(lx);
-      accY.push(ly);
-      accW.push(lw);
+    const alreadySeen = (key) => {
+      if (seenAddress.has(key)) return true;
+      seenAddress.add(key);
       return false;
     };
 
@@ -263,20 +225,32 @@ export class Anchor {
         break;
       }
       const node = queue.shift();
-      // Only stringify when the string is what deduplicates -- see alreadySeen.
-      const key = geometric ? null : tiling.addressToString(node.address);
-      if (alreadySeen(node.rel, key)) continue;
+      if (alreadySeen(tiling.addressKey(node.address))) continue;
       const ch = coshHalfTo(node.rel);
       if (ch > walkCosh) continue;
       if (ch <= includeCosh) {
         out.push(node);
         dist.push(ch);
       }
-      const nbrs = tiling.neighbours(node.address);
-      for (let i = 0; i < nbrs.length; i++) {
+      // Look before naming. `tiling.generator(g)` moves the tile CENTRE exactly where the real step
+      // does -- they differ only by a rotation about that centre -- so a candidate can be tested for
+      // 4 float multiplies, and only the survivors are turned into addresses. Naming is the expensive
+      // half now: on a regular tiling an address is an exact integer object costing ~117 ring
+      // multiplies to build. Nothing about which tiles are RETURNED changes; the rejected ones were
+      // dequeued and dropped by this same test a moment later.
+      //
+      // HONEST SCOPE, measured rather than assumed: this saves nothing on the Escher atlas, because
+      // there the walk stops on the TILE BUDGET (`gatherLimit`) long before anything falls outside
+      // `walkCosh`, so no candidate is ever rejected. It pays when the visible radius is what binds --
+      // a small `maxTiles`, or zoomed in far enough that few tiles are on screen.
+      const gens = tiling.neighbourGens(node.address);
+      for (let i = 0; i < gens.length; i++) {
+        const g = gens[i];
+        const probe = node.rel.mul(tiling.generator(g));
+        if (coshHalfTo(probe) > walkCosh) continue;
         queue.push({
-          address: nbrs[i].address,
-          rel: node.rel.mul(tiling.generator(nbrs[i].gen)),
+          address: tiling.extendAddress(node.address, g),
+          rel: node.rel.mul(tiling.stepFrame(node.address, g)),
         });
       }
     }
