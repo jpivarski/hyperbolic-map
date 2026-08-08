@@ -2527,3 +2527,54 @@ existing load-average guard that refuses to report when the machine is busy.
 pass with output **string-identical** to the run before this change, including check 9's full
 per-tiling breakdown and check 10's nine budget lines. Machine idle for every measurement (load
 0.23-0.52 on 16 cores, GPU 31 % / 66 MiB, checked before and after).
+
+
+## 2026-08-08-k — Release prep 7: `docs/index.html` is the documentation site now
+
+Issue #4, after the human checkpoint. `docs/index.html` was a six-item gallery; it is now the
+reference, and the README is the landing page. Everything from `## Options` to just before
+`## Development` **moved** out of README.md — 339 lines of it — rather than being copied, so there is
+one copy of each fact and no chance of the two drifting.
+
+### The conversion
+
+`dev/md_to_html.py`, new, using `mistune` (a local install, not a library dependency). It slices a
+Markdown file between two headings, converts, gives every heading a GitHub-style slug id so in-page
+anchors keep working, and pretty-prints the result: one block element per line, block children
+indented two spaces, inline content never split across lines, `<pre>` passed through untouched, and
+`&quot;` unescaped back to `"` outside tags so a code span reads `"auto"` rather than
+`&quot;auto&quot;`.
+
+It is kept, and it says in its own docstring that it is not part of any build: **the HTML is now the
+main copy and is edited by hand.** The script exists so that "how was that page produced?" has a real
+answer, not so that it can be re-run over a README that no longer has those sections in it.
+
+One thing did not survive the crossing: `$\mathcal{O}(1)$`, which GitHub renders and a plain HTML page
+would not. It became the prose "an O(1) matrix change". The extraction asserts that no other LaTeX is
+left in the slice — carefully enough not to trip over the `${tile.id}` of a template literal inside a
+code fence, which was the first version's false positive.
+
+### README
+
+The moved sections are replaced by a two-link **Documentation** section: "How to use it" to the site,
+"What the mathematics is" to `docs/MATH.md`. The README went 423 lines -> 91. The one cross-reference
+that pointed into the moved text, `[atlas of tiles](#atlas-of-tiles)` in the Quick start, now points
+at `https://jpivarski.github.io/hyperbolic-map/#atlas-of-tiles`, and that anchor exists on the new
+page.
+
+The doc site's own link to `MATH.md` goes to the GitHub blob URL rather than a relative `MATH.md`,
+because what GitHub Pages serves for a bare `.md` depends on whether Jekyll is processing the
+directory, and a link that renders is worth more than a link that is short.
+
+### `docs/demo/style.css` -> `docs/style.css`
+
+It is no longer "styling for the example pages": the documentation page uses it too, and a reference
+page loading its stylesheet out of a `demo/` directory reads like a mistake. Gained rules for `h3`,
+`h4`, `a` and `pre`; lost `.gallery`, whose only markup went with the old index. Code blocks scroll
+horizontally rather than wrapping — these are lines meant to be copied.
+
+### Verified
+
+Every heading has an id and both `#atlas-of-tiles` links resolve. All four demo pages load
+`style.css` (200) and are styled. The page renders: tables, code blocks, lists and nesting all
+correct in Chrome.
