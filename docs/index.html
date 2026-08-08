@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<nav><a href="https://github.com/jpivarski/hyperbolic-map">hyperbolic-map on GitHub</a></nav>
+<nav><a href="https://github.com/jpivarski/hyperbolic-map">&larr; hyperbolic-map on GitHub</a></nav>
 
 <h1>hyperbolic-map</h1>
 
@@ -21,6 +21,69 @@ to install it,
 geometry underneath, and the examples:
 <a href="dungeon-man.html">Dungeon Man</a>, <a href="jumping-man.html">Jumping Man</a>,
 <a href="escher.html">Circle Limit III</a> and <a href="clock.html">the clock</a>.</p>
+
+<h2 id="a-minimal-example">A minimal example</h2>
+<p>Two files, and nothing else. Both are complete: copy them into an empty directory, put
+<code>hyperbolic-map.iife.js</code> beside them, and serve that directory — the page fetches its data,
+and <code>fetch</code> does not work from a <code>file://</code> URL.</p>
+
+<p>The bundle is <code>dist/hyperbolic-map.iife.js</code> in the package, so after
+<code>npm install hyperbolic-map</code> it is at
+<code>node_modules/hyperbolic-map/dist/hyperbolic-map.iife.js</code>. If you would rather use the ES
+module, import <code>HyperbolicViewport</code> from <code>"hyperbolic-map"</code> and drop the
+<code>&lt;script src&gt;</code> line.</p>
+
+<p><code>drawables.json</code> — the map itself. Coordinates are in the local system described under
+<a href="#the-drawable-format">the drawable format</a>; the origin is where the viewport starts.</p>
+<pre><code class="language-json">{
+  "version": 1,
+  "coordinates": "local",
+  "drawables": [
+    {
+      "type": "path",
+      "points": [[-1, -1, "L"], [1, -1, "L"], [1, 1, "L"], [-1, 1, "L"]],
+      "closed": true,
+      "fill": "#cde",
+      "stroke": "#036",
+      "lineWidth": 2
+    },
+    {"type": "marker", "at": [0, 0], "radius": 4, "fill": "#036"},
+    {"type": "text", "text": "a square", "at": [0, 1.15], "up": [0, 1.4], "fill": "#036"}
+  ]
+}
+</code></pre>
+
+<p><code>index.html</code> — the page.</p>
+<pre><code class="language-html">&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+&lt;meta charset="utf-8"&gt;
+&lt;title&gt;A hyperbolic map&lt;/title&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div id="map"&gt;&lt;/div&gt;
+
+&lt;script src="hyperbolic-map.iife.js"&gt;&lt;/script&gt;
+&lt;script type="module"&gt;
+const doc = await (await fetch("drawables.json")).json();
+new HyperbolicMap.HyperbolicViewport({
+  container: "#map",
+  width: 500,
+  height: 500,
+  data: doc,
+});
+&lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+
+<p>You get a filled square with a dot at the origin and a label above it. Drag inside the disk to
+scroll, drag the outer ring to rotate. The square's sides bow inward: they are straight lines in the
+hyperbolic plane, and this is what a Poincar&eacute; disk does to a straight line that does not pass
+through the center of the view. Scroll so that one side passes through the middle and it will look
+straight again.</p>
+
+<p>Everything below is the reference for what else those two files can say.</p>
 
 <h2 id="options">Options</h2>
 <p>All are optional except that either a <code>container</code> or a <code>canvas</code> must be supplied. An unrecognized option name raises an error.</p>

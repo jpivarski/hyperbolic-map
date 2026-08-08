@@ -2614,3 +2614,42 @@ Quantized to a 256-colour palette and run through `optipng`: **884 KB -> 276 KB*
 no visible loss at this size. They live in `docs/img/`, which is outside the npm `files` list, and npm
 rewrites relative README image URLs against `repository`, so they resolve on npmjs.com as well as on
 GitHub.
+
+
+## 2026-08-08-m — Release prep 9: the demo pages point at GitHub, and the docs open with a runnable example
+
+Issue #4, two boxes.
+
+### "← all examples" → "← hyperbolic-map on GitHub"
+
+Consequence of the previous commit: `index.html` is no longer a gallery, so "all examples" pointed at a
+page that no longer lists any. All four demos and the documentation page now carry the same one-line
+`<nav>` back to the repository, which is the landing page and the thing that does show all four
+(as a 2x2 grid).
+
+### A minimal example, at the top of the documentation
+
+Two code fences, `drawables.json` and `index.html`, both complete rather than elided: a square, a
+marker at the origin, one label. **It was written, served and run before being pasted in** — the
+screenshot is of that actual pair of files, not of something reconstructed from the docs.
+
+Deliberately small. Three earlier drafts tried to make the example *teach* hyperbolic geometry as well
+as run — labels at increasing distance, then a second larger square — and both failed on their own
+terms: the outer labels fall below `minTextPx` and vanish, and a side-6 square projects to almost the
+same outline as a side-2 one, so the picture looked like a bug rather than a lesson. The demos are
+where that is shown properly. What the minimal example demonstrates is the one thing visible in a
+five-line file: the square's sides bow inward, because they are geodesics, and straighten again when
+you scroll one of them through the middle. The prose says so and says why.
+
+Notes on the fences themselves: the page uses `fetch`, so it says out loud that `file://` will not
+work; and it names where `hyperbolic-map.iife.js` comes from after `npm install`, because "put the
+bundle beside them" is not an instruction anyone can follow without that.
+
+The page now reads (1) minimal example, (2) options and everything that came from the README, which is
+the order Jim asked for.
+
+### Verified
+
+The example pair runs in Chrome: 500x500 canvas, 154,512 non-white pixels, no console output. The
+documentation page renders both fences, and its `#the-drawable-format` cross-reference resolves. All
+four demo pages load with the new nav and still draw.
