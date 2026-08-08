@@ -2049,3 +2049,125 @@ translation invariance, 45/45) and 10 (the hundred-step scroll, 9/9).
 **Not touched, deliberately.** The page's prose, its `(C4-exact)` status line, and `BODY_IN_FILE`,
 which no longer matches any fill in the file so "colour by tile class" now only recolours the `lod`
 stand-in. All three are about the colouring, which Jim is working on next.
+
+## 2026-08-08-d — Escher's four colours, and a colour symmetry for {p,q} atlases
+
+Jim redrew `escher-atlas.json` by hand in Inkscape with **four fish in four colours**. A repeating atlas
+returns the same data for every tile, so four colours in the file means the same four colours in every
+octagon — which is not Escher's picture. In *Circle Limit III* the colours MOVE: every motion of the
+tiling permutes them.
+
+**What the library gained: `colorSymmetry`.** A homomorphism from the walk group into a permutation
+group, declared by the caller, with the tile's element handed to `tileData` as `colorPermutation` /
+`colorIndex` / `colorCount`. A tile CLASS is the special case the library can discover on its own (the
+abelianisation is forced by `{p,q,m}`); this is the general case and has to be declared, because nothing
+about the tiling picks it — it is a property of the picture.
+
+Two things make it a different mechanism and not a wider integer:
+
+* **It does not kill the stabiliser.** `phi(P)` is a real permutation — for Escher it is the swap of the
+  two colours an octagon shows. So the accumulation carries the canonical fold's `P^k`, which the cyclic
+  case is free to drop: `phi_child = phi_parent . phi(G_g) . phi(P)^k`.
+* **It is therefore only well defined because frames are canonical.** Choosing the coset representative
+  `F.P` rotates the art by `2*pi/m` AND multiplies the label by `phi(P)`, and the two cancel exactly. The
+  requirement is that the same `F` decide both, which is what the canonical-identity work bought. This
+  could not have been made to work before it.
+
+Elements are interned as dense indices with a Cayley table, so a walk step is two array lookups and
+allocates nothing — the same cost as the tile class's integer add. Construction costs 146 ms for the
+verification walk, cached per `{p,q,m}` + permutation signature; the second construction is 1 ms.
+
+**Verification throws rather than degrading.** A class is the library's guess, so falling back to one
+class is honest; a colour symmetry is the caller's assertion, and ignoring it would paint the picture
+wrong. The cheap algebraic conditions are checked individually with their own messages, and then the
+tile graph is walked and every pair of routes to one tile must agree. That last step is not decoration:
+of the 24 candidates for `phi(G_0)` in the `{8,3}` case, **16 satisfy every cheap check and are caught
+only by the walk** — including the most innocent-looking one, every generator fixing every colour.
+
+### Picking Escher's homomorphism, and two wrong turns worth recording
+
+`phi(G_0)` is the only free parameter (`inverseIndex` and conjugation by `P` fix the rest). The funnel:
+24 candidates -> **8** homomorphisms -> **6** after Escher's rule that the three fish at a three-fold
+vertex all differ -> **1** by measurement against the woodcut.
+
+**Wrong turn 1: a coordinate-system bug made the shortlist wrong.** The planning-stage check of the
+three-fold rule compared vertices computed in LOCAL coordinates (`sinh(chi/2)`) against fish positions in
+DISK coordinates (`applyToLocal` returns disk). It reported that 4 of 8 survive. With the metric fixed —
+disk coordinates throughout, and hyperbolic distance, since the three octagons around a vertex are
+equidistant hyperbolically and up to 1.4x apart Euclidean — **6 survive, not 4**. The first shortlist was
+missing the right answer's competitors.
+
+Also learned: {8,3}'s two vertex classes are not alike for this test. At the odd ones a single fish of
+each octagon runs into the corner (reach 0.01, next 0.46). At the even ones the vertex sits ON the seam
+between two adjacent fish, both at 0.03, and there is no fact of the matter about which to count. The
+rule is asserted where it is well defined.
+
+**Wrong turn 2: sampling fish centres ranked the wrong candidate first.** k-means over a scan of the
+print recovers Escher's four inks — (117,62,32) red, (217,163,85) yellow, (143,123,75) green,
+(73,103,128) blue. Scoring each candidate's predicted colour at each fish's CENTROID, with the disk
+centre, radius and rotation fitted, put `phi(G_0) = [0,3,1,2]` first at 79% against `[2,0,1,3]`'s 70%.
+
+Rendering it showed the problem immediately: `[0,3,1,2]` paints the four overlap wedges — the parts of
+neighbours' fish that fall inside an octagon — to match the fish they sit against, so they MERGE into
+large single-colour blobs and the four-colour interlock collapses. A centroid cannot see that; it is
+obvious in the picture.
+
+Comparing whole AREAS instead — every point of a grid over the disk, classified in both pictures, the
+rotation fitted — settles it cleanly:
+
+| `phi(G_0)` | 2013 | 2130 | 3021 | 0312 | 1203 | 3102 | 0231 | 1320 |
+|---|---|---|---|---|---|---|---|---|
+| area agreement | **78.4%** | 47.2% | 46.1% | 45.9% | 44.4% | 43.0% | 40.0% | 35.2% |
+
+`phi(G_0) = [2,0,1,3]`, at 78.4% of 5,436 comparable points against 47.2% for the runner-up. The
+residual is the tracing and the shading of a woodcut. Swapping `PALETTE[2]` and `PALETTE[3]` gives
+another admissible homomorphism scoring 46%, which fixes their order too.
+
+The regression test asserts the property that distinguishes them: **no overlap wedge may take one of its
+own octagon's two colours**, or it merges with the fish beside it.
+
+### The rest
+
+* `docs/demo/escher-colors.js` — art data, so it lives with the art: the palette, `PHI_G0`, the
+  fill-to-role map, and the overlap table. The overlaps' roles are DERIVED from the live tiling
+  (`colorPermutation(extendAddress(origin, g))[role]`) rather than written down, so changing the
+  homomorphism cannot leave a stale constant behind.
+* The file's fills are ROLE TAGS and do not match the output colours — `#afe9af` looks green and comes
+  out yellow. Said loudly in three places, because "fixing" it would rotate the whole colouring by 90
+  degrees.
+* `escher-atlas.html` lost all three checkboxes: clip always on, outline off, colouring always on. The
+  symmetry lint is off and must stay off — the outlines are C_4 but the colouring is deliberately C_2.
+* The LOD stand-in is measured from the drawables (shoelace per fill + measured stroke coverage, one
+  average per variant) instead of the stale `meta.coverage`, which was left over from the old generated
+  tile. That field and `meta.fit` are dropped and the note rewritten.
+* Spelling: new API is American per Jim. `src/` had no identifier spelled `colour`, only 15 comment
+  occurrences, all normalised along with the touched demo and test files. `docs/`, `notes/` and
+  `README.md` still use British spelling.
+* `test/escher-colors.test.mjs` imports from `docs/demo/`, which is unusual and deliberate: the data
+  belongs with the art, and duplicating it in the test is exactly how the two would drift apart.
+* Documentation: a new "Color symmetry" section in `README.md`; `notes/tilings.md` gains "Colour
+  symmetry: the general case" under the tile-class table; and the section of
+  `notes/escher-circle-limit-iii.md` titled "Why the fish are not Escher's four colours" was FALSE as of
+  this change and is rewritten as how they are, with the funnel table above. Its stale "Result: symmetry
+  residual 3.9e-17" went with it — the tile is hand-drawn now and is not C_4-exact.
+
+### Verified
+
+* `npm run check`, `npm run build`, `npm test` — **179/179**, 11 of them new (5 in `tiling.test.mjs`,
+  1 in `anchor.test.mjs`, 5 in `escher-colors.test.mjs`).
+* All ten browser diagnostics, run one at a time because the batch exceeds the MCP protocol timeout.
+  Unchanged from before this work, including 2 (byte-identical translation invariance, 45/45 views out
+  to 5,107 hyperbolic units), 9 (45/45 pans) and 10 (hundred-step scroll, 9/9).
+* On the page itself: every probed fish is painted what its own tile's permutation says, with 12
+  colourings on screen at once — 14/14 at the origin, 14/14 after 400 tile crossings (611 hyperbolic
+  units), 14/14 on the way back. `panToTile(origin)` then shows the centre octagon exactly as it began:
+  green top-left and bottom-right, yellow top-right and bottom-left, permutation `[0,1,2,3]`.
+* `escher.html`, `clock.html` and `dungeon-man.html` render with no console output. They pass no
+  `colorSymmetry`, so `colorCount` is 1 and `colorPermutation` is null, and nothing on their path moves.
+
+### Left
+
+The four overlap wedges are hand-drawn approximations of the neighbours' fish rather than the exact
+shapes, so the seams do not line up to the pixel. Harmless — each is clipped to its own octagon — but it
+is why the artwork can never satisfy the symmetry lint, and why the lint is off rather than merely
+loosened.

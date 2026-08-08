@@ -183,6 +183,32 @@ For `m = p`: `phi(g)` has order dividing 2, and going around a vertex forces `q*
 are two classes when `q` is even and one when `q` is odd. For `m = p/2` the generators are vertex
 rotations of order `q`, giving `Z/q`.
 
+### Colour symmetry: the general case
+
+A tile class is the special case of a homomorphism `Gamma -> Z/n` that the library can DISCOVER, because
+the abelianisation is forced by `{p,q,m}`. The general case is a homomorphism into any finite permutation
+group, and it has to be DECLARED, because nothing about the tiling picks it — it is a property of the
+picture. `RegularTiling`'s `colorSymmetry` option takes one and hands each tile its group element.
+
+Two things make it a different mechanism rather than a wider integer:
+
+- **It need not kill the stabiliser.** A class must, or it would not descend to tiles. A colour symmetry
+  need not, and Escher's does not: `phi(P)` swaps the two colours an octagon shows. That is well defined
+  only because a tile's canonical frame is: picking the representative `F.P` instead rotates the art by
+  `2*pi/m` and multiplies the label by `phi(P)`, and the two cancel. Before frames were canonical this
+  could not have been made to work at all.
+- **The accumulation carries `P^k`.** A class advances by `cls + classStep[g]`; a colour symmetry
+  advances by `phi_parent . phi(G_g) . phi(P)^k` with `k` the canonical fold's own rotation, which is
+  exactly the term the cyclic case is free to drop.
+
+Verified the same way and more strictly: the generator relations are checked individually, and then the
+tile graph is walked and every pair of routes to one tile must agree. It THROWS rather than degrading to
+the trivial colouring, because a class is the library's guess and a colour symmetry is the caller's
+assertion. For `{8,3}` m=4 with four colours, 16 of the 24 candidates for `phi(G_0)` pass every cheap
+algebraic check and are caught only by that walk.
+
+See `notes/escher-circle-limit-iii.md` for the worked case: the image is `A_4`, order 12.
+
 ## Which frameSymmetry values exist
 
 Only `m = p` and `m = p/2`; anything else throws at construction. `m = p` steps by half-turns about

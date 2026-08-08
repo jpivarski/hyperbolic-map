@@ -2573,10 +2573,10 @@ function pointsOf(d) {
 // The largest distance by which any point of the artwork fails to land on the artwork after rotating by
 // 2*pi/m about the tile centre. Zero means exactly invariant.
 //
-// Matching is per-drawable and style-aware: a rotated shape must map onto a shape of the SAME colour and
+// Matching is per-drawable and style-aware: a rotated shape must map onto a shape of the SAME color and
 // kind. Matching only the union of points would let a green fish land on a blue one and call the picture
 // symmetric, which is precisely the failure that matters -- the shapes can be symmetric while the
-// colouring is not, and the colouring is what you see.
+// coloring is not, and the coloring is what you see.
 function tileSymmetryResidual(drawables, m) {
   if (!drawables || !drawables.length || !(m > 1)) return { residual: 0, checked: 0, offender: null };
   const angle = (2 * Math.PI) / m;
@@ -2649,14 +2649,14 @@ function tileSymmetryResidual(drawables, m) {
 // on its own sends people looking for a coordinate that blew up. It means the search found no
 // candidate at all: some shape has no counterpart of the same style and the same number of points
 // anywhere near where the rotation sends it. In practice that is a COLOURING that is less symmetric
-// than the outlines -- four fish rotate onto each other but are painted four different colours, so a
+// than the outlines -- four fish rotate onto each other but are painted four different colors, so a
 // green one is asked to land on a blue one -- or a shape hand-drawn a second time with a different
 // number of nodes instead of being rotated.
 function tileSymmetryMessage(residual, m, tilingName, offender) {
   const where = offender == null ? "" : ` (drawable ${offender})`;
   const finding = Number.isFinite(residual)
     ? `worst mismatch ${residual.toExponential(2)} in tile-local units${where}`
-    : `one or more shapes have no counterpart at all${where}: nothing of the same colour, kind and ` +
+    : `one or more shapes have no counterpart at all${where}: nothing of the same color, kind and ` +
       `point count lies where the rotation sends them`;
   return (
     `hyperbolic-map: this tile's artwork is not invariant under rotation by 360/${m} degrees about the ` +
@@ -2769,7 +2769,8 @@ class Atlas {
     // Compiled art, memoised on the IDENTITY of the object the callback returned.
     //
     // A repeating atlas hands back one of a few shared objects for every tile -- the Escher atlas has
-    // three, one per tile class -- so compiling per tile would redo identical work. Keying on object
+    // twelve, one per element of its color symmetry -- so compiling per tile would redo identical work.
+    // Keying on object
     // identity collapses that to a map lookup without needing to know anything about the provider, and
     // is what keeps a burst of cache misses cheap: 160 tiles compiled from scratch cost 125 ms against
     // a 16 ms median frame. A provider that builds a fresh object every call simply misses this memo
@@ -2850,6 +2851,14 @@ class Atlas {
       // case every tile must look the same. See RegularTiling.tileClass.
       classIndex: this.tiling.tileClass ? this.tiling.tileClass(address) : 0,
       classCount: this.tiling.classModulus || 1,
+      // The tile's element of a declared COLOR SYMMETRY: the permutation this tile applies to the
+      // caller's colors, and the same thing as a dense index. Null and 0 when none was declared.
+      // Unlike `classIndex` this survives a non-abelian group and does not have to kill the tile
+      // stabiliser, which is what lets a repeating atlas draw Escher's four-color Circle Limit III
+      // rather than one color per tile. See RegularTiling.colorPermutation.
+      colorPermutation: this.tiling.colorPermutation ? this.tiling.colorPermutation(address) : null,
+      colorIndex: this.tiling.colorIndex ? this.tiling.colorIndex(address) : 0,
+      colorCount: this.tiling.colorCount || 1,
       relativeFrame: rel.clone(),
       centreRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
     };
@@ -4600,13 +4609,224 @@ function regularTileClass(p, q, m, generators, inverseIndex, exact, exactGenerat
   return out;
 }
 
+// ---- color symmetry: a homomorphism from the walk group into a permutation group -------------
+//
+// A tile CLASS (above) is the special case of this that the library can discover on its own: a
+// homomorphism onto Z/n that kills the stabiliser, so it descends to tiles and is one integer per
+// tile. A color symmetry is the general case, and it is the caller's to declare, because nothing
+// about {p,q} chooses it -- it is a property of the picture.
+//
+// The motivating case is Escher's Circle Limit III. Its four fish colors are not a property of the
+// tile: every motion of the tiling permutes them, so the color of a fish is
+//
+//     palette[ phi(F)[ that fish's base color ] ]
+//
+// with F the tile's canonical frame and phi a homomorphism into A_4. Repeating one tile's art
+// everywhere cannot express that, and a tile class cannot either -- {8,3} m=4 admits only Z/3, while
+// the group needed has 12 elements and is not abelian.
+//
+// THE PART A TILE CLASS DOES NOT NEED. phi does NOT kill the stabiliser: phi(P) is the swap of the two
+// colors an octagon shows. That is not a problem, it is the point -- and it is why this could not have
+// worked before tile frames became canonical. Choosing the other coset representative F.P rotates the
+// art by 2*pi/m AND sends phi(F) to phi(F).phi(P), and the two cancel exactly, so the picture drawn is
+// the same either way. The one thing that must hold is that the SAME F decides both, which it does:
+// the art is placed by the walk in F's frame and the color is read off F's label.
+//
+// Concretely the accumulation carries the canonical fold's P^k, which the cyclic case can drop:
+//
+//     F_child = F_parent . Gx[g] . P^k    =>    phi_child = phi_parent . phi(G_g) . phi(P)^k
+//
+// Elements are interned as dense indices with a Cayley table, so a walk step is two array lookups and
+// allocates nothing -- the same cost as the tile class's integer addition.
+const COLOR_GROUP_CAP = 4096;
+
+function permIsValid(p, n) {
+  if (!Array.isArray(p) || p.length !== n) return false;
+  const seen = new Array(n).fill(false);
+  for (const v of p) {
+    if (!Number.isInteger(v) || v < 0 || v >= n || seen[v]) return false;
+    seen[v] = true;
+  }
+  return true;
+}
+
+// a after b: (a o b)[c] = a[b[c]]. Matches the group's own order, since phi(XY) = phi(X) o phi(Y).
+function permCompose(a, b) {
+  const out = new Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = a[b[i]];
+  return out;
+}
+
+function permInverse(a) {
+  const out = new Array(a.length);
+  for (let i = 0; i < a.length; i++) out[a[i]] = i;
+  return out;
+}
+
+function permEquals(a, b) {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+// Validate a declared color symmetry and compile it to integer tables.
+//
+// The cheap algebraic conditions are checked first and separately, each with its own message, because
+// "your permutations are not a homomorphism" is not something a caller can act on. They are necessary
+// but NOT sufficient -- a set can satisfy all of them and still fail on a longer relator -- so the walk
+// afterwards is the actual proof, exactly as for the tile class.
+//
+// Unlike the tile class this THROWS instead of degrading. A class is something the library discovers,
+// so falling back to one class is honest; a color symmetry is something the caller asserted, and
+// quietly ignoring it would paint the picture wrong in a way that looks deliberate.
+const COLOR_SYMMETRY_CACHE = new Map();
+
+function regularColorSymmetry(spec, p, q, m, generators, inverseIndex, piTransport, extendFor) {
+  const n = spec.colors;
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`hyperbolic-map: colorSymmetry.colors must be a positive integer, got ${spec.colors}`);
+  }
+  const gens = spec.generators;
+  if (!Array.isArray(gens) || gens.length !== generators.length) {
+    throw new Error(
+      `hyperbolic-map: colorSymmetry.generators must have one permutation per walk generator ` +
+        `(${generators.length} for {${p},${q}} m=${m}), got ${Array.isArray(gens) ? gens.length : typeof gens}`,
+    );
+  }
+  for (let g = 0; g < gens.length; g++) {
+    if (!permIsValid(gens[g], n)) {
+      throw new Error(
+        `hyperbolic-map: colorSymmetry.generators[${g}] is not a permutation of ${n} colors: ` +
+          JSON.stringify(gens[g]),
+      );
+    }
+  }
+  const stab = spec.stabiliser || spec.stabilizer;
+  if (!permIsValid(stab, n)) {
+    throw new Error(
+      `hyperbolic-map: colorSymmetry.stabiliser is not a permutation of ${n} colors: ${JSON.stringify(stab)}`,
+    );
+  }
+
+  const cacheKey = `${p},${q},${m}|${n}|${gens.map((x) => x.join("")).join(",")}|${stab.join("")}`;
+  const hit = COLOR_SYMMETRY_CACHE.get(cacheKey);
+  if (hit) return hit;
+
+  const identity = [];
+  for (let i = 0; i < n; i++) identity.push(i);
+
+  // phi(P)^m = 1, because P^m is the identity of the group.
+  const stabPowPerm = [identity];
+  for (let k = 1; k < m; k++) stabPowPerm.push(permCompose(stabPowPerm[k - 1], stab));
+  if (!permEquals(permCompose(stabPowPerm[m - 1], stab), identity)) {
+    throw new Error(
+      `hyperbolic-map: colorSymmetry.stabiliser must have order dividing ${m} -- it is the image of the ` +
+        `2*pi/${m} rotation about a tile centre, and P^${m} is the identity. Got ${JSON.stringify(stab)}.`,
+    );
+  }
+  // phi respects the inverse pairing of the generators.
+  for (let g = 0; g < gens.length; g++) {
+    if (!permEquals(gens[inverseIndex[g]], permInverse(gens[g]))) {
+      throw new Error(
+        `hyperbolic-map: colorSymmetry.generators[${inverseIndex[g]}] must be the inverse of ` +
+          `generators[${g}], since generator ${inverseIndex[g]} is the inverse walk step. Expected ` +
+          `${JSON.stringify(permInverse(gens[g]))}, got ${JSON.stringify(gens[inverseIndex[g]])}.`,
+      );
+    }
+  }
+  // Conjugating a generator by P permutes the generator set (see piTransport), so phi must agree.
+  for (let j = 1; j < m; j++) {
+    const inv = permInverse(stabPowPerm[j]);
+    for (let g = 0; g < gens.length; g++) {
+      const want = permCompose(permCompose(stabPowPerm[j], gens[g]), inv);
+      const h = piTransport[j][g];
+      if (!permEquals(gens[h], want)) {
+        throw new Error(
+          `hyperbolic-map: colorSymmetry is inconsistent with the tiling: P^${j}.G_${g}.P^-${j} is ` +
+            `G_${h}, so generators[${h}] must be ${JSON.stringify(want)}, but it is ` +
+            `${JSON.stringify(gens[h])}.`,
+        );
+      }
+    }
+  }
+
+  // Enumerate the generated group and build its Cayley table. The BFS closes under every generator
+  // image and the stabiliser image, which is exactly the set of labels any walk can produce.
+  const index = new Map([[identity.join(","), 0]]);
+  const elements = [identity];
+  const seeds = gens.concat([stab]);
+  for (let i = 0; i < elements.length; i++) {
+    for (const s of seeds) {
+      const prod = permCompose(elements[i], s);
+      const key = prod.join(",");
+      if (!index.has(key)) {
+        if (elements.length >= COLOR_GROUP_CAP) {
+          throw new Error(
+            `hyperbolic-map: colorSymmetry generates a group of more than ${COLOR_GROUP_CAP} elements. ` +
+              "That is almost always a typo in one permutation: a color symmetry's group is small (12 " +
+              "for Circle Limit III's A_4).",
+          );
+        }
+        index.set(key, elements.length);
+        elements.push(prod);
+      }
+    }
+  }
+  const size = elements.length;
+  const table = [];
+  for (let i = 0; i < size; i++) {
+    const row = new Int32Array(size);
+    for (let j = 0; j < size; j++) row[j] = index.get(permCompose(elements[i], elements[j]).join(","));
+    table.push(row);
+  }
+  const genIndex = gens.map((g) => index.get(g.join(",")));
+  const stabPow = stabPowPerm.map((s) => index.get(s.join(",")));
+
+  // THE PROOF. Everything above is necessary; only this is sufficient. Walk the real tile graph,
+  // accumulate labels the way the walk will, and require every pair of routes to one tile to agree.
+  const seen = new Map();
+  const queue = [{ node: extendFor.origin, col: 0 }];
+  let collisions = 0;
+  while (queue.length && seen.size < 400) {
+    const cur = queue.shift();
+    const prev = seen.get(cur.node.id);
+    if (prev !== undefined) {
+      collisions++;
+      if (prev !== cur.col) {
+        throw new Error(
+          `hyperbolic-map: colorSymmetry is not a homomorphism -- two routes to one tile of ` +
+            `{${p},${q}} m=${m} give different colors (${JSON.stringify(elements[prev])} and ` +
+            `${JSON.stringify(elements[cur.col])}). Every relator of the walk group must be respected, ` +
+            "not only the generator relations that were checked above.",
+        );
+      }
+      continue;
+    }
+    seen.set(cur.node.id, cur.col);
+    for (let g = 0; g < generators.length; g++) {
+      const edge = extendFor.edge(cur.node, g);
+      queue.push({ node: edge.node, col: table[table[cur.col][genIndex[g]]][stabPow[edge.k]] });
+    }
+  }
+  // A walk that never revisited a tile has proved nothing; the same guard the tile class uses.
+  if (collisions <= 10) {
+    throw new Error(
+      `hyperbolic-map: could not verify colorSymmetry -- the walk over {${p},${q}} m=${m} closed on ` +
+        `itself only ${collisions} times, which is not evidence.`,
+    );
+  }
+
+  const out = { colors: n, size, elements, table, genIndex, stabPow };
+  COLOR_SYMMETRY_CACHE.set(cacheKey, out);
+  return out;
+}
+
 class RegularTiling {
   // `frameSymmetry` (m, a divisor of p) is the rotational symmetry the tile art is promised to have.
   // It selects the walk group so that the tile stabiliser is C_m, which is what makes "the same data
   // in every tile" produce a consistent pattern. See notes/tilings.md and
   // notes/escher-circle-limit-iii.md -- for Circle Limit III this must be 4, not 8, and using the
   // default half-turn generators there would silently shred the pattern.
-  constructor({ p, q, frameSymmetry = null } = {}) {
+  constructor({ p, q, frameSymmetry = null, colorSymmetry = null } = {}) {
     this.metrics = regularMetrics(p, q);
     this.p = p;
     this.q = q;
@@ -4814,7 +5034,27 @@ class RegularTiling {
     // frame and the tile-data cache slot route-independent.
     this.nodes = new Map();
     this.idChars = 0;
-    this.rootNode = this.internNode(exactIdentity(this.exact.R), 0);
+    this.rootNode = this.internNode(exactIdentity(this.exact.R), 0, 0);
+
+    // The declared color symmetry, if there is one. See regularColorSymmetry.
+    this.color = null;
+    this.colorCount = 1;
+    if (colorSymmetry) {
+      this.color = regularColorSymmetry(colorSymmetry, p, q, this.m, this.generators, this.inverseIndex,
+        this.piTransport, {
+          origin: this.rootNode,
+          edge: (node, g) => {
+            this.extendAddress(node, g);
+            return node.edges.get(g);
+          },
+        });
+      this.colorCount = this.color.size;
+      // Verifying it built a few hundred nodes while `this.color` was still null, so their labels are
+      // all zero. Start the store again now that labels can be computed; nothing outside has seen it.
+      this.nodes = new Map();
+      this.idChars = 0;
+      this.rootNode = this.internNode(exactIdentity(this.exact.R), 0, 0);
+    }
   }
 
   // Compare two exact matrices in a fixed total order: row-major, entrywise, using the ring's own
@@ -4876,12 +5116,12 @@ class RegularTiling {
   }
 
   // Look up or create the node for the coset of M.
-  internNode(M, cls) {
+  internNode(M, cls, col) {
     const id = this.idExact(M);
     const hit = this.nodes.get(id);
     if (hit) return hit;
     const { F } = this.canonicalExact(M);
-    return this.storeNode({ F, id, cls, edges: new Map() });
+    return this.storeNode({ F, id, cls, col, edges: new Map() });
   }
 
   // Add a node to the store and keep the store bounded.
@@ -4972,7 +5212,11 @@ class RegularTiling {
     if (!child) {
       const n = this.classModulus;
       const cls = n > 1 ? (((address.cls + this.classStep[gen]) % n) + n) % n : 0;
-      child = this.storeNode({ F, id, cls, edges: new Map() });
+      // The color label carries the canonical fold's P^k as well as the generator, because phi(P) is
+      // not the identity -- see regularColorSymmetry. Two table lookups, no allocation.
+      const c = this.color;
+      const col = c ? c.table[c.table[address.col][c.genIndex[gen]]][c.stabPow[k]] : 0;
+      child = this.storeNode({ F, id, cls, col, edges: new Map() });
     }
     // F_child = F_parent . Gx[gen] . P^k, so the float step is the generator then that rotation.
     const step = this.generators[gen].mul(this.rotP[k]).normalize();
@@ -5044,16 +5288,16 @@ class RegularTiling {
 
   // ---- tile classes: a cheap, meaningful grouping of tiles ----
   //
-  // A class is a colouring of the tiling by a group HOMOMORPHISM phi: Gamma -> Z/n that kills the
+  // A class is a coloring of the tiling by a group HOMOMORPHISM phi: Gamma -> Z/n that kills the
   // stabiliser C_m, so it descends to tiles. Art may key on the tile's own id, so a class is not the
   // only per-tile variation available any more -- what it still is, is the STRUCTURED one: adjacent
-  // tiles never share a class, so it reads as a proper colouring of the tiling rather than as noise,
+  // tiles never share a class, so it reads as a proper coloring of the tiling rather than as noise,
   // and it costs one integer addition per walk step instead of a string lookup.
   //
   // What n can be is fixed by the abelianisation of the walk group, and it is small:
   //
   //   m < p  (vertex-rotation generators, e.g. Circle Limit III's {8,3} m=4): phi(g) has order q,
-  //          giving Z/q -- THREE classes for {8,3} m=4. Geometrically it is a proper 3-colouring of the
+  //          giving Z/q -- THREE classes for {8,3} m=4. Geometrically it is a proper 3-coloring of the
   //          octagons: the three meeting at any vertex all differ.
   //   m == p (edge half-turn generators): phi(g) has order dividing 2, and going around a vertex forces
   //          q*phi(g) = 0 too, so there are two classes when q is EVEN ({5,4}, {6,4}) and only one when
@@ -5063,6 +5307,23 @@ class RegularTiling {
   // pair of routes to one tile agrees, and it falls back to 1 if it does not. Cached per {p,q,m}.
   tileClass(address) {
     return this.classModulus > 1 ? address.cls : 0;
+  }
+
+  // ---- color symmetry ----
+  //
+  // The permutation this tile applies to the caller's colors, or null if no colorSymmetry was declared.
+  // A function of the TILE: two routes give the same permutation, because they give the same canonical
+  // frame. Do not mutate the returned array -- it is the interned group element, shared by every tile
+  // that carries it.
+  colorPermutation(address) {
+    return this.color ? this.color.elements[address.col] : null;
+  }
+
+  // The same thing as a dense index in [0, colorCount). What art keyed on the color symmetry should
+  // cache on: a repeating atlas has one recolored copy per group element and no more, so this is the
+  // key that keeps `Atlas`'s compile memo hitting.
+  colorIndex(address) {
+    return this.color ? address.col : 0;
   }
 
   // ---- geometry, all in tile-local coordinates ----
@@ -5300,9 +5561,20 @@ class BinaryTiling {
     // No homomorphism needed: (lat, lon) is canonical, so a caller may key art on the ADDRESS itself and
     // give every cell something different. `classModulus` exists only to keep the tile object uniform.
     this.classModulus = 1;
+    // Nor a color symmetry, for the same reason and one more: a color symmetry earns its keep by
+    // permuting art that repeats, and nothing here has to repeat. Present so the tile object is uniform.
+    this.colorCount = 1;
   }
 
   tileClass() {
+    return 0;
+  }
+
+  colorPermutation() {
+    return null;
+  }
+
+  colorIndex() {
     return 0;
   }
 
@@ -5378,7 +5650,7 @@ class BinaryTiling {
     const { lat, lon } = address;
     // Floor division for negative longitudes: BigInt / truncates toward zero, so -1n/2n is 0n where
     // the parent of cell -1 must be cell -1. Off-by-one here would break the western hemisphere only,
-    // which is precisely the kind of asymmetry a diagnostic with hashed colours makes obvious.
+    // which is precisely the kind of asymmetry a diagnostic with hashed colors makes obvious.
     const half = lon >= 0n ? lon / 2n : -((-lon + 1n) / 2n);
     const even = (lon & 1n) === 0n;
     return [

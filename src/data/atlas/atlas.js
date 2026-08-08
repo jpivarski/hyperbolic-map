@@ -89,7 +89,8 @@ export class Atlas {
     // Compiled art, memoised on the IDENTITY of the object the callback returned.
     //
     // A repeating atlas hands back one of a few shared objects for every tile -- the Escher atlas has
-    // three, one per tile class -- so compiling per tile would redo identical work. Keying on object
+    // twelve, one per element of its color symmetry -- so compiling per tile would redo identical work.
+    // Keying on object
     // identity collapses that to a map lookup without needing to know anything about the provider, and
     // is what keeps a burst of cache misses cheap: 160 tiles compiled from scratch cost 125 ms against
     // a 16 ms median frame. A provider that builds a fresh object every call simply misses this memo
@@ -170,6 +171,14 @@ export class Atlas {
       // case every tile must look the same. See RegularTiling.tileClass.
       classIndex: this.tiling.tileClass ? this.tiling.tileClass(address) : 0,
       classCount: this.tiling.classModulus || 1,
+      // The tile's element of a declared COLOR SYMMETRY: the permutation this tile applies to the
+      // caller's colors, and the same thing as a dense index. Null and 0 when none was declared.
+      // Unlike `classIndex` this survives a non-abelian group and does not have to kill the tile
+      // stabiliser, which is what lets a repeating atlas draw Escher's four-color Circle Limit III
+      // rather than one color per tile. See RegularTiling.colorPermutation.
+      colorPermutation: this.tiling.colorPermutation ? this.tiling.colorPermutation(address) : null,
+      colorIndex: this.tiling.colorIndex ? this.tiling.colorIndex(address) : 0,
+      colorCount: this.tiling.colorCount || 1,
       relativeFrame: rel.clone(),
       centreRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
     };

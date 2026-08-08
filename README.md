@@ -299,6 +299,35 @@ The `tile` index names the tile, not a route to it: reaching a tile from any dir
 
 `tile.classIndex` is the *structured* alternative to `tile.id`: it runs over `0 .. classCount-1` and adjacent tiles never share a value, so it colours the tiling the way a map colours countries rather than at random.
 
+### Color symmetry
+
+A tile class is one integer per tile, and it cannot describe a pattern whose colours *move*. In M.C. Escher's _Circle Limit III_ every motion of the tiling permutes the four fish colours, so the colour of a fish is not a property of the fish or of the tile — it is a group element applied to a base colour. That needs a homomorphism into a permutation group, and for `{8,3}` that group is `A₄`: twelve elements, not abelian, and it does *not* kill the tile stabiliser.
+
+Declare one and every tile is handed its element:
+
+```js
+const tiling = new RegularTiling({
+  p: 8, q: 3, frameSymmetry: 4,
+  colorSymmetry: {
+    colors: 4,
+    generators: [[2,0,1,3], /* ...one permutation per walk generator... */],
+    stabiliser: [1,0,3,2],   // the image of the 2π/m rotation about a tile centre
+  },
+});
+
+tileData: (tile) => {
+  tile.colorPermutation;   // e.g. [2,0,1,3] — this tile's permutation of your colors
+  tile.colorIndex;         // the same thing as 0 .. colorCount-1, for caching
+  tile.colorCount;         // 12 here; 1 when no color symmetry was declared
+}
+```
+
+Then a shape's fill in the file is a **role**, and what you draw is `palette[tile.colorPermutation[role]]`. Build one recoloured copy of your art per `colorIndex` and return it by index: there are only `colorCount` of them for the whole infinite plane, so the compile memo keeps hitting.
+
+Your permutations are **verified, not trusted**. Assigning one to each generator does not make a homomorphism — the group's relations have to hold too — and if they do not, a tile's colour would depend on the route the walk took to it and the pattern would change as you scrolled. So the library checks the cheap conditions individually (each with its own message) and then walks the tile graph and requires every pair of routes to one tile to agree, throwing if they do not. Of the 24 candidates for one generator's image in the `{8,3}` case, 16 satisfy every cheap condition and are still rejected by the walk.
+
+Note that unlike a tile class, a color symmetry is *not* required to kill the stabiliser: `stabiliser` is usually a real permutation, and in Escher's case it is what makes an octagon show two colours rather than four. This is only well defined because tile frames are canonical. Choosing a different representative of the tile's frame rotates the art by `2π/m` and permutes the colours by `stabiliser`, and the two cancel exactly, so the drawn result is the same either way.
+
 To draw a repeating pattern such as M.C. Escher's _Circle Limit_ series, the art does have to be invariant under a rotation of `2π/m` about the polygon's centre (`m` = `frameSymmetry`) — not because the library requires it, but because that is what makes every tile show the same motif in the same relative orientation. If your art is meant to be symmetric in that way, the library can watch for it drifting:
 
 ```js

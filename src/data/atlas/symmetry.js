@@ -36,10 +36,10 @@ function pointsOf(d) {
 // The largest distance by which any point of the artwork fails to land on the artwork after rotating by
 // 2*pi/m about the tile centre. Zero means exactly invariant.
 //
-// Matching is per-drawable and style-aware: a rotated shape must map onto a shape of the SAME colour and
+// Matching is per-drawable and style-aware: a rotated shape must map onto a shape of the SAME color and
 // kind. Matching only the union of points would let a green fish land on a blue one and call the picture
 // symmetric, which is precisely the failure that matters -- the shapes can be symmetric while the
-// colouring is not, and the colouring is what you see.
+// coloring is not, and the coloring is what you see.
 export function tileSymmetryResidual(drawables, m) {
   if (!drawables || !drawables.length || !(m > 1)) return { residual: 0, checked: 0, offender: null };
   const angle = (2 * Math.PI) / m;
@@ -112,14 +112,14 @@ export function tileSymmetryResidual(drawables, m) {
 // on its own sends people looking for a coordinate that blew up. It means the search found no
 // candidate at all: some shape has no counterpart of the same style and the same number of points
 // anywhere near where the rotation sends it. In practice that is a COLOURING that is less symmetric
-// than the outlines -- four fish rotate onto each other but are painted four different colours, so a
+// than the outlines -- four fish rotate onto each other but are painted four different colors, so a
 // green one is asked to land on a blue one -- or a shape hand-drawn a second time with a different
 // number of nodes instead of being rotated.
 export function tileSymmetryMessage(residual, m, tilingName, offender) {
   const where = offender == null ? "" : ` (drawable ${offender})`;
   const finding = Number.isFinite(residual)
     ? `worst mismatch ${residual.toExponential(2)} in tile-local units${where}`
-    : `one or more shapes have no counterpart at all${where}: nothing of the same colour, kind and ` +
+    : `one or more shapes have no counterpart at all${where}: nothing of the same color, kind and ` +
       `point count lies where the rotation sends them`;
   return (
     `hyperbolic-map: this tile's artwork is not invariant under rotation by 360/${m} degrees about the ` +

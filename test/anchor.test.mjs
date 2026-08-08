@@ -1001,3 +1001,68 @@ test("the lint distinguishes a shape that is merely off from one with no counter
   assert.match(msg, /no counterpart at all \(drawable \d\)/);
   assert.doesNotMatch(msg, /Infinity/);
 });
+
+test("the atlas hands a tile its color-symmetry element, and tiles sharing one share compiled art", () => {
+  // A repeating atlas returns one of a FEW data objects, and the compile memo keys on their identity.
+  // A colour symmetry has to preserve that: there are twelve colourings of the whole plane and no more,
+  // so twelve compiled copies is the whole cost, however far you scroll.
+  const mul = (a, b) => a.map((_, i) => a[b[i]]);
+  const inv = (a) => { const r = a.slice(); a.forEach((v, i) => { r[v] = i; }); return r; };
+  const P = [1, 0, 3, 2];
+  const gens = new Array(8);
+  gens[0] = [2, 0, 1, 3];
+  gens[1] = inv(gens[0]);
+  for (let g = 0; g < 6; g++) gens[g + 2] = mul(mul(P, gens[g]), inv(P));
+  const tiling = new RegularTiling({
+    p: 8, q: 3, frameSymmetry: 4,
+    colorSymmetry: { colors: 4, generators: gens, stabiliser: P },
+  });
+  const PALETTE = ["#ffeeaa", "#afe9af", "#ffaaaa", "#afc6e9"];
+  const variants = new Map();
+  const seenTiles = [];
+  const atlas = new Atlas({
+    tiling, maxTiles: 200, checkTileSymmetry: "off",
+    tileData: (t) => {
+      seenTiles.push(t);
+      let v = variants.get(t.colorIndex);
+      if (!v) {
+        // Exactly what the demo does: the drawable's fill is a ROLE, resolved through this tile's
+        // permutation.
+        v = { drawables: [0, 1, 2, 3].map((role) => ({
+          type: "path", closed: true, fill: PALETTE[t.colorPermutation[role]],
+          points: [[0, 0], [0.1 * (role + 1), 0], [0.05, 0.1]],
+        })) };
+        variants.set(t.colorIndex, v);
+      }
+      return v;
+    },
+  });
+  const passes = atlas.passes({ matrix: Isom.identity(), effectiveRadius: 0.96, radius: 400 }, () => {});
+  assert.ok(passes.length > 40, `only ${passes.length} tiles drawn`);
+
+  // Every tile was told its element, consistently with the tiling itself.
+  assert.equal(seenTiles.length, passes.length);
+  for (const t of seenTiles) {
+    assert.equal(t.colorCount, 12);
+    assert.equal(t.colorIndex, tiling.colorIndex(t.address));
+    assert.deepEqual(t.colorPermutation, tiling.colorPermutation(t.address));
+  }
+  const indices = new Set(seenTiles.map((t) => t.colorIndex));
+  assert.ok(indices.size > 6, `only ${indices.size} of 12 colourings appeared in one view`);
+
+  // ...and the compiled art collapses to one array per colouring, not one per tile.
+  const distinct = new Set(passes.map((p) => p.drawables));
+  assert.equal(distinct.size, indices.size,
+    `${distinct.size} compiled arrays for ${indices.size} colourings -- the memo is not hitting`);
+
+  // A tiling without one reports null rather than a fake identity, so art can tell the difference.
+  const plain = new Atlas({
+    tiling: new RegularTiling({ p: 7, q: 3 }), maxTiles: 8, checkTileSymmetry: "off",
+    tileData: (t) => {
+      assert.equal(t.colorPermutation, null);
+      assert.equal(t.colorCount, 1);
+      return { drawables: [{ type: "path", points: [[0, 0], [0.1, 0], [0.05, 0.1]], closed: true, fill: "#123" }] };
+    },
+  });
+  assert.ok(plain.passes({ matrix: Isom.identity(), effectiveRadius: 0.4, radius: 200 }, () => {}).length > 0);
+});
