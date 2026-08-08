@@ -84,13 +84,7 @@ new HyperbolicMap.HyperbolicViewport({
 });
 ```
 
-The height is *derived* from the width, so `aspectRatio` and `height` together raise an error — pick one. Deriving in that direction is deliberate: the canvas is usually the only thing giving the container its height, so a widget that measured that height back would oscillate. Only the width is read.
-
-The container must not shrink-wrap its contents. An `inline-block`, a float, or anything `width: fit-content` sizes itself *to the canvas*, so the widget measures its own output and never changes — it comes out 300 px square, the default size of a fresh `<canvas>`. Give the container `display: block` and a width.
-
-The widget checks for this: it measures the container while still empty, and warns on the console if it is zero pixels wide. (That check is skipped when you pass an explicit `width`, and it is harmless to see the warning if the container simply happens to be hidden at construction — `autoResize` will pick up the real size when it appears.)
-
-Resize the canvas rather than scaling it in CSS. A `max-width: 100%` on the canvas leaves its backing store at the old size, so its on-screen rectangle stops matching the pixel size the library thinks it has, and every pointer position is off by that ratio.
+The height is *derived* from the width, so `aspectRatio` and `height` together raise an error.
 
 ### What it draws
 
@@ -301,7 +295,7 @@ The `tile` index names the tile, not a route to it: reaching a tile from any dir
 
 ### Color symmetry
 
-A tile class is one integer per tile, and it cannot describe a pattern whose colors *move*. In M.C. Escher's _Circle Limit III_ every motion of the tiling permutes the four fish colors, so the color of a fish is not a property of the fish or of the tile — it is a group element applied to a base color. That needs a homomorphism into a permutation group, and for `{8,3}` that group is `A₄`: twelve elements, not abelian, and it does *not* kill the tile stabilizer.
+A tile class is one integer per tile, and it cannot describe a pattern whose colors move. In M.C. Escher's _Circle Limit III_ every motion of the tiling permutes the four fish colors, so the color of a fish is not a property of the fish or of the tile — it is a group element applied to a base color. That needs a homomorphism into a permutation group, and for `{8,3}` that group is `A₄`: twelve elements, not abelian, and it does *not* kill the tile stabilizer.
 
 Declare one and every tile is handed its element:
 
@@ -322,13 +316,9 @@ tileData: (tile) => {
 }
 ```
 
-Then a shape's fill in the file is a **role**, and what you draw is `palette[tile.colorPermutation[role]]`. Build one recolored copy of your art per `colorIndex` and return it by index: there are only `colorCount` of them for the whole infinite plane, so the compile memo keeps hitting.
+Then a shape's fill in the file is a role, and what you draw is `palette[tile.colorPermutation[role]]`. Build one recolored copy of your art per `colorIndex` and return it by index: there are only `colorCount` of them for the whole infinite plane, so the compile memo keeps hitting.
 
-Your permutations are **verified, not trusted**. Assigning one to each generator does not make a homomorphism — the group's relations have to hold too — and if they do not, a tile's color would depend on the route the walk took to it and the pattern would change as you scrolled. So the library checks the cheap conditions individually (each with its own message) and then walks the tile graph and requires every pair of routes to one tile to agree, throwing if they do not. Of the 24 candidates for one generator's image in the `{8,3}` case, 16 satisfy every cheap condition and are still rejected by the walk.
-
-Note that unlike a tile class, a color symmetry is *not* required to kill the stabilizer: `stabilizer` is usually a real permutation, and in Escher's case it is what makes an octagon show two colors rather than four. This is only well defined because tile frames are canonical. Choosing a different representative of the tile's frame rotates the art by `2π/m` and permutes the colors by `stabilizer`, and the two cancel exactly, so the drawn result is the same either way.
-
-To draw a repeating pattern such as M.C. Escher's _Circle Limit_ series, the art does have to be invariant under a rotation of `2π/m` about the polygon's center (`m` = `frameSymmetry`) — not because the library requires it, but because that is what makes every tile show the same motif in the same relative orientation. If your art is meant to be symmetric in that way, the library can watch for it drifting:
+To draw a repeating pattern such as M.C. Escher's _Circle Limit_ series, the art does have to be invariant under a rotation of `2π/m` about the polygon's center (`m` = `frameSymmetry`). If your art is meant to be symmetric in that way, the library can watch for it drifting:
 
 ```js
 atlas: {
@@ -337,7 +327,7 @@ atlas: {
 viewport.atlas.tileSymmetry;   // { residual, checked, m, ok }; residual = 0 means ok
 ```
 
-The art is measured once, on the first tile that carries any, and `"throw"` really does throw — out of the viewport constructor, and out of every later frame. It is a statement about the artwork rather than about one tile, so unlike a tile whose data fails to load it is not caught and skipped. An infinite `residual` is the distinct case where a shape has no counterpart of the same color, kind and point count at all, which usually means the coloring is less symmetric than the outlines.
+The art is measured once, on the first tile that carries any.
 
 ### Performance hints
 
@@ -351,11 +341,11 @@ The art is measured once, on the first tile that carries any, and `"throw"` real
 
 Use the `RegularTiling({p, q, frameSymmetry})` class.
 
-The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever `1/p + 1/q < 1/2`. An address is a **canonical id**: one tile, one address, whatever route the walk took to reach it. Treat it as opaque and use `addressToString` (or `addressKey`) for a printable form, which is stable and safe to use as a persistent key. Underneath it is the tile's center in the Coxeter reflection representation of `[p,q]`, held exactly in `ℤ[2cos(π/N)]` with BigInt coefficients — identity is decided by integer equality, so it has no distance ceiling. The string is a name, not a coordinate: there is no way back from it to an address, so keep the object (`getCamera().address`) if you need to return to a tile.
+The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever `1/p + 1/q < 1/2`. An address is a canonical id: one tile, one address, whatever route the walk took to reach it. Treat it as opaque and use `addressToString` (or `addressKey`) for a printable form, which is stable and safe to use as a persistent key. Underneath it is the tile's center in the Coxeter reflection representation of `[p,q]`, held exactly in `ℤ[2cos(π/N)]` with BigInt coefficients — identity is decided by integer equality, so it has no distance ceiling. The string is a name, not a coordinate: there is no way back from it to an address, so keep the object (`getCamera().address`) if you need to return to a tile.
 
 One consequence worth knowing: an id's length grows linearly with distance from the origin, about 12 characters per tile crossed. Naming a tile is exact integer arithmetic and happens once per tile ever, never per frame, but a walk of thousands of tiles is no longer free — see the performance notes.
 
-`frameSymmetry` (`m`) selects the walk group, so that the tile stabilizer is exactly `C_m`. It decides which group the tiling is built from and hence what pattern it makes: for M.C. Escher's *Circle Limit III* it must be `4`, not `8`. It is **not** a constraint on your art — each tile has a canonical frame, the lexicographically least element of its coset, so **your art may be fully asymmetric and may depend on the address**.
+`frameSymmetry` (`m`) selects the walk group, so that the tile stabilizer is exactly `C_m`. It decides which group the tiling is built from and hence what pattern it makes: for M.C. Escher's *Circle Limit III* it must be `4`, not `8`. It is not a constraint on your art — each tile has a canonical frame, the lexicographically least element of its coset, so your art may be fully asymmetric and may depend on the address.
 
 Only `m = p` and `m = p/2` are accepted, and anything else throws. `m = p` steps by half-turns about edge midpoints, one generator per edge; `m = p/2` steps by rotations about alternate vertices, two per vertex. A smaller `m` would reach only `2m` of the `p` neighbors and could not cover the plane.
 
