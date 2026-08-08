@@ -105,16 +105,43 @@ export function tileSymmetryResidual(drawables, m) {
   return { residual: Number.isFinite(residual) ? residual : Infinity, checked: items.length, offender };
 }
 
-// The message the library prints when art violates the rule. Written out in full because the symptom
-// ("some tiles flip as I scroll") gives no hint at all about the cause.
-export function tileSymmetryMessage(residual, m, tilingName) {
+// What the lint reports. Written out in full because the symptom ("some tiles flip as I scroll")
+// gives no hint at all about the cause.
+//
+// An INFINITE residual is a different finding from a large one, and saying "worst mismatch Infinity"
+// on its own sends people looking for a coordinate that blew up. It means the search found no
+// candidate at all: some shape has no counterpart of the same style and the same number of points
+// anywhere near where the rotation sends it. In practice that is a COLOURING that is less symmetric
+// than the outlines -- four fish rotate onto each other but are painted four different colours, so a
+// green one is asked to land on a blue one -- or a shape hand-drawn a second time with a different
+// number of nodes instead of being rotated.
+export function tileSymmetryMessage(residual, m, tilingName, offender) {
+  const where = offender == null ? "" : ` (drawable ${offender})`;
+  const finding = Number.isFinite(residual)
+    ? `worst mismatch ${residual.toExponential(2)} in tile-local units${where}`
+    : `one or more shapes have no counterpart at all${where}: nothing of the same colour, kind and ` +
+      `point count lies where the rotation sends them`;
   return (
     `hyperbolic-map: this tile's artwork is not invariant under rotation by 360/${m} degrees about the ` +
-    `tile centre (worst mismatch ${residual.toExponential(2)} in tile-local units).\n` +
+    `tile centre -- ${finding}.\n` +
     `  ${tilingName} has tile stabiliser C_${m}. This is a LINT, not an error: tile frames are canonical, ` +
     `so asymmetric art\n` +
     `  is stable as you scroll, and you only asked to be told because this art is meant to be ` +
     `C_${m}-symmetric.\n` +
-    `  Build it from one wedge repeated ${m} times, or set atlas.checkTileSymmetry to "off".`
+    `  Build it from one wedge repeated ${m} times, or set atlas.checkTileSymmetry to "warn" or "off".`
   );
+}
+
+// The lint's failure, when it is set to "throw".
+//
+// A distinct type because the atlas has to tell it apart from a TILE failing. A tile whose data will
+// not load is one tile among hundreds: it is reported and skipped, and the map carries on. A lint the
+// caller deliberately set to "throw" is a statement about the ARTWORK, and downgrading it to a skipped
+// tile turns the loudest setting into the quietest one -- a single tile silently missing, which is
+// exactly the sort of thing nobody notices until it is the tile under the cursor.
+export class TileSymmetryError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "TileSymmetryError";
+  }
 }

@@ -22,7 +22,7 @@ import { compileDrawables } from "../drawable.js";
 import { geodesicArc, Arc } from "../../render/geodesic.js";
 import { halfPlaneToLocal } from "../../core/coords.js";
 import { Anchor } from "./anchor.js";
-import { tileSymmetryResidual, tileSymmetryMessage } from "./symmetry.js";
+import { tileSymmetryResidual, tileSymmetryMessage, TileSymmetryError } from "./symmetry.js";
 
 export const CLIP_AUTO = "auto";
 export const CLIP_ALWAYS = "always";
@@ -71,6 +71,8 @@ export class Atlas {
     // it and so tests can assert on it.
     this.tileSymmetry = null;
     this._symmetryChecked = false;
+    // The message to keep throwing once the lint has failed in "throw" mode. See verifyTileSymmetry.
+    this._symmetryFailure = null;
 
     // key string -> {drawables, withinTile} once resolved
     this.cache = new Map();
@@ -100,7 +102,15 @@ export class Atlas {
   // Only meaningful for tilings with a non-trivial stabiliser: the binary tiling has none, so C_1
   // symmetry is vacuous and this is skipped entirely.
   verifyTileSymmetry(data) {
-    if (this._symmetryChecked || this.checkTileSymmetry === "off") return;
+    if (this.checkTileSymmetry === "off") return;
+    if (this._symmetryChecked) {
+      // Measured already; the answer is a property of the art, so it is not re-measured. But a "throw"
+      // that fired once and then let every later frame through would leave the page in a state that is
+      // neither working nor visibly broken: the art is still wrong, and the only evidence is one tile
+      // missing from the first frame. Keep throwing.
+      if (this._symmetryFailure) throw new TileSymmetryError(this._symmetryFailure);
+      return;
+    }
     const m = this.tiling.stabiliserOrder;
     if (!(m > 1)) {
       this._symmetryChecked = true;
@@ -123,13 +133,18 @@ export class Atlas {
     const name = this.tiling.p
       ? `{${this.tiling.p},${this.tiling.q}}${this.tiling.m !== this.tiling.p ? ` with frameSymmetry ${this.tiling.m}` : ""}`
       : "this tiling";
-    const msg = tileSymmetryMessage(residual, m, name);
-    if (this.checkTileSymmetry === "throw") throw new Error(msg);
+    const msg = tileSymmetryMessage(residual, m, name, offender);
+    if (this.checkTileSymmetry === "throw") {
+      this._symmetryFailure = msg;
+      throw new TileSymmetryError(msg);
+    }
     if (typeof console !== "undefined") console.warn(msg);
   }
 
   // Ask for a tile's data. Returns the compiled drawables if they are ready, or null while a request
-  // is outstanding. Never throws: a failing tile is reported and then skipped.
+  // is outstanding. A failing tile is reported and then skipped, so one bad tile cannot take the map
+  // down. The single exception is the symmetry lint set to "throw", which is a deliberate request for
+  // a hard error about the artwork rather than about this tile; see verifyTileSymmetry.
   request(address, keyString, rel, onReady) {
     const hit = this.cache.get(keyString);
     if (hit) {
@@ -177,6 +192,7 @@ export class Atlas {
       try {
         return this.acceptTile(keyString, tile, result);
       } catch (err) {
+        if (err instanceof TileSymmetryError) throw err;
         this.failTile(keyString, tile, err);
         return this.cache.get(keyString) || null;
       }
@@ -190,6 +206,10 @@ export class Atlas {
       })
       .catch((err) => {
         this.pending.delete(keyString);
+        // An asynchronous provider cannot be handed a synchronous throw, so a fatal lint surfaces here
+        // as an unhandled rejection. That is loud, which is what "throw" asked for, and it is still
+        // better than the alternative of one quietly blank tile.
+        if (err instanceof TileSymmetryError) throw err;
         this.failTile(keyString, tile, err);
       });
     this.pending.set(keyString, p);

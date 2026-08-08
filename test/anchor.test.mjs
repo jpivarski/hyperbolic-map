@@ -16,6 +16,7 @@ import { ViewState, ROTATION_COMPASS } from "../src/core/view.js";
 import { RegularTiling, BinaryTiling } from "../src/data/atlas/tiling.js";
 import { Anchor } from "../src/data/atlas/anchor.js";
 import { Atlas } from "../src/data/atlas/atlas.js";
+import { tileSymmetryResidual, tileSymmetryMessage } from "../src/data/atlas/symmetry.js";
 import { normaliseOptionsForTesting } from "../src/viewport.js";
 
 const REGULARS = [
@@ -916,4 +917,87 @@ test("a small tile draws its lod art instead of its full art", () => {
   const mid = atlas.passes({ matrix: Isom.identity(), effectiveRadius: 0.97, radius: 260 }, () => {});
   const lodCount = mid.filter((p) => p.drawables.length === 1).length;
   assert.ok(lodCount > 0 && lodCount < mid.length, `mixed canvas used lod for ${lodCount} of ${mid.length}`);
+});
+
+test("a fatal symmetry lint is fatal, and does not degrade to one silently missing tile", () => {
+  // The lint's throw used to be raised inside acceptTile, which request() wraps in the try/catch that
+  // turns a TILE failure into a skipped tile. So the strictest setting produced the mildest symptom:
+  // the first tile requested -- the one under the camera -- was cached empty and never drawn, every
+  // later tile skipped the already-run check and drew fine, and the only trace was a console.error.
+  // On escher-atlas.html that was a single blank octagon in the middle of an otherwise perfect
+  // Circle Limit III. A lint and a broken tile are different kinds of failure and must not share a
+  // handler.
+  const tiling = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  // Deliberately not C_4-symmetric: one wedge, no rotated copies.
+  const lopsided = {
+    drawables: [{ type: "path", points: [[0.2, 0], [0.4, 0], [0.3, 0.2]], closed: true, fill: "#123456" }],
+  };
+  const view = { matrix: Isom.identity(), effectiveRadius: 0.5, radius: 200 };
+
+  const fatal = new Atlas({ tiling, maxTiles: 40, checkTileSymmetry: "throw", tileData: () => lopsided });
+  assert.throws(() => fatal.passes(view, () => {}), /not invariant under rotation by 360\/4/);
+  // And on EVERY later frame, not just the first. A page that threw once and then rendered would be
+  // neither working nor visibly broken.
+  assert.throws(() => fatal.passes(view, () => {}), /not invariant under rotation by 360\/4/);
+  assert.equal(fatal.cache.size, 0, "a lint failure is about the art, so no tile should be cached empty");
+
+  // "warn" says the same thing and draws everything.
+  const warnings = [];
+  const realWarn = console.warn;
+  console.warn = (m) => warnings.push(String(m));
+  let drawn;
+  try {
+    const lenient = new Atlas({ tiling, maxTiles: 40, checkTileSymmetry: "warn", tileData: () => lopsided });
+    drawn = lenient.passes(view, () => {});
+    assert.equal(lenient.passes(view, () => {}).length, drawn.length, "the second frame should match the first");
+  } finally {
+    console.warn = realWarn;
+  }
+  const wanted = new Atlas({ tiling, maxTiles: 40, checkTileSymmetry: "off", tileData: () => lopsided })
+    .passes(view, () => {}).length;
+  assert.ok(wanted > 5, `only ${wanted} tiles -- not exercising anything`);
+  assert.equal(drawn.length, wanted, `"warn" drew ${drawn.length} of ${wanted} tiles`);
+  assert.equal(warnings.length, 1, `warned ${warnings.length} times; the answer is a property of the art`);
+
+  // A tile whose DATA fails is still reported and skipped -- that path must not have been made fatal
+  // along with the lint.
+  const failures = [];
+  const broken = new Atlas({
+    tiling, maxTiles: 40, checkTileSymmetry: "off",
+    onTileError: (t, err) => failures.push(err),
+    tileData: () => { throw new Error("no such tile"); },
+  });
+  assert.equal(broken.passes(view, () => {}).length, 0);
+  assert.ok(failures.length > 5, `${failures.length} tiles reported; a broken tile should be skipped, not thrown`);
+});
+
+test("the lint distinguishes a shape that is merely off from one with no counterpart at all", () => {
+  // "worst mismatch Infinity" reads like a coordinate blew up. It means the search found no candidate:
+  // nothing of the same style with the same point count lies where the rotation sends the shape. That
+  // is what a C_2 COLOURING of C_4 outlines looks like -- four fish rotate onto each other but are
+  // painted four different colours -- and it is a different thing to go and fix.
+  const wedge = (a) => {
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    return [[0.3, 0], [0.4, 0.05], [0.35, 0.15]].map(([x, y]) => [x * c - y * s, x * s + y * c]);
+  };
+  const quarter = [0, 1, 2, 3].map((k) => (k * Math.PI) / 2);
+
+  // Same colour everywhere and exactly rotated: clean.
+  const exact = quarter.map((a) => ({ type: "path", points: wedge(a), closed: true, fill: "#0a0" }));
+  assert.ok(tileSymmetryResidual(exact, 4).residual < 1e-12, "an exactly rotated wedge is invariant to float noise");
+
+  // Same colour, one corner nudged: a finite, quotable residual.
+  const nudged = exact.map((d, i) => (i === 2 ? { ...d, points: d.points.map(([x, y], j) => (j === 0 ? [x + 0.002, y] : [x, y])) } : d));
+  const off = tileSymmetryResidual(nudged, 4);
+  assert.ok(off.residual > 1e-6 && off.residual < 0.01, `residual ${off.residual} should be small and finite`);
+  assert.match(tileSymmetryMessage(off.residual, 4, "{8,3}", off.offender), /worst mismatch 2\.00e-3/);
+
+  // Exact outlines, four different colours: no counterpart at all.
+  const recoloured = quarter.map((a, k) => ({ type: "path", points: wedge(a), closed: true, fill: `#0a${k}` }));
+  const none = tileSymmetryResidual(recoloured, 4);
+  assert.equal(none.residual, Infinity);
+  const msg = tileSymmetryMessage(none.residual, 4, "{8,3}", none.offender);
+  assert.match(msg, /no counterpart at all \(drawable \d\)/);
+  assert.doesNotMatch(msg, /Infinity/);
 });

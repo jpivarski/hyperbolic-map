@@ -308,6 +308,8 @@ atlas: {
 viewport.atlas.tileSymmetry;   // { residual, checked, m, ok }; residual = 0 means ok
 ```
 
+The art is measured once, on the first tile that carries any, and `"throw"` really does throw — out of the viewport constructor, and out of every later frame. It is a statement about the artwork rather than about one tile, so unlike a tile whose data fails to load it is not caught and skipped. An infinite `residual` is the distinct case where a shape has no counterpart of the same colour, kind and point count at all, which usually means the colouring is less symmetric than the outlines.
+
 ### Performance hints
 
 **Return data synchronously when you can.** A callback that returns a plain object (rather than a promise) is compiled and drawn in the *same* frame. A tile that is not drawn for one frame visibly blinks, and tiles enter at the rim continuously while panning, so this is the difference between a clean edge and a shimmering one. Asynchronous providers work fine; they just cannot avoid that first frame.

@@ -3,29 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Infinite Circle Limit III &mdash; hyperbolic-map-widget</title>
+<title>M.C. Escher's Circle Limit III &mdash; hyperbolic-map-widget</title>
 <link rel="stylesheet" href="demo/style.css">
 </head>
 <body>
 <nav><a href="index.html">&larr; all examples</a></nav>
 
-<h1>Infinite <em>Circle Limit III</em></h1>
+<h1>M.C. Escher's <em>Circle Limit III</em></h1>
 
-<p>The same fish, but tiled properly. One octagon&rsquo;s worth of art is stored
-(<a href="escher-atlas.json"><code>escher-atlas.json</code></a>) and the callback returns
-<strong>that same tile for every tile coordinate</strong>. Scroll as far as you like: the pattern never
-runs out, which is what Escher was reaching for and could not physically carve.</p>
-
-<p>The tile is traced directly from the woodcut and made <strong>exactly C<sub>4</sub>-symmetric by
-construction</strong> &mdash; one 90&deg; sector is traced and repeated by exact rotation. That is not
-decoration: it is what makes this the same pattern Escher drew, in which every fish sits at 90&deg; to
-its neighbours. Asymmetric tile art is perfectly stable here (see
-<a href="tiling-diagnostics.html">the tiling diagnostics</a>); it simply would not be <em>this</em>
-pattern.</p>
-
-<div id="map"></div>
-<p class="status"><span id="status">…</span></p>
-<p class="readout" id="readout"></p>
+<div id="map" class="fill"></div>
 
 <div class="controls">
   <label><input type="checkbox" id="clip" checked> clip each tile to its octagon</label>
@@ -33,51 +19,18 @@ pattern.</p>
   <label><input type="checkbox" id="colourByClass" checked> colour by tile class</label>
 </div>
 
-<h2>Why <code>{8,3}</code></h2>
+<h2>How this is drawn</h2>
 
-<p>Circle Limit III sits on the <code>{8,3}</code> tiling &mdash; regular octagons, <em>three</em> per
-vertex &mdash; with the chiral <code>433</code> symmetry group: four fish to an octagon, with 4-fold
-rotation centres at the octagon centres. Repeating one tile everywhere only produces a consistent
-pattern if the art is invariant under the tile&rsquo;s stabiliser, and under <code>433</code> that
-stabiliser is <strong>C<sub>4</sub>, not C<sub>8</sub></strong>. Eight-fold art would give a different
-member of the family, not Escher&rsquo;s.</p>
+<p>The center tile was drawn in Inkscape as SVG and converted using <code>svg_to_drawables.py</code> from the <a href="https://github.com/jpivarski/hyperbolic-map-widget/tree/main/tools">tools/</a> directory. Then it's repeated over the infinite surface using {8, 3} octagonal tiling with some dynamic corrections to the fill colors to match M.C. Escher's original.</p>
 
-<p>That also rules out the two obvious ways to walk the tiling: the 8-fold rotation about a tile
-centre and the half-turn about a shared edge midpoint are both <em>outside</em> <code>433</code>
-(which has no order-2 points at all). The library therefore uses 3-fold rotations about alternate
-vertices &mdash; which is exactly Escher&rsquo;s own &ldquo;connect alternate vertices&rdquo;
-construction.</p>
-
-<h2>Why the fish are not Escher&rsquo;s four colours</h2>
-
-<p>Around an octagon centre Escher&rsquo;s four fish alternate green&ndash;orange&ndash;green&ndash;orange,
-so his colouring is only C<sub>2</sub> while the shape is C<sub>4</sub>. Such a tile is perfectly stable
-to draw &mdash; frames are canonical, so nothing shifts as you scroll &mdash; but it would not reassemble
-into <em>his</em> pattern. Which of the two phases a given octagon shows would be decided by that
-tile&rsquo;s canonical frame, and the canonical frame is fixed by an arithmetic tie-break rather than by
-anything about the picture, so neighbouring octagons would alternate in unrelated senses.</p>
-
-<p>So the four fish in an octagon share a colour, and the variety comes from the <strong>tile
-class</strong> instead. The <code>433</code> group admits a three-class homomorphism, which gives a
-proper 3-colouring of the octagons in which no two neighbours match &mdash; a structure of the tiling
-itself, so it looks like a pattern rather than like noise.</p>
-
-<p class="note">Honest about the source: Escher&rsquo;s woodcut is hand-drawn, and the raster it is
-traced from here is 316&nbsp;px across, so the outlines are approximate and the fish are simplified.
-What <em>is</em> exact is the geometry and the symmetry: the disk radius, centre and tiling rotation
-were fitted by requiring the pattern to be invariant under the walk group&rsquo;s own generator, and
-the tile is C<sub>4</sub>-symmetric to 4&nbsp;&times;&nbsp;10<sup>&minus;17</sup>. The fitted numbers
-are recorded in the tile&rsquo;s own <code>meta</code> block.</p>
+<p>See the code in <a href="https://github.com/jpivarski/hyperbolic-map-widget/blob/main/docs/escher-atlas.html">docs/escher-atlas.html</a>.</p>
 
 <script src="lib/hyperbolic-map.iife.js"></script>
 <script type="module">
-import { attachReadout, errorBox } from "./demo/common.js";
+import { errorBox } from "./demo/common.js";
 
 try {
-  const status = document.getElementById("status");
-  status.textContent = "loading tile…";
   const tile = await (await fetch("escher-atlas.json")).json();
-  status.textContent = `${tile.drawables.length} shapes in one {8,3} octagon, repeated forever (C4-exact)`;
 
   const tiling = new HyperbolicMap.RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
 
@@ -111,14 +64,15 @@ try {
     if (viewport) viewport.destroy();
     viewport = new HyperbolicMap.HyperbolicViewport({
       container: "#map",
-      width: 560,
-      height: 560,
+      aspectRatio: 1,
+      autoResize: true,
       zoom: 0.95,
       minZoom: 0.6,
       maxZoom: 4,
       interactRadius: 0.92,
       background: "#fdf9f0",
       rimFill: "#f5d6ab",
+      pageBackground: "#ffffff",
       // The tile carries real line work, so most of what a far-out tile contributes is smaller than a
       // pixel. Dropping it costs nothing visible and most of the frame time.
       minFeaturePx: 1.2,
@@ -131,10 +85,15 @@ try {
         tileData: (t) => (byTileClass ? byClass[t.classIndex % byClass.length] : byClass[0]),
         clip: clip ? "always" : "never",
         maxTiles: 200,
-        // Opt in to the symmetry lint and make it fatal. Not a correctness requirement -- tile frames
-        // are canonical, so asymmetric art is fine -- but THIS art has to be exactly C_4-symmetric or
-        // the pattern it assembles into is not Escher's.
-        checkTileSymmetry: "throw",
+        // Opt in to the symmetry lint. Not a correctness requirement -- tile frames are canonical, so
+        // asymmetric art is fine -- but THIS art is meant to be C_4-symmetric, since that is what makes
+        // the pattern it assembles into Escher's.
+        //
+        // "warn" rather than "throw" because the tile is now drawn by hand rather than generated by
+        // exact rotation, so it cannot meet a 1e-6 tolerance: the outlines are within a few parts in a
+        // thousand and the four fish are painted four different colours, which the lint counts as no
+        // match at all. Read the console, or window.viewport.atlas.tileSymmetry, for the current number.
+        checkTileSymmetry: "warn",
       },
       onAfterDraw: outline
         ? (ctx, view) => {
@@ -160,7 +119,6 @@ try {
           }
         : null,
     });
-    attachReadout(viewport, document.getElementById("readout"));
     window.viewport = viewport;
     window.tiling = tiling;
   }

@@ -1999,3 +1999,53 @@ user's data, not a traceback.
 size and rotation are display-only in the SVG: `up` rides along with an Inkscape move or rotation via
 `hmw:upLength`, but editing the font size does not change it. `class`-based styles cannot be previewed,
 since the stylesheet lives in the viewport options the scripts never see.
+
+## 2026-08-08-c — The blank centre octagon: a lint set to "throw" was throwing into the tile-failure handler
+
+**Symptom.** After the new hand-drawn `escher-atlas.json` landed, `escher-atlas.html` drew a perfect
+Circle Limit III with exactly one octagon missing — the one in the middle, under the camera.
+
+**Cause, and it is the interesting part.** The new tile is not C4-symmetric in the lint's sense, so
+`checkTileSymmetry: "throw"` fired as designed. But the throw was raised inside `Atlas.acceptTile`,
+which `request()` wraps in the try/catch that turns *a tile failing to load* into *a tile quietly
+skipped*. So the lint's exception was caught by the wrong handler and downgraded: the tile was cached
+empty, `_symmetryChecked` had already been set to `true` before the throw so every later tile skipped
+the check and drew fine, and the only trace was one `console.error`.
+
+The strictest setting therefore produced the mildest symptom. That is the whole bug: **a lint and a
+broken tile are different kinds of failure and must not share a handler.** One bad tile out of two
+hundred should never take the map down; a statement about the artwork should never be reduced to one
+missing tile.
+
+**Fix.** `TileSymmetryError` in `symmetry.js`, a distinct type the two catch clauses re-throw. The
+verdict is measured once and then re-thrown on every later frame, because a page that threw once and
+rendered thereafter would be neither working nor visibly broken. Asynchronous providers cannot be
+handed a synchronous throw, so there it surfaces as an unhandled rejection — loud, which is what
+"throw" asked for.
+
+**Also fixed: `Infinity` is a finding, not a number that blew up.** The residual is infinite when the
+search found no candidate at all — nothing of the same style *and* the same point count lies where the
+rotation sends a shape. "worst mismatch Infinity in tile-local units" sent the reader looking for a
+coordinate overflow. It now says so in words and names the offending drawable, which is directly
+actionable: the usual cause is a colouring less symmetric than the outlines.
+
+**Measured, on the new tile.** 96 drawables. The *layout* is C4 — three families at radii 0.19, 0.355
+and 0.378, each with four members 90 degrees apart to within a degree — but nothing is an exact
+rotation of anything: median mismatch 6.9e-3, and the four fish are painted four different colours, so
+a green one is asked to land on a blue one. Four more shapes (the greys) have different node counts
+from each other, so they do not match even ignoring colour. This is a traced tile, not a generated one,
+and `1e-6` was never going to be met; `escher-atlas.html` now asks for `"warn"`.
+
+**Tests.** Two in `test/anchor.test.mjs`. The first asserts the throw escapes `passes()`, escapes it
+again on the second frame, caches nothing, and that `"warn"` draws every tile and warns exactly once —
+and, as a control, that a `tileData` that throws an ordinary error is still reported and skipped rather
+than made fatal along with the lint. It fails against the old code with the original symptom. The
+second pins the three findings apart: exact rotation, a small finite residual, and no counterpart at
+all.
+
+**Verified.** `npm test` 168/168. All ten browser diagnostics pass, including 2 (byte-identical
+translation invariance, 45/45) and 10 (the hundred-step scroll, 9/9).
+
+**Not touched, deliberately.** The page's prose, its `(C4-exact)` status line, and `BODY_IN_FILE`,
+which no longer matches any fill in the file so "colour by tile class" now only recolours the `lod`
+stand-in. All three are about the colouring, which Jim is working on next.

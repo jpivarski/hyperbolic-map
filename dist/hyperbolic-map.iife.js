@@ -2642,18 +2642,45 @@ function tileSymmetryResidual(drawables, m) {
   return { residual: Number.isFinite(residual) ? residual : Infinity, checked: items.length, offender };
 }
 
-// The message the library prints when art violates the rule. Written out in full because the symptom
-// ("some tiles flip as I scroll") gives no hint at all about the cause.
-function tileSymmetryMessage(residual, m, tilingName) {
+// What the lint reports. Written out in full because the symptom ("some tiles flip as I scroll")
+// gives no hint at all about the cause.
+//
+// An INFINITE residual is a different finding from a large one, and saying "worst mismatch Infinity"
+// on its own sends people looking for a coordinate that blew up. It means the search found no
+// candidate at all: some shape has no counterpart of the same style and the same number of points
+// anywhere near where the rotation sends it. In practice that is a COLOURING that is less symmetric
+// than the outlines -- four fish rotate onto each other but are painted four different colours, so a
+// green one is asked to land on a blue one -- or a shape hand-drawn a second time with a different
+// number of nodes instead of being rotated.
+function tileSymmetryMessage(residual, m, tilingName, offender) {
+  const where = offender == null ? "" : ` (drawable ${offender})`;
+  const finding = Number.isFinite(residual)
+    ? `worst mismatch ${residual.toExponential(2)} in tile-local units${where}`
+    : `one or more shapes have no counterpart at all${where}: nothing of the same colour, kind and ` +
+      `point count lies where the rotation sends them`;
   return (
     `hyperbolic-map: this tile's artwork is not invariant under rotation by 360/${m} degrees about the ` +
-    `tile centre (worst mismatch ${residual.toExponential(2)} in tile-local units).\n` +
+    `tile centre -- ${finding}.\n` +
     `  ${tilingName} has tile stabiliser C_${m}. This is a LINT, not an error: tile frames are canonical, ` +
     `so asymmetric art\n` +
     `  is stable as you scroll, and you only asked to be told because this art is meant to be ` +
     `C_${m}-symmetric.\n` +
-    `  Build it from one wedge repeated ${m} times, or set atlas.checkTileSymmetry to "off".`
+    `  Build it from one wedge repeated ${m} times, or set atlas.checkTileSymmetry to "warn" or "off".`
   );
+}
+
+// The lint's failure, when it is set to "throw".
+//
+// A distinct type because the atlas has to tell it apart from a TILE failing. A tile whose data will
+// not load is one tile among hundreds: it is reported and skipped, and the map carries on. A lint the
+// caller deliberately set to "throw" is a statement about the ARTWORK, and downgrading it to a skipped
+// tile turns the loudest setting into the quietest one -- a single tile silently missing, which is
+// exactly the sort of thing nobody notices until it is the tile under the cursor.
+class TileSymmetryError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "TileSymmetryError";
+  }
 }
 
 // ===== src/data/atlas/atlas.js =====
@@ -2724,6 +2751,8 @@ class Atlas {
     // it and so tests can assert on it.
     this.tileSymmetry = null;
     this._symmetryChecked = false;
+    // The message to keep throwing once the lint has failed in "throw" mode. See verifyTileSymmetry.
+    this._symmetryFailure = null;
 
     // key string -> {drawables, withinTile} once resolved
     this.cache = new Map();
@@ -2753,7 +2782,15 @@ class Atlas {
   // Only meaningful for tilings with a non-trivial stabiliser: the binary tiling has none, so C_1
   // symmetry is vacuous and this is skipped entirely.
   verifyTileSymmetry(data) {
-    if (this._symmetryChecked || this.checkTileSymmetry === "off") return;
+    if (this.checkTileSymmetry === "off") return;
+    if (this._symmetryChecked) {
+      // Measured already; the answer is a property of the art, so it is not re-measured. But a "throw"
+      // that fired once and then let every later frame through would leave the page in a state that is
+      // neither working nor visibly broken: the art is still wrong, and the only evidence is one tile
+      // missing from the first frame. Keep throwing.
+      if (this._symmetryFailure) throw new TileSymmetryError(this._symmetryFailure);
+      return;
+    }
     const m = this.tiling.stabiliserOrder;
     if (!(m > 1)) {
       this._symmetryChecked = true;
@@ -2776,13 +2813,18 @@ class Atlas {
     const name = this.tiling.p
       ? `{${this.tiling.p},${this.tiling.q}}${this.tiling.m !== this.tiling.p ? ` with frameSymmetry ${this.tiling.m}` : ""}`
       : "this tiling";
-    const msg = tileSymmetryMessage(residual, m, name);
-    if (this.checkTileSymmetry === "throw") throw new Error(msg);
+    const msg = tileSymmetryMessage(residual, m, name, offender);
+    if (this.checkTileSymmetry === "throw") {
+      this._symmetryFailure = msg;
+      throw new TileSymmetryError(msg);
+    }
     if (typeof console !== "undefined") console.warn(msg);
   }
 
   // Ask for a tile's data. Returns the compiled drawables if they are ready, or null while a request
-  // is outstanding. Never throws: a failing tile is reported and then skipped.
+  // is outstanding. A failing tile is reported and then skipped, so one bad tile cannot take the map
+  // down. The single exception is the symmetry lint set to "throw", which is a deliberate request for
+  // a hard error about the artwork rather than about this tile; see verifyTileSymmetry.
   request(address, keyString, rel, onReady) {
     const hit = this.cache.get(keyString);
     if (hit) {
@@ -2830,6 +2872,7 @@ class Atlas {
       try {
         return this.acceptTile(keyString, tile, result);
       } catch (err) {
+        if (err instanceof TileSymmetryError) throw err;
         this.failTile(keyString, tile, err);
         return this.cache.get(keyString) || null;
       }
@@ -2843,6 +2886,10 @@ class Atlas {
       })
       .catch((err) => {
         this.pending.delete(keyString);
+        // An asynchronous provider cannot be handed a synchronous throw, so a fatal lint surfaces here
+        // as an unhandled rejection. That is loud, which is what "throw" asked for, and it is still
+        // better than the alternative of one quietly blank tile.
+        if (err instanceof TileSymmetryError) throw err;
         this.failTile(keyString, tile, err);
       });
     this.pending.set(keyString, p);

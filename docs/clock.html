@@ -3,46 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hyperbolic clock &mdash; hyperbolic-map-widget</title>
+<title>One-handed clock &mdash; hyperbolic-map-widget</title>
 <link rel="stylesheet" href="demo/style.css">
 </head>
 <body>
 <nav><a href="index.html">&larr; all examples</a></nav>
 
-<h1>A hyperbolic clock</h1>
+<h1>One-handed clock</h1>
 
-<p>A clock face with room for every second of twelve hours &mdash; 43,200 second ticks, 720 minute
-ticks and 12 hour numerals &mdash; because in the hyperbolic plane there is always more room further
-out. Scroll outward along the hands to read finer and finer divisions.</p>
+<p>This clock only has—and only needs—one hand. The 12 hours, 720 minutes, and 43,200 seconds are all marked on the clock face with plenty of room for their labels. You just need to scroll out to them to find them.</p>
 
-<div id="map"></div>
-<p class="status"><span id="status">…</span></p>
-<p class="readout" id="readout"></p>
+<div id="map" class="fill"></div>
 
-<p class="note">The hands are a second data source with its own rotation, updated once a second via
-<code>setSourceTransform</code>. That is an <em>O(1)</em> matrix change: the hand geometry is never
-rebuilt. The 2012 version rebuilt every hand drawable on every tick, and re-registered its
-<code>setInterval</code> each time, so after <var>n</var> minutes there were 60<var>n</var> timers
-running.</p>
+<h2>How this is drawn</h2>
+
+<p>The tick marks and labels on the clock face are all static drawables. The clock's hand is defined dynamically and updated every second.</p>
+
+<p>See the code in <a href="https://github.com/jpivarski/hyperbolic-map-widget/blob/main/docs/clock.html">docs/clock.html</a>.</p>
 
 <script src="lib/hyperbolic-map.iife.js"></script>
 <script type="module">
-import { loadDrawables, attachReadout, errorBox } from "./demo/common.js";
+import { loadDrawables, errorBox } from "./demo/common.js";
 import { CLOCK_HANDS } from "./demo/clock-hands.js";
 
 try {
-  const doc = await loadDrawables("clock.json", document.getElementById("status"));
+  const doc = await loadDrawables("clock.json");
 
   const viewport = new HyperbolicMap.HyperbolicViewport({
     container: "#map",
-    width: 500,
-    height: 500,
+    aspectRatio: 1,
+    autoResize: true,
     data: doc,
     zoom: 0.95,
     minZoom: 0.95,
     maxZoom: 0.95,
     allowZoom: false,
     interactRadius: 0.98,
+    pageBackground: "#ffffff",
   });
 
   viewport.addSource("hands", { version: 1, coordinates: "local", drawables: CLOCK_HANDS });
@@ -59,7 +56,6 @@ try {
   const timer = setInterval(tick, 1000);
   window.addEventListener("beforeunload", () => clearInterval(timer));
 
-  attachReadout(viewport, document.getElementById("readout"));
   window.viewport = viewport;
   window.clockTimer = timer;
 } catch (err) {
