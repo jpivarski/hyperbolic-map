@@ -8,7 +8,7 @@ diffed exactly.
     GET  /...                     serve files from the repo root
     POST /__shot/<name>.png       body is a data: URL or raw base64; written to build/shots/<name>.png
 
-Usage:  python3 tools/capture_server.py [--port 8820] [--root .] [--out build/shots]
+Usage:  python3 dev/capture_server.py [--port 8820] [--root .] [--out build/shots]
 """
 
 import argparse

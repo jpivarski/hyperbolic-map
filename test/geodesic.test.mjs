@@ -1,9 +1,10 @@
-// Geodesic arcs, checked against first principles AND against the 2011 edge computation.
+// Geodesic arcs, checked against first principles.
 //
-// The differential test here exists because I got the sweep sense backwards on the first attempt:
-// the canvas y-flip negates the angles, which also reverses the sweep direction, so every arc took
-// the MAJOR arc and swept outside the disk. It is the kind of error that unit tests on the circle
-// parameters alone would not catch, because the circle was right -- only the direction was wrong.
+// The sweep-sense test earns its length. The sweep was backwards on the first attempt: the canvas
+// y-flip negates the angles, which also reverses the sweep direction, so every arc took the MAJOR
+// arc and swept outside the disk. Tests on the circle PARAMETERS alone cannot catch that -- the
+// circle was right, only the direction was wrong -- so the test below reconstructs the sweep the way
+// canvas would walk it, and carries a negative control proving the opposite sense would fail.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -19,25 +20,6 @@ function rng(seed) {
 }
 const uni = (r, lo, hi) => lo + (hi - lo) * r();
 
-// The 2011 arc computation, verbatim from HyperbolicViewport.js:806-827, which worked. Angles are
-// already in the canvas (y-down) frame there.
-function legacyEdge(x1, y1, x2, y2) {
-  const denom = x1 * y2 - x2 * y1;
-  const dist2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
-  if (!(Math.abs(denom) > 1e-10) || !(dist2 > 0.01)) return null;
-  const a = (-x1 * x1 * y2 + x2 * x2 * y1 - y1 * y1 * y2 + y1 * y2 * y2 + y1 - y2) / denom;
-  const b = (x1 * x1 * x2 - x1 * x2 * x2 - x1 * y2 * y2 - x1 + x2 * y1 * y1 + x2) / denom;
-  const cx = -0.5 * a;
-  const cy = -0.5 * b;
-  const r2 = -1 + 0.25 * (a * a + b * b);
-  const phi1 = -Math.atan2(y1 - cy, x1 - cx);
-  const phi2 = -Math.atan2(y2 - cy, x2 - cx);
-  let deltaphi = phi1 - phi2;
-  while (deltaphi >= Math.PI) deltaphi -= 2 * Math.PI;
-  while (deltaphi < -Math.PI) deltaphi += 2 * Math.PI;
-  return { cx, cy, r: Math.sqrt(r2), phi1, phi2, anticlockwise: deltaphi > 0 };
-}
-
 test("the arc circle is orthogonal to the unit circle and passes through both points", () => {
   const r = rng(31);
   const out = new Arc();
@@ -48,7 +30,7 @@ test("the arc circle is orthogonal to the unit circle and passes through both po
     const x2 = uni(r, -0.98, 0.98);
     const y2 = uni(r, -0.98, 0.98);
     if (Math.hypot(x1, y1) >= 0.98 || Math.hypot(x2, y2) >= 0.98) continue;
-    geodesicArc(x1, y1, x2, y2, out, 0, 0);
+    geodesicArc(x1, y1, x2, y2, out, 0);
     if (out.straight) continue;
     checked++;
     // Orthogonality: d^2 = r^2 + 1. Tolerances must be RELATIVE: when the two points are nearly
@@ -65,34 +47,68 @@ test("the arc circle is orthogonal to the unit circle and passes through both po
   assert.ok(checked > 20000, `only ${checked} arcs exercised`);
 });
 
-test("the sweep matches the 2011 canvas parameters exactly (sweep sense included)", () => {
+// Reconstruct the walk canvas performs for ctx.arc(cx, cy, r, -start, -end, anticlockwise), back in
+// the maths frame. Canvas sweeps from start to end in INCREASING canvas-angle unless anticlockwise,
+// and canvas angles are the negation of ours -- so `anticlockwise` means increasing maths angle.
+function sweepExtent(arc, flip) {
+  const a0 = arc.startAngle;
+  let a1 = arc.endAngle;
+  if (arc.anticlockwise !== flip) {
+    while (a1 < a0) a1 += 2 * Math.PI;
+  } else {
+    while (a1 > a0) a1 -= 2 * Math.PI;
+  }
+  return [a0, a1];
+}
+
+test("the sweep runs from p1 to p2 the short way round (SWEEP SENSE)", () => {
   const r = rng(32);
   const out = new Arc();
   let checked = 0;
+  let controlFailures = 0;
   for (let i = 0; i < 50000; i++) {
     const x1 = uni(r, -0.95, 0.95);
     const y1 = uni(r, -0.95, 0.95);
     const x2 = uni(r, -0.95, 0.95);
     const y2 = uni(r, -0.95, 0.95);
     if (Math.hypot(x1, y1) >= 0.95 || Math.hypot(x2, y2) >= 0.95) continue;
-    const legacy = legacyEdge(x1, y1, x2, y2);
-    // Match the legacy short-edge rule so the comparison is like for like.
-    geodesicArc(x1, y1, x2, y2, out, 0.1, 0);
-    if (legacy === null) {
-      assert.ok(out.straight, "we drew an arc where 2011 drew a line");
-      continue;
-    }
-    assert.ok(!out.straight, "we drew a line where 2011 drew an arc");
+    geodesicArc(x1, y1, x2, y2, out, 0);
+    if (out.straight) continue;
     checked++;
-    assert.ok(Math.abs(out.cx - legacy.cx) < 1e-9);
-    assert.ok(Math.abs(out.cy - legacy.cy) < 1e-9);
-    assert.ok(Math.abs(out.r - legacy.r) < 1e-9);
-    // Our angles are in the maths frame; the renderer negates them for canvas.
-    assert.ok(Math.abs(-out.startAngle - legacy.phi1) < 1e-9, "start angle");
-    assert.ok(Math.abs(-out.endAngle - legacy.phi2) < 1e-9, "end angle");
-    assert.equal(out.anticlockwise, legacy.anticlockwise, "SWEEP SENSE");
+
+    const [a0, a1] = sweepExtent(out, false);
+
+    // 1. It starts at p1 and ends at p2, in that order -- not the other way round.
+    const s0 = [out.cx + out.r * Math.cos(a0), out.cy + out.r * Math.sin(a0)];
+    const s1 = [out.cx + out.r * Math.cos(a1), out.cy + out.r * Math.sin(a1)];
+    assert.ok(Math.hypot(s0[0] - x1, s0[1] - y1) < 1e-9 * Math.max(1, out.r), "sweep does not start at p1");
+    assert.ok(Math.hypot(s1[0] - x2, s1[1] - y2) < 1e-9 * Math.max(1, out.r), "sweep does not end at p2");
+
+    // 2. It takes the MINOR arc. A geodesic chord subtends less than a half turn of its orthogonal
+    //    circle, so the extent is strictly under pi; the major arc is exactly the old bug.
+    const extent = Math.abs(a1 - a0);
+    assert.ok(extent < Math.PI + 1e-9, `swept the major arc: extent ${extent} rad`);
+
+    // 3. NEGATIVE CONTROL. Flipping the sense must break something, or this test blesses anything.
+    //    The flipped walk covers 2*pi - extent, so it must exceed pi and must leave the disk (the
+    //    orthogonal circle meets the unit circle, so its far side is outside).
+    const [f0, f1] = sweepExtent(out, true);
+    let flippedLeftDisk = false;
+    for (let k = 0; k <= 24; k++) {
+      const t = f0 + ((f1 - f0) * k) / 24;
+      if (Math.hypot(out.cx + out.r * Math.cos(t), out.cy + out.r * Math.sin(t)) > 1 + 1e-9) {
+        flippedLeftDisk = true;
+        break;
+      }
+    }
+    if (flippedLeftDisk && Math.abs(f1 - f0) > Math.PI - 1e-9) controlFailures++;
   }
-  assert.ok(checked > 10000, `only ${checked} arcs compared`);
+  assert.ok(checked > 10000, `only ${checked} arcs swept`);
+  // The control must fire on essentially every arc. If it did not, the assertions above are vacuous.
+  assert.ok(
+    controlFailures > checked * 0.99,
+    `NEGATIVE CONTROL: reversing the sweep was detectably wrong on only ${controlFailures}/${checked} arcs`,
+  );
 });
 
 test("the swept arc stays inside the unit disk", () => {
@@ -107,7 +123,7 @@ test("the swept arc stays inside the unit disk", () => {
     const x2 = uni(r, -0.9, 0.9);
     const y2 = uni(r, -0.9, 0.9);
     if (Math.hypot(x1, y1) >= 0.9 || Math.hypot(x2, y2) >= 0.9) continue;
-    geodesicArc(x1, y1, x2, y2, out, 0, 0);
+    geodesicArc(x1, y1, x2, y2, out, 0);
     if (out.straight) continue;
     checked++;
     // Walk the arc the way canvas would and check every sample is inside the disk.
@@ -138,7 +154,7 @@ test("points collinear with the origin give a straight diameter, not an arc", ()
   for (const theta of [0, 0.7, -2.1, Math.PI / 2]) {
     const c = Math.cos(theta);
     const s = Math.sin(theta);
-    geodesicArc(0.8 * c, 0.8 * s, -0.6 * c, -0.6 * s, out, 0, 0);
+    geodesicArc(0.8 * c, 0.8 * s, -0.6 * c, -0.6 * s, out, 0);
     assert.ok(out.straight, "the geodesic through the origin is a diameter");
   }
 });
@@ -153,8 +169,8 @@ test("the sagitta test only straightens edges that are visually straight", () =>
     const y2 = uni(r, -0.9, 0.9);
     if (Math.hypot(x1, y1) >= 0.9 || Math.hypot(x2, y2) >= 0.9) continue;
     const tol = 1e-3;
-    const exact = geodesicArc(x1, y1, x2, y2, new Arc(), 0, 0);
-    const approx = geodesicArc(x1, y1, x2, y2, out, 0, tol);
+    const exact = geodesicArc(x1, y1, x2, y2, new Arc(), 0);
+    const approx = geodesicArc(x1, y1, x2, y2, out, tol);
     if (exact.straight || !approx.straight) continue;
     // It chose to straighten: verify the true sagitta really is within tolerance.
     const chord = Math.hypot(x1 - x2, y1 - y2);

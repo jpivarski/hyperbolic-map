@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jumping Man &mdash; hyperbolic-map-widget</title>
+<link rel="stylesheet" href="demo/style.css">
+</head>
+<body>
+<nav><a href="index.html">&larr; all examples</a></nav>
+
+<h1>Jumping Man</h1>
+
+<div id="map" class="fill"></div>
+
+<h2>How this is drawn</h2>
+
+<p>The data in this map are provided directly, without tiling. It's just an image in hyperbolic space.</p>
+
+<p>Zooming has been disabled and the <tt>rotationMode</tt> is <tt>"compass"</tt>, meaning that the "up" direction is maintained as you scroll.</p>
+
+<p>See the code in <a href="https://github.com/jpivarski/hyperbolic-map-widget/blob/main/docs/jumping-man.html">docs/jumping-man.html</a>.</p>
+
+<h2>What it represents</h2>
+
+<p>In the <a href="dungeon-man.html">Dungeon Man</a> demo, we saw the consequences of intrinsic curvature in a 2-dimensional space: horizontal and vertical dimensions connected in non-trivial ways. In this demo, the horizontal dimension represents time and the vertical dimension is altitude (height above the ground). At first, the Jumping Man is standing on the ground, then he jumps at time = 0 seconds, he remains in free-fall until time = 0.8 seconds, and he ends up standing on the ground again until the end of the time-sequence. Grey lines indicate moments in time.</p>
+
+<p>Since one of the dimensions is time, we are looking at space-time curvature.</p>
+
+<p>The theory of general relativity describes gravity as a consequence of space-time curvature instead of long-distance forces. The idea is that objects only ever take their shortest paths through space-time when they are in free-fall—that is, not being pushed on by the ground. Falling is the natural, undisturbed motion through curved space-time, and a jump intersects the ground at its start and finish because the ground is effectively racing up to meet the Jumping Man while he's drifting through the air. In the widget above, you can drag the camera to a place in which the Jumping Man's trajectory is straight as long as he's airborne. There is no viewpoint in which his trajectory is straight while standing on the ground.</p>
+
+<p>Here is the same idea in curved cloth:</p>
+
+<img src="img/leap2.jpg" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>Standing on the ground is the long path from start to finish, and jumping takes a shortcut through higher altitudes, where there there is less time to traverse. It is empirically true that clocks at high altitudes run at a different rates than clocks on the ground—this is the same effect as gravity itself.</p>
+
+<p>(Note: this demo does not reproduce general relativity in any quantitative way. The purpose is just to show how curved space-time can make a difference in the shape of a free-fall trajectory relative to ground.)</p>
+
+<script src="lib/hyperbolic-map.iife.js"></script>
+<script type="module">
+import { loadDrawables, errorBox } from "./demo/common.js";
+
+try {
+  const doc = await loadDrawables("relativity.json");
+
+  const viewport = new HyperbolicMap.HyperbolicViewport({
+    container: "#map",
+    // Fill the column, stay square, and follow it when the window resizes.
+    aspectRatio: 1,
+    autoResize: true,
+    data: doc,
+    // The 2012 settings for this example.
+    center: [-0.39343765505449557, 1.6944713725350748],
+    rotation: 1.800587227851628,
+    zoom: 0.95,
+    minZoom: 0.95,
+    maxZoom: 0.95,
+    allowZoom: false,
+    rotationMode: "compass",
+    interactRadius: 0.95,
+    pageBackground: "#ffffff",
+  });
+  window.viewport = viewport;
+} catch (err) {
+  errorBox(err);
+}
+</script>
+</body>
+</html>

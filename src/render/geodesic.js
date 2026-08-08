@@ -34,20 +34,16 @@ const DEGENERATE = 1e-10;
 
 // Compute the geodesic from (x1, y1) to (x2, y2), both in disk coordinates, into `out`.
 //
-// `straightIfShorterThan` is a chord-length threshold in DISK units below which the edge is drawn as
-// a straight line. Pass 0 to always use an arc. The 2011 code used a fixed 0.1, which is
-// zoom-independent and therefore visibly wrong when zoomed in; `sagittaTolerance` (in the same disk
-// units) replaces it with a curvature-aware test. Pass sagittaTolerance = 0 to disable it.
-export function geodesicArc(x1, y1, x2, y2, out, straightIfShorterThan, sagittaTolerance) {
+// An edge is drawn as a straight chord only when it is visually straight: `sagittaTolerance`, in disk
+// units, is the largest bulge that may be flattened away. A fixed chord-LENGTH threshold would be
+// zoom-independent and therefore visibly wrong when zoomed in, since the same chord bulges further
+// across the screen the closer it is to the centre. Pass sagittaTolerance = 0 to always use an arc.
+export function geodesicArc(x1, y1, x2, y2, out, sagittaTolerance) {
   const denom = x1 * y2 - x2 * y1;
   const dist2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
 
   if (Math.abs(denom) <= DEGENERATE) {
     // Collinear with the origin: the geodesic is a diameter.
-    out.straight = true;
-    return out;
-  }
-  if (straightIfShorterThan > 0 && dist2 <= straightIfShorterThan * straightIfShorterThan) {
     out.straight = true;
     return out;
   }

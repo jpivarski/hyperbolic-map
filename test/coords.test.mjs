@@ -1,15 +1,18 @@
 // Coordinate conversions.
 //
-// The last three tests are the checkpoint-B regressions: each one FAILS against the 2011 formulas
-// (still present at checkpoint A in the git history) and passes against the corrected ones. They are
-// written to compare against an independent oracle -- the half-plane -> disk map stated directly --
-// rather than against the formula being tested.
+// The last three tests are regressions against real numerical failures: a double cancellation near
+// the half-plane basepoint, and a denominator reaching exactly zero inside the dungeon's own data
+// range. Each pins the CORRECT closed-form answer at the input that used to break, so they keep
+// their teeth without needing the broken formula to compare against.
+//
+// Throughout, the comparison is against an independent oracle -- the half-plane -> disk map stated
+// directly -- rather than against a rearrangement of the formula being tested.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { halfPlaneToLocal, localToHalfPlane, localToDisk, diskToLocal } from "../src/core/coords.js";
-import { halfPlaneToDiskDirect, diskToHalfPlaneDirect, halfPlane_to_hyperShadow, hyperShadow_to_halfPlane } from "./legacy-reference.mjs";
+import { halfPlaneToDiskDirect, diskToHalfPlaneDirect } from "./helpers.mjs";
 
 function rng(seed) {
   let s = seed >>> 0;
@@ -139,11 +142,11 @@ test("disk and local round-trip", () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// CHECKPOINT B REGRESSIONS. Each of these fails against the 2011 formulas.
+// REGRESSIONS. Each pins a value at an input where a plausible formulation breaks down.
 // ---------------------------------------------------------------------------------------------
 
 test("REGRESSION: halfPlaneToLocal does not collapse to zero near the basepoint", () => {
-  // The 2011 formula has a double cancellation here and returns EXACTLY 0.
+  // Subtracting before dividing here loses every significant digit and returns EXACTLY 0.
   for (const eps of [1e-2, 1e-4, 1e-6, 1e-8, 1e-10, 1e-13]) {
     const y = 1 + eps;
     const got = halfPlaneToLocal(0, y, [0, 0]);
@@ -155,14 +158,11 @@ test("REGRESSION: halfPlaneToLocal does not collapse to zero near the basepoint"
       `at y = 1 + ${eps}: got ${radius}, expected ${expected}`,
     );
   }
-  // And confirm the 2011 version really does fail, so this test is known to have teeth.
-  const legacy = halfPlane_to_hyperShadow(0, 1 + 1e-8);
-  assert.equal(Math.hypot(legacy[0], legacy[1]), 0, "the 2011 formula was expected to return zero here");
 });
 
 test("REGRESSION: localToHalfPlane stays finite inside the dungeon's data range", () => {
-  // The dungeon data reaches y = 11711.92. The 2011 denominator hits exactly 0.0 by y ~ 1e4, which
-  // in Java yielded Infinity and so failed silently.
+  // The dungeon data reaches y = 11711.92, and a denominator written as a difference of large
+  // like-signed terms reaches exactly 0.0 by y ~ 1e4 -- silently, as Infinity rather than an error.
   for (const y of [1e4, 11711.92, 1e6, 1e8]) {
     const got = localToHalfPlane(0, y, [0, 0]);
     assert.ok(Number.isFinite(got[1]) && got[1] > 0, `not finite at y = ${y}: ${got}`);
@@ -174,9 +174,6 @@ test("REGRESSION: localToHalfPlane stays finite inside the dungeon's data range"
     const got = localToHalfPlane(0, y, [0, 0]);
     assert.ok(Number.isFinite(got[1]) && got[1] > 0, `not finite at y = ${y}: ${got}`);
   }
-  // Confirm the 2011 version really does break, so this test has teeth.
-  const legacy = hyperShadow_to_halfPlane(0, 11711.92);
-  assert.ok(!Number.isFinite(legacy[1]), "the 2011 formula was expected to be non-finite here");
 });
 
 test("REGRESSION: the far dungeon corner survives a full round trip", () => {

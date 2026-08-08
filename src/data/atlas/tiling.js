@@ -11,7 +11,7 @@
 // constant generator per step of the walk (see anchor.js). Every matrix on the path from a tile's own
 // JSON coordinates to the screen is then O(1), whatever the camera's absolute position.
 //
-// Proved in tools/audit_atlas_math.py (31/31), recorded in notes/math-audit.md. Load-bearing results:
+// Proved in dev/audit_atlas_math.py (31/31), recorded in notes/math-audit.md. Load-bearing results:
 //
 //   * appending a generator multiplies the frame on the RIGHT, F_{c.g} = F_c . G_g, so the relative
 //     frame of a neighbour IS that generator and a walk telescopes to a plain product (claims 3, 3b, 4);
@@ -379,10 +379,10 @@ export class RegularTiling {
   // sqrt(A^2 + B^2) with A = w*nw - x*nx - y*ny and B = x*ny - y*nx. Audit claim 11 proves the
   // boundary of this test passes through the edge midpoint at exactly the inradius.
   //
-  // NOTE: this is NOT the test in tools/fit_escher_tile.py, which compares A against nw^2. That is a
-  // different, larger region -- at the edge midpoint its value is -0.63 at the {8,3} inradius instead
-  // of zero (audit claim 11b). Harmless in the cutter, which deliberately over-includes and relies on
-  // render-time clipping, but wrong here.
+  // NOTE: the tempting near-miss is to compare A against nw^2 instead. That is a different, LARGER
+  // region -- at the edge midpoint its value is -0.63 at the {8,3} inradius instead of zero (audit
+  // claim 11b, dev/audit_atlas_math.py). The 2012 Escher tile cutter used it, harmlessly, because it
+  // deliberately over-included and relied on render-time clipping; here it would be wrong.
   containsLocal(x, y, tol = 0) {
     const w = Math.sqrt(1 + x * x + y * y);
     const own = w * w;
@@ -533,8 +533,57 @@ BINARY_INVERSE[BIN_CHILD1] = BIN_PARENT_ODD;
 BINARY_INVERSE[BIN_PARENT_EVEN] = BIN_CHILD0;
 BINARY_INVERSE[BIN_PARENT_ODD] = BIN_CHILD1;
 
+// Painter's order for unclipped art, as a three-character code.
+//
+// Without `clip`, neighbouring cells' art overlaps on purpose -- the dungeon's floor plates span the
+// corner where four cells meet and its doors cross cell boundaries -- so WHICH cell paints last decides
+// what you see at every seam. The atlas's own walk order is nearest-first from the camera, which is
+// fine for culling but is camera-dependent: pan a little and two overlapping cells can swap, so seams
+// flip as you move. Sorting by the ADDRESS instead is stable, because addresses are exact BigInts and
+// the relative order of any two cells never changes.
+//
+//   character 1  'H' sorts by longitude first, 'V' by latitude first
+//   character 2  the direction of that first key:  '>' increasing, '<' decreasing
+//   character 3  the direction of the second key:  '>' increasing, '<' decreasing
+//
+// So all eight are "H>>", "H><", "H<>", "H<<", "V>>", "V><", "V<>", "V<<". Later in the order paints
+// later, i.e. on top.
+export function binaryDrawOrder(code) {
+  const m = /^([HV])([<>])([<>])$/.exec(String(code));
+  if (!m) {
+    throw new Error(
+      `hyperbolic-map: drawOrder must be one of H>> H>< H<> H<< V>> V>< V<> V<<, got ${JSON.stringify(code)}`,
+    );
+  }
+  const latFirst = m[1] === "V";
+  const firstSign = m[2] === ">" ? 1 : -1;
+  const secondSign = m[3] === ">" ? 1 : -1;
+  const latSign = latFirst ? firstSign : secondSign;
+  const lonSign = latFirst ? secondSign : firstSign;
+  // BigInt comparison, so this stays exact at any depth -- a float64 longitude would start tying
+  // distinct cells together about fifty levels down, and ties here mean an arbitrary paint order.
+  return (a, b) => {
+    const p = latFirst
+      ? [a.address.lat, b.address.lat, latSign]
+      : [a.address.lon, b.address.lon, lonSign];
+    if (p[0] !== p[1]) return p[0] < p[1] ? -p[2] : p[2];
+    const s = latFirst
+      ? [a.address.lon, b.address.lon, lonSign]
+      : [a.address.lat, b.address.lat, latSign];
+    if (s[0] !== s[1]) return s[0] < s[1] ? -s[2] : s[2];
+    return 0;
+  };
+}
+
 export class BinaryTiling {
-  constructor() {
+  constructor(options) {
+    // `drawOrder` only matters when the atlas is NOT clipping; with clipping there is no overlap to
+    // resolve. Default null = the atlas's own nearest-first walk order, which is what this tiling did
+    // before the option existed, so no existing page changes appearance by accident.
+    const { drawOrder = null } = options || {};
+    this.drawOrder = drawOrder;
+    this.compareForDrawing = drawOrder === null ? null : binaryDrawOrder(drawOrder);
+
     // Centre spacing: the distance between a cell's centre and its lateral neighbour's, used to size
     // the walk radius. Measured from the generator rather than asserted.
     const g = BINARY_GENERATORS[BIN_RIGHT];
@@ -695,10 +744,4 @@ export class BinaryTiling {
     const lon = Number(address.lon);
     return isomFromScaleShift(Math.pow(2, lat + 0.5), (lon + 0.5) * Math.pow(2, lat));
   }
-}
-
-// The centre of a binary cell in its own local coordinates is the local origin by construction; this
-// helper survives for the demos, which use it to place the hero.
-export function binaryCellCentreLocal() {
-  return [0, 0];
 }

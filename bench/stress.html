@@ -18,7 +18,7 @@
 //
 // Images are compared on a DOWNSAMPLED signature rather than exact pixels, because Chrome switches a
 // canvas between software and GPU rasterization and the two antialias differently (see
-// notes/legacy-decoded.md). Downsampling averages that away while still catching a missing polygon.
+// notes/canvas-testing.md). Downsampling averages that away while still catching a missing polygon.
 
 const H = window.HyperbolicMap;
 let vp = null;

@@ -144,10 +144,7 @@ export class Atlas {
     // all a provider can meaningfully use. The contract is unchanged in the way that matters: the
     // callback returns data in TILE-LOCAL coordinates and the library places it.
     const tile = {
-      // `address` is the name used everywhere in the new code; `key` is kept as an alias because the
-      // existing demos and any user code destructure it. Same object, two names, one meaning.
       address: address,
-      key: address,
       // The readable identifier, for filenames and logging. Built here, on a cache miss, rather than
       // per frame.
       id: this.tiling.addressToString(address),
@@ -257,7 +254,14 @@ export class Atlas {
     // `view.matrix` is the CAMERA-RELATIVE view when an atlas is present; the viewport re-anchors
     // before every render so this stays O(1).
     const Vc = view.matrix;
-    const tiles = this.anchor.neighbourhood(Vc, view.effectiveRadius, this.maxTiles);
+    let tiles = this.anchor.neighbourhood(Vc, view.effectiveRadius, this.maxTiles);
+    // PAINTER'S ORDER, if the tiling defines one. Applied to a COPY and only after the neighbourhood
+    // has been chosen: the walk admits tiles nearest-first and `maxTiles` truncates the tail, so
+    // reordering before that would change WHICH tiles are drawn, not just the order they are drawn in.
+    // Matters only when art overlaps, i.e. when not clipping; see binaryDrawOrder.
+    if (this.tiling.compareForDrawing) {
+      tiles = tiles.slice().sort(this.tiling.compareForDrawing);
+    }
     const out = [];
     this.lastTiles = [];
     for (const t of tiles) {

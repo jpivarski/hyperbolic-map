@@ -1212,3 +1212,651 @@ comments. Both units were previously untested and now have tests (four new ones,
 No behaviour change intended and none measured: 134/134 node tests, all nine browser checks (smoothness
 38/38), compound scroll clean on all nine tilings, and all six demo pages render with unchanged drawable
 counts — clock 87,864, dungeon 5,270, escher 38,640, relativity 5,306.
+
+## 2026-08-07 — PR #2 cleanup: `tools/` becomes `dev/`, demo-generation removed
+
+`OLD/` has been deleted from the working tree (by Jim), and the demos will not be regenerated from
+sources again. That makes a clean cut possible: anything whose only job was to *produce* the committed
+artefacts is now dead weight, while anything needed to *maintain* the library stays.
+
+**Removed** (7 files, ~1,100 lines, plus 20 KB of committed `.pyc`):
+
+| | why |
+|---|---|
+| `babudb_dump.py` | read `OLD/`; could never run again |
+| `make_docs_data.py`, `make_dungeon_atlas.py` | read `build/fixtures`, themselves derived from `OLD/` |
+| `fit_escher_tile.py` | already marked SUPERSEDED |
+| `trace_escher_tile.py` | regenerated `docs/escher-atlas.json` from the raster; not doing that again |
+| `escher-circle-limit-iii-source.jpg` | the non-free Wikipedia scan of *Circle Limit III*, committed into a BSD-3 repo |
+| `tools/__pycache__/*.pyc` | committed build artefact; `__pycache__/` and `*.pyc` now ignored |
+
+**Kept, moved to `dev/`** — maintenance scripting, not shipped code:
+
+`build.mjs` and `check-bundle.mjs` (the actual build: `npm run build`/`npm run check`),
+`audit_atlas_math.py` and `audit_atlas_numeric.py` with its feeder `emit_atlas_samples.mjs` (the two
+mathematical audits, re-runnable), and `capture_server.py` (exact canvas-pixel diffs).
+
+`tools/` is now free, and is reserved for USER-facing scripts — SVG conversion, tile-art guides — which
+is a different kind of thing and should not share a directory with the build.
+
+Both scripts compute their root as `new URL("..", import.meta.url)`, so the move needed no path edits
+inside them. Verified after moving: `npm run check`, `npm run build` (dist and `docs/lib` byte-identical),
+`npm test` 134/134, `audit_atlas_math.py` 31/31, `audit_atlas_numeric.py` 7/7, and all seven demo pages
+loading with unchanged drawable counts.
+
+**Dangling references, handled by kind.** Paths that merely *moved* were swapped everywhere. References
+to *deleted* files were treated by what the surrounding text is for:
+
+* live code and tests (`tiling.js`, `tiling.test.mjs`, `audit_atlas_math.py` claim 11b) describe the
+  offending *formula* (`A > nw^2`) instead of the file, which is the durable statement anyway;
+* `README.md`, `AGENTS.md` and `docs/escher-atlas.html` were corrected -- they made claims about tools
+  that no longer exist;
+* `notes/math-audit.md` is a living ledger, so its references were made to resolve;
+* `notes/escher-circle-limit-iii.md` keeps its narrative (it is an accurate account of how the tile was
+  derived) behind one callout saying the scripts are gone and are in git history;
+* `notes/log.md` is append-only history and was not rewritten -- earlier entries still say `tools/`,
+  which is what the paths were at the time.
+
+`docs/escher-atlas.json`'s `meta.source` pointed at the deleted raster; it now describes the provenance
+in prose instead of a path that cannot resolve.
+
+**Still open, deliberately not touched:** `bench/ab.html`, `bench/baseline.html` and
+`bench/make_legacy_fixtures.py` all target the 2011 implementation via `../OLD/`, so they are now
+definitively dead -- but `bench/` was outside the scope of this instruction.
+
+---
+
+## 2026-08-07 — Remove the 2011 compatibility layer
+
+Instruction: remove all code intended for reproducing the 2011–2012 library and any backward-compatibility
+interfaces; remove compatibility options nobody would want, in particular any that draw incorrectly or
+misleadingly; **keep** options that are genuinely useful even if unused by the examples; then re-verify
+everything including the benchmarks.
+
+**Four options removed because they draw the wrong picture on purpose.** Each was documented as a
+faithful-port mode in its own source comment. Removing the bad *value* left one legal value in every
+case, so the option key went too:
+
+| removed | what it did |
+|---|---|
+| `cullMode: "endpoints"` | dropped long edges crossing the view with neither endpoint inside, and ran after all projection work so it saved nothing |
+| `arcMode: "fixed"` | fixed 0.1 disk-unit chord threshold instead of the sagitta test; zoom-independent, so visibly wrong when zoomed in |
+| `panClamp: false` | reinstated the freeze-drag: `if (r² >= interactRadius²) return`. There was no unclamped pan behind the flag, only the freeze |
+| `radiusBasis: "width"` | sized the disk by canvas width on both axes, clipping it on a portrait canvas |
+
+`CULL_ENDPOINTS`, `CULL_CAP` and `LEGACY_MAX_STRAIGHT_LINE_LENGTH` are gone, and `geodesicArc` lost its
+`straightIfShorterThan` parameter. Unknown option names already throw, so anyone passing a removed name
+gets a loud error rather than a silently different picture — the intended failure mode.
+
+**Also removed:** `LEGACY_ALIASES` (13 option names, five of which were accepted and *silently
+discarded*); `readLegacyDrawable`/`isLegacy` and the `type: "polygon"` / `d` fallbacks — all six
+committed `docs/*.json` were checked and are v2; `bench/ab.html`, `bench/baseline.html`,
+`bench/make_legacy_fixtures.py` (the backlog left open by the PR #2 entry above); the empty `src/compat/`
+and `src/util/`; `binaryCellCentreLocal` (a zero-argument function returning `[0,0]`, kept "for the
+demos", used by none); unused imports in `source.js` and `renderer.js`; and four parameters threaded into
+`drawPath` that its body never read.
+
+**`visibleFrom`/`visibleTo` removed** (Jim's call). Parsed and stored, never read by any renderer, while
+`docs/escher.json` carries `visibleTo: 0.75` on 32,760 of its 38,640 records — the data asked for
+zoom-gated LOD and the library ignored it. Removing the parse changes nothing visually. Recorded in
+`data-extraction.md` and `open-questions.md` as an unimplemented feature rather than a subtly different
+one.
+
+**Renames, because the names lied.** `Isom.fromLegacyView` → `fromOffsetRotation`: it is not
+compatibility code at all, it is the only path `ViewState` uses to build a matrix from the current
+`offsetX`/`offsetY`/`rotation` options. `LEGACY_BASE_FONT_PX` → `BASE_FONT_PX`: used unconditionally, so
+it is the text-sizing model rather than a mode. `tile.key` (alias for `tile.address`) dropped; its one
+real consumer was `docs/dungeon-atlas.html:113`.
+
+**The tests are where the care went.** `test/legacy-reference.mjs` was a verbatim port of the 2011
+formulas used as a differential oracle by three test files. The file already split itself at its own
+line 256 — `// ---- independent oracles, NOT ports ----` — and that split was the plan:
+
+* the ports were deleted, including `centralCircle`, `tileIndex` and `longitudeRange`, which were
+  exported and used by **zero** tests;
+* `diskDistance`, `halfPlaneToDiskDirect` and `diskToHalfPlaneDirect` moved into `test/helpers.mjs`.
+  These are second derivations written to judge the ports, not ports; a test that compares the library
+  against a rearrangement of itself proves nothing, so they are load-bearing.
+
+Four differential tests were deleted as genuine duplicates (the property each one checked indirectly is
+already checked directly elsewhere: grabbed-point-under-cursor and pan-is-an-isometry subsume "pan
+matches 2011 `updateCoordinates`"; "compass holds north across a multi-step drag" subsumes both
+`halfPlaneOrientation` comparisons; tanh(d/2) projection plus round-trips subsume `internalToScreen`).
+Four were **rewritten rather than dropped**, because deleting them would have silently weakened the suite:
+
+* the two `coords.test.mjs` regressions already asserted the correct closed form (`sinh(|log y|/2)`,
+  `exp(2 asinh y)`) at the pathological input; only the trailing "and the 2011 one fails" lines went;
+* `isom.test.mjs`'s far-dungeon test now asserts the **conditioning law** instead of a flat tolerance:
+  error ~ eps·w² where w = cosh(d/2). Measured ratios to that bound across the four cases: 0.93, 0.93,
+  0.44, 0.49, so the 4× bound is real headroom. Extending the range to (0, 1e8) while writing this
+  produced NaN — a genuine float64 boundary at w ~ 1e8 where the products reach 1e16 and the answer is
+  0/0. Not asserted as a feature; noted in the test and pointed at `open-questions.md`, since it is
+  exactly why the atlas never forms a global frame;
+* `north()` is now pinned three ways: exactly for the identity, exactly under a pure rotation, and
+  against an independent route — `applyToLocal` at (0, 1e9), which must converge to the same bearing
+  (worst disagreement 1e-6 rad over 10,000 trials);
+* `geodesic.test.mjs`'s sweep-sense test, the one with content nothing else covered, was rebuilt as a
+  direct property test: reconstruct the walk canvas performs, require it to start at p1, end at p2 and
+  sweep less than π, **with a negative control** requiring the reversed sense to be detectably wrong on
+  >99% of arcs. Mutation-checked: flipping `out.anticlockwise = delta < 0` to `> 0` in the source makes
+  it fail (along with "the swept arc stays inside the unit disk"), and reverting makes it pass.
+
+`test/input.test.mjs` lost the test that asserted the removed freeze behaviour. While there, its
+"dragging past the rim clamps" test contained `assert.ok(changed || true, …)` — **a tautology that could
+never fail**, pre-existing and unrelated to this work. Replaced with the two properties that actually
+distinguish clamping from freezing: going further along the same ray must change nothing (agreement
+1.8e-15, so the threshold is 1e-12 rather than `assertUnchanged`'s 1e-15), and changing *direction*
+beyond the rim must still pan. The second is the one a freeze fails.
+
+134 → 130 tests, 0 failures: minus four duplicates, minus the freeze test, minus the tautology's file
+count staying level, plus the rewrites in place.
+
+**Notes.** `legacy-decoded.md` is deleted; its still-live content — canvas pixels are not deterministic
+across repeated draws, plus the rAF-throttling and protocol-timeout traps — became
+`notes/canvas-testing.md`, and the four files that cited it (`bench/sweep.js`, `bench/stress.html`,
+`docs/demo/compound-scroll.js`, `docs/demo/diagnostic-checks.js`) were repointed. The 2011 sections of
+`math-audit.md` are marked historical but **kept**: they record which formulas were verified *correct*,
+and several of the correct ones look wrong. `performance.md`'s legacy baseline moved from "deferred —
+machine busy" to abandoned, since the harness that would produce it no longer exists; the deferral record
+stays because the rule it illustrates does.
+
+**`AGENTS.md` said something false.** "`OLD/` … stays `.gitignore`d, so it cannot return by accident" —
+`.gitignore` has no `OLD/` entry and has not had one since Jim removed it. Rewritten to say plainly that
+there is no such safety net and to check `git status` before staging if the tree is ever restored
+locally. `viewport.js` also told users to "See the alias table in README.md", which never existed; that
+warning is gone with the aliases.
+
+**Left alone deliberately:** `build/fixtures/` and `build/baseline/` (~68 MB, gitignored) are the last
+extant copy of the extracted 2011 databases. Their only consumers were the three deleted bench files, but
+destroying unrecoverable data was not asked for. `README.md`'s reference to a future `tools/` directory is
+Jim's placeholder. The historical prose in `docs/*.html` and `docs/MATH.md` about the 2011 origins is the
+site's narrative and is still accurate.
+
+---
+
+## 2026-08-07 — dungeon-atlas.html was upside down, and panning silently levelled the map
+
+Jim: "the initial view is upside down. I think I remember drawing everything upside down for some
+reason, but then dungeon.html flips it. Don't just rotate the viewport unless you also flip the
+numbers." Then, after the first fix: "The 'jump to row' functionality makes it upside down again."
+
+**Measured before changing anything.** dungeon.html presents the hero cell (-1, 0) with its cell-local
++y axis at screen bearing **179.87 degrees** and +x at **-90.04** -- a pi rotation to within 0.13. So
+the 2012 art really is drawn upside down in the cell frame, and dungeon.html's hand-tuned
+`rotation: 2.86` (163.87 degrees) is what stands it back up. dungeon-atlas.html had rotation 0 and so
+showed it inverted: in the cell-local critter data the hero's yellow shield sits ABOVE the sprite
+midline, and it renders below in dungeon.html.
+
+**Camera rotation, not a per-cell art flip.** Rotating each cell's art by pi about its own centre would
+sever every door junction -- the doors are drawn straddling cell boundaries on purpose, which is the
+same reason clipping is off on that page. A camera rotation is rigid and keeps them joined. So
+`rotation: Math.PI`, which puts the anchor cell at exactly 180/-90.
+
+**The labels had to be turned back, exactly as Jim warned.** With the rotation alone, 29 of 34 visible
+labels read upside down (median up-vector bearing 138.5 degrees off screen-up). Fixed by rotating the
+two label anchors by pi about the CELL'S OWN centre, which on the cell's vertical axis is just
+h -> 1/h: the 2012 `1.2/sqrt(2)` and `1.4/sqrt(2)` become `sqrt(2)/1.2` and `sqrt(2)/1.4`. Verified
+identical to negating the local coordinates, to 1e-16. After: median 51.8 degrees, 4 outliers at
+70-73% of the disk radius sitting at ~91 degrees -- reading sideways, not inverted, because the cell
+frames genuinely fan out that far at the rim, and the room art there is rotated identically.
+
+**Then the second report exposed a LIBRARY bug, not a demo bug.** `panToTile` and `panTo` both did
+
+    this.view.matrix = Isom.translationToLocal(x, y).inverse();
+
+a bare translation, whose screen rotation is exactly zero -- so every pan silently levelled the map.
+Invisible on any page that never rotates, which is why it survived: all five other in-repo callers
+(tiling-diagnostics, four in diagnostic-checks, bench/stress) sit at rotation 0. On dungeon-atlas.html
+it turned the whole dungeon over on "go".
+
+Both now go through a new `panMatrix(x, y)`, which carries the current `screenRotation()` across. In
+atlas mode the rotation is expressed in the anchor tile's frame, so reusing the same angle in the new
+anchor's frame is exactly right: the camera keeps its orientation relative to the tiling and the art
+stays the way up it was. Verified in the browser -- the anchor cell holds at 180 degrees through jumps
+to rows 3, 0, 40/col 12345 and -7, and back.
+
+Test added in `source.test.mjs`: the rotation is preserved AND the requested point still lands at the
+centre (a pan that stopped panning would otherwise pass), across five angles and three targets, plus
+the assumption the fix rests on -- `translationToLocal(...).inverse().screenRotation()` is 0 to 1e-15 --
+plus a negative control asserting the old bare-translation form does NOT preserve a pi rotation.
+
+Verified: `npm test` 131/131, `npm run check`, `npm run build`, all nine browser diagnostics
+(invariance still 45/45 byte-identical; picking 14463/14463; smoothness 38/38).
+
+**Not done, on instruction.** dungeon.html has the mirror-image bug -- art upright, labels inverted --
+and the same reciprocal-anchor fix took it from 40/56 inverted labels to 6. Jim: "Don't worry about
+dungeon.html. I'm working on dungeon-atlas.html to *replace* dungeon.html." Reverted; it is in this
+session's history if the replacement stalls.
+
+---
+
+## 2026-08-07 — the world-turtle on dungeon-atlas.html, and what "rotates with the disk" means in an atlas
+
+Jim: "Now I'd like to have the turtle and stars on dungeon-atlas.html. Make sure that the turtle
+rotates with the content of the disk."
+
+Copying the two `imageLayer`s across from dungeon.html is the easy part. The requirement in the second
+sentence is not, and passing `rotateWithDisk: true` would have satisfied it only in appearance.
+
+**Measured first.** `imageLayer` rotates by `view.rotation`, which is `liveMatrix.screenRotation()`.
+In ATLAS mode that matrix is expressed in the ANCHOR TILE's frame, and the anchor changes as you walk.
+Each change multiplies by one generator, and the binary tiling's generators are not pure translations
+in the disk -- the Cayley conjugation gives `a = (S + 1 + iT)/(2 sqrt(S))`, so `Im(a) != 0` whenever
+`T != 0`, i.e. for every lateral, child and parent step. So `view.rotation` JUMPS: measured up to
+**34.16 degrees** across one re-anchor, from a pan step of 0.0092 hyperbolic units, while the dungeon
+content crosses the same boundary perfectly smoothly (that is what diagnostic check 9 guarantees). The
+shell would have snapped while the world it is carrying did not.
+
+**What is not attainable, established by measurement rather than by assertion.** A shell rigidly pinned
+to the plane needs the global frame, which is the one thing an atlas has no bounded representation for.
+The obvious substitute -- accumulate the camera's incremental rotation, every factor O(1) -- was tried
+and rejected on evidence: against the true global rotation (computable near the origin via
+`globalFrameForTesting`) it drifts **9.9 degrees** over a straight 2.5-unit walk and **71.1 degrees**
+around a closed 0.8-unit square. What scalar accumulation drops IS the holonomy, which is precisely the
+part that makes a pinned object appear to turn as you pan. `rot(AB) != rot(A) + rot(B)`.
+
+(The first version of that harness was wrong -- it seeded the accumulator from a field it set after
+pushing the row -- and reported a 163-degree error everywhere, including at t = 0 where the error must
+be zero. An error that is nonzero at the start is a harness bug, not a finding.)
+
+**What is attainable, and is what the eye actually checks: continuity.** The layer now cancels the
+re-anchor jump. It keeps the previous frame's raw `view.rotation` and the anchor id; when the anchor
+changes it absorbs the difference into an offset and keeps drawing at the angle it was already at.
+Between re-anchors the angle is exactly `view.rotation`, so a rim drag turns the shell by precisely the
+angle swept -- verified, 57.296 degrees applied gives 57.296 degrees of shell. Worst frame-to-frame
+jump over a 2.5-unit walk with 10 re-anchors: **0.082 degrees**, and the worst case is ordinary smooth
+motion, not a re-anchor. Same walk diagonally: 0.046 degrees over 4 re-anchors.
+
+Absolute registration against a point at infinity is given up knowingly. Nothing on screen reveals its
+absence: the shell has no visible reference to be wrong against, whereas a 34-degree snap is obvious.
+Both the page and `layers.js` say so rather than leaving it to be rediscovered.
+
+Two details worth keeping:
+
+* the tracker runs BEFORE the `hideWhenDiskFills` early return. It compares against the previous frame,
+  so letting it go stale while the shell is hidden (it hides at the opening zoom of 3, by design)
+  would make it reappear after a zoom-out with one large bogus correction.
+* single-patch pages are untouched: `viewport.atlas` is null, `diskRotation` returns `view.rotation`
+  verbatim, and dungeon.html's shell still equals `view.rotation` to 1e-12 and turns by exactly the
+  angle applied. Verified, not assumed.
+
+Verified: `npm test` 131/131, `npm run check`; shell hidden at the opening zoom 3 and drawn at 1.2 and
+0.5 (2 images each: stars + turtle); "jump to row 12 col -5" still lands with the anchor cell at 180
+degrees, so the layers did not disturb the pan fix; stars confirmed not rotating while the turtle
+turns a quarter turn.
+
+---
+
+## 2026-08-07 — an infinite random dungeon from one salt
+
+Jim reworked `docs/dungeon-atlas.json`'s `critters` from a cell-keyed table of 399 placements into a
+library of nine named pieces of art (`octorock`, `stalfos`, `fire`, `link`, `fairy`, `mr-T`, `tektite`,
+`old-woman`, `old-man`), each in generic cell-local coordinates so any of them can go in any cell. The
+brief: `link` at (-1, 0) as before; three rooms in four empty; the rest a non-`link` critter with `mr-T`
+at 1/30 and the others uniform; and -- his own framing -- "pick a random salt at page-load and use that
+in a deterministic hash function. That way, a page-load determines an infinite, random dungeon."
+
+**The weights are exact, not rounded.** `mr-T` at 1/30 leaves 29/30 for the other seven, i.e. 29/210
+each; 7 + 7*29 = 210, so integer weights in 210ths with a BigInt `%` reproduce the distribution with no
+residue. Occupancy is `hash % 4 == 0`, and 4 divides 2^64, so that quarter is exact too.
+
+**The hash is BigInt, and that is not fussiness.** Addresses are BigInt because descending one latitude
+doubles the longitude, so a double stops being exact about fifty levels down; hashing through `Number`
+would make distant rooms alias onto each other. `& M64` on a negative BigInt yields its two's-complement
+low 64 bits, which is what is wanted -- latitudes are negative going down and longitudes run both ways.
+splitmix64's finaliser does the mixing, chosen because adjacent rooms differ by one in lat or lon and a
+weak hash would lay visible stripes of the same critter along a row of neighbours. Two separately
+tweaked hashes for the two decisions, so "is it occupied" cannot correlate with "who is it".
+
+Verified over **96,000 cells** on two different salts:
+
+| quantity | measured | target |
+|---|---|---|
+| empty | 74.85 % / 74.94 % | 75 % |
+| `mr-T`, share of occupied | 3.268 % / 3.225 % | 3.333 % |
+| the seven others, mean share | 13.818 % | 13.810 % |
+| `mr-T` relative to one common critter | 0.236 | 0.241 |
+| `link` | exactly 1 cell, at (-1, 0) | 1 |
+
+Independence, which is the property that would actually be visible if it failed: expected same-critter
+rate for two independent cells is 0.75^2 + 0.25^2 * sum(p_c^2) = **0.5709**. Measured over 32,000
+neighbour pairs each: lateral 0.5734, child 0.5762, parent 0.5743. No streaking.
+
+Exactness at depth: correct and stable at `lon = 2^180`, and `2^180` versus `2^180 + 1` give *different*
+critters, so nothing is colliding by truncation. Also checked at `lat = 1000`, `lon = -2^90`.
+
+Two behavioural requirements, both verified rather than assumed:
+
+* the salt is drawn OUTSIDE `build()`, so toggling "room numbers" or "clip each cell" rebuilds the
+  viewport without redecorating the world -- fingerprint over 480 cells identical across both toggles
+  and both together;
+* a reload really does re-roll it -- 57.5 % agreement between consecutive loads, against the 57.1 %
+  expected for independent draws.
+
+**Two of my own measurements were wrong before they were right**, both times because the harness
+mis-modelled the drawable list: the first counted room-number *text* drawables as critter shapes and so
+reported 0 % empty with everything "UNKNOWN". A result that disagrees with the target by 75 percentage
+points is a broken measurement, not a broken feature.
+
+Prose updated to match, including a claim I had to correct: I first wrote that Mr. T appears "a tenth as
+often as the others", but 7/29 is about a **quarter**. `dungeon-atlas.json`'s own `note` field and
+`notes/data-extraction.md` both said `critters` held "the finitely many cells that carry characters",
+which is no longer true; both now describe the library-plus-hash arrangement and record that the 2012
+442-placement list is no longer used.
+
+---
+
+## 2026-08-07 — room numbers moved to the top of each room and shrunk
+
+Jim: "I want the numbers to go on the top of each room and be slightly smaller so that most of the
+critters are not overlapped by numbers."
+
+**Measured the actual geometry first**, on a clean camera (hero cell centred, the page's pi rotation,
+zoom 2.2, disk radius 682 px, so one local unit is about 682 px). Screen y with negative up:
+
+| | screen y |
+|---|---|
+| cell's own extent | -117 … +115 (local y +-0.1742) |
+| room art | -89 … +140 (it overflows the cell at the bottom, by design) |
+| critter tops | mr-T -53.5, link -48.9, then fire/old-man/old-woman/stalfos at -42.3, fairy -38.4, octorock/tektite -14 |
+| label anchor, before | **+55.9**, glyph 52.4 px |
+
+So the label was sitting at +56, in the middle of critters that span roughly -50 to +115. That is why
+everything collided.
+
+**Reparametrised rather than tuned two magic numbers.** The anchors were a pair of half-plane heights
+(`sqrt(2)/1.2`, `sqrt(2)/1.4`) whose relationship encoded position AND size at once. They are now two
+independent local-coordinate constants on the cell's vertical axis:
+
+    const NUM_Y = -0.115;      // where the two-line block is centred
+    const NUM_GLYPH = 0.040;   // length of the up-vector, i.e. the glyph height
+
+Local -y is screen-up under the page's pi rotation, so both are negative. This also drops the
+`halfPlaneToLocal` reciprocal trick and the paragraph explaining it. `up` is load-bearing twice over --
+the renderer takes the glyph height from the projected `|up - at|` (renderer.js:442) -- and separating
+the two is exactly what allows a small label to be tucked into the strip above the critters.
+
+**Result:** block spans -104.5 … -51.4 with a 26.5 px glyph (was 52.4). Clearances: link +2.5,
+fire +9.0, old-man/old-woman/stalfos +9.1, fairy +13.0, octorock +37.2, tektite +37.4. **Eight of nine
+clear**; only mr-T is touched, by 2.1 px, and he occupies one room in 120 (a quarter occupied times
+1/30). link is the hero and never labelled anyway, so in practice nothing that gets a number is
+obscured.
+
+Worth recording because it makes the check cheap: **the overlap question is identical for every cell.**
+Labels and critters are both given in cell-local coordinates and share one transform per tile, so one
+cell's measurement settles all of them. Horizontally they always overlap (both centred near local
+x = 0, critters spanning about -0.10 to +0.11), so the vertical band test is the whole test.
+
+Both anchor and up-point are inside the cell (`containsLocal` true for each; the up-point clears the
+cell's bottom edge by 0.0192 local units), so a label can never wander into a neighbour's room.
+
+Also removed `const HALF = BINARY_LOCAL_HALF_WIDTH`, declared and never used.
+
+Verified visually at zoom 2.2 and 1.5 with 52 of 220 visible cells occupied, and at row 40 / col 12345
+where the labels are six characters long -- they still sit at the room tops and still fit the room
+width. `npm test` 131/131, `npm run check` ok.
+
+---
+
+## 2026-08-07 — the stroke across the grey cross-shapes: the doorway's inner mouth
+
+Jim spotted "a stroke that crosses the middle of a grey cross-shape (sometimes)" in the room drawables
+and guessed it was "an `L` that needs to become unstroked". It was, and here is which one.
+
+`docs/dungeon-atlas.json`'s `room[2]` is the doorway OUTLINE (no fill, black stroke), a four-point
+quadrilateral. Measuring its edges settles it immediately:
+
+| edge | length | flag |
+|---|---|---|
+| 0->1 | 0.0913 | `L` |
+| **1->2** | **0.0336** | **`L`** |
+| 2->3 | 0.0910 | `L` |
+| 3->0 | 0.0397 | none |
+
+The doorway is a long thin SLOT. The two long edges are its jambs and must be stroked; the two short
+edges are its two mouths, where the passage opens into a room at either end, and must not be. One mouth
+(3->0) was already open. The other (1->2) was being capped.
+
+**Why it looks like a line across a cross rather than a cap on a slot, and why only sometimes.** The
+grey cross-shapes on screen are not single drawables. Each is one cell's floor plate joined to a
+*neighbouring* cell's doorway slot -- the art straddles cell boundaries on purpose. The capped mouth is
+exactly the seam between those two pieces, so the stroke lands in the middle of what reads as one grey
+shape, and only when both pieces happen to be drawn.
+
+Ruled out first, so the diagnosis was not a guess: no shape in `room` self-intersects (all-pairs proper
+segment-intersection test over all seven, zero hits), and `room[2]` was the only shape with a
+partially-stroked outline, so nothing else could be drawing an interior line.
+
+Fixed by stripping the `L` from `room[2].points[1]`; the outline now strokes 2 of 4 edges, the two
+jambs. Confirmed by rendering the same junction side by side, before and after, at two magnifications:
+the internal line disappears and **no gap appears in the silhouette** -- which is the check that matters,
+since removing a stroke could just as easily have opened the outline. Also verified across 220 visible
+tiles at zoom 1.4, and that clip mode still renders.
+
+Note this does NOT touch dungeon.html, whose `DOORWAY` in `demo/dungeon-rooms.js` has the same defect:
+`pathFrom(..., closed = false)` strips the flag from the LAST point only, so it too caps one mouth. Left
+alone deliberately -- dungeon-atlas.html is replacing that page.
+
+---
+
+## 2026-08-07 — CORRECTION: it was painter's order, not a stroke flag. `drawOrder` added.
+
+**The previous entry is wrong and this one supersedes it.** I removed the `L` from
+`room[2].points[1]` and reported it as the fix. Jim: "No, you removed the wrong stroke. The path
+already had the correct `L` removed (the last one). What's different now is that I expected a different
+order of tile-drawing." Reverted; `room[2]` is back to `["L","L","L","-"]`.
+
+What I got right was the location -- the stroke really is the doorway's mouth at the seam between one
+cell's slot and a neighbour's floor plate. What I got wrong was the cause. That stroke is *supposed* to
+be drawn; it is supposed to be **painted over** by the abutting plate. Whether it is depends entirely on
+which of the two cells paints last, and I never questioned the draw order because the geometry
+explanation was self-consistent. A side-by-side before/after that "looks cleaner" cannot distinguish
+"removed a stroke that should not exist" from "removed a stroke that should be covered" -- both look
+identical. The test I ran could not have told me I was wrong.
+
+**New library option, on BinaryTiling: `drawOrder`.** A three-character code, parsed by the exported
+`binaryDrawOrder(code)`:
+
+* character 1: `H` sorts by longitude first, `V` by latitude first;
+* character 2: direction of that first key, `>` increasing or `<` decreasing;
+* character 3: direction of the second key.
+
+So `H>>`, `H><`, `H<>`, `H<<`, `V>>`, `V><`, `V<>`, `V<<`; later paints on top. A malformed code throws
+and names the eight. Sorting is BigInt, so it stays exact at any depth -- a float64 longitude would tie
+distinct cells together about fifty levels down, and a tie is an arbitrary paint order, the very thing
+being fixed.
+
+Why it is needed at all: the atlas walks nearest-first FROM THE CAMERA. That is right for culling but
+makes the paint order camera-dependent, so two overlapping cells swap as you pan and a covered seam
+surfaces as a stray stroke. Address order is stable because the relative order of any two cells never
+changes.
+
+Two care points in `Atlas.passes()`:
+
+* the sort runs on a **copy**, and only **after** `anchor.neighbourhood()` has chosen the set. The walk
+  admits nearest-first and `maxTiles` truncates the tail, so sorting earlier would change WHICH tiles
+  are drawn, not just their order;
+* the default is `null` = today's walk order, so no existing page changes appearance by accident.
+  `escher-atlas.html` clips, so order is invisible there regardless.
+
+I showed Jim `H>>` and `H><` magnified on the differing seam (215 of 384,400 pixels differ -- the
+magnitude of exactly one stroke, which is why this was so easy to misread as a flag). He identified
+**`V>>`** as correct for the 2012 art. Hard-coded on the page.
+
+Per his instruction the page now has only two controls, "room numbers" and "jump to...": the "clip each
+cell" checkbox and the "draw order" dropdown are gone, with `clip: "never"` and `drawOrder: "V>>"` fixed
+in code. The clipping note no longer says "tick the box above", and a new note explains the draw order,
+since it is now an invisible constant that decides what the art looks like.
+
+Verified: `npm test` 131/131, `npm run check`, rebuilt `dist/` (the bundle test caught the stale bundle
+before I did, exactly as designed). All nine browser diagnostics still pass -- notably **check 8,
+picking, 14463/14463**, which is the one that depends on draw order; the binary default of `null` leaves
+the diagnostics' own tilings unsorted. Anchor cell presents at exactly 180 degrees on an untouched page
+load and after a jump; a reading of -177.21 during testing was my own dirty camera state, confirmed by
+re-running the sequence clean (the bearing deviates from 180 only when the camera is genuinely off the
+cell's origin, which is correct parallel transport).
+
+---
+
+## 2026-08-07 — dungeon-atlas.html renamed to dungeon-man.html
+
+Jim rewrote the page (new title "Dungeon Man", a long section on intrinsic curvature illustrated with
+seven images, controls reduced to the room-number toggle and jump-to) and asked for the rename plus
+every link updated.
+
+`git mv` (recorded as a rename, not add+delete), then six references:
+
+| file | what |
+|---|---|
+| `docs/index.html` | the demo-list link; text also changed from "Infinite dungeon" to "Dungeon Man", since that is the page's own title now |
+| `docs/dungeon.html` | the "tiled version" link |
+| `src/viewport.js` | the `panMatrix` comment citing the page as the motivating case |
+| `docs/demo/layers.js` | the `diskRotation` comment citing its measured 34.2-degree jump |
+| `test/source.test.mjs` | the pan-preserves-rotation test's rationale comment |
+| `notes/data-extraction.md` | the note on the reworked `critters` |
+
+**Left alone deliberately.** `notes/log.md` still says `dungeon-atlas.html` in ten places: it is
+append-only, and those entries are accurate about what the file was called when they were written.
+`docs/dungeon-atlas.json` keeps its name -- the instruction was to rename the page, and the data file is
+a separate artefact; say the word if it should follow.
+
+Verified: the old URL now 404s and the new one serves 200; every internal link on `index.html` and
+`dungeon.html` resolves (checked by fetching each one, 7 and 3 links respectively); the renamed page
+builds its viewport, draws 19 tiles at `drawOrder: "V>>"`, and all seven `img/` assets load with no
+console errors. All seven images were already tracked in git, so GitHub Pages will have them.
+`npm run check`, `npm test` 131/131, `dist/` rebuilt so the stale comment is gone from the bundle too.
+
+---
+
+## 2026-08-07 — `aspectRatio`, and the mobile overflow that turned out to be the same bug
+
+Jim: the widget should "fill 100% of its parent's width with aspect ratio = 1" (adding options if
+needed, documented in the README), and the page should be mobile-friendly -- "the margins scale as the
+window width narrows, but past a certain point, the text's width narrows more than the margins (some
+bug in the CSS)".
+
+**Measured before touching the CSS, and the two requests are one bug.** At a 485 px viewport the only
+elements extending past it were `#map` and its canvas: fixed at 620 px, giving a document
+`scrollWidth` of 636. The body and its text wrap to the viewport (453 px of text), but the *document*
+is 636 px wide, so relative to the scrollable page the text looks narrow with a large right margin.
+That is exactly the reported symptom, and there is no separate CSS defect -- re-checked after the fix
+at body widths 320/360/414/480, zero elements escape the content box.
+
+**New option: `aspectRatio` (width / height), on the Surface and so on the viewport.** With
+`autoResize` it makes the widget responsive. Three decisions worth keeping:
+
+* **The height is derived from the width, never the reverse, and `height` alongside it throws.** The
+  canvas is normally the only thing giving its container a height, so a widget that measured that
+  height back would oscillate. Deriving one way breaks the cycle; the observer reads width only.
+  Non-positive, non-finite and string ratios throw too.
+* **The container must not shrink-wrap.** `#map` was `display: inline-block`, which sizes to its
+  content -- the widget would have measured its own canvas and never resized. The demo stylesheet
+  grows a `#map.fill { display: block; width: 100% }` variant; plain `#map` is untouched, so the other
+  five pages keep their fixed sizes and their checkerboard shrink-wrap. Verified: all five still
+  report `inline-block` and their original canvas dimensions.
+* **No `max-width: 100%` on the canvas.** That was the tempting one-line "fix" and it is wrong: CSS
+  would scale the element while the backing store and `surface.cssWidth` stayed put, so the canvas
+  rect would stop matching the size the library thinks it has and every pointer position would be off
+  by the ratio. The canvas is resized for real. Both the CSS comment and the README say so.
+
+`dungeon-man.html` now passes `aspectRatio: 1, autoResize: true` with `<div id="map" class="fill">`.
+
+Verified in the browser: no horizontal overflow at any width; canvas square and byte-matching
+`surface.cssWidth`/`cssHeight` at every step of a 320→1024 sweep; **zero extra resize calls after the
+width settles**, which is the oscillation guard actually holding; and after a resize the pointer path
+still round-trips -- screen centre maps to the view origin exactly, and `toScreen`/`fromScreen` on
+(0.3, -0.2) closes to 2.8e-17.
+
+New `test/surface.test.mjs`, six tests: the derivation itself, container-width defaulting, the
+`height` conflict and the invalid-ratio rejections, the backing store equalling CSS size times DPR
+(the invariant whose violation is exactly the CSS-scaling trap), a regression test that a second
+resize at an unchanged width is a no-op **with a control that a real width change still takes effect**
+-- otherwise it would pass on a dead widget -- and that `radiusFor` still uses the shorter side so a
+non-square ratio does not clip the disk.
+
+Suite 131 -> 137, all passing. `npm run check`, `dist/` rebuilt, all nine browser diagnostics still
+pass. The stale bundle bit me once mid-task: the page threw `unknown option(s): aspectRatio` because
+`docs/lib/` had not been rebuilt, which is the option validator doing its job.
+
+**Still fixed-size, and still overflowing on a phone:** `escher.html`, `escher-atlas.html`,
+`dungeon.html`, `clock.html`, `relativity.html`. The instruction named one page; converting them is
+two lines each plus the `fill` class.
+
+---
+
+## 2026-08-07 — relativity.html renamed to jumping-man.html, compass mode made unconditional
+
+Jim: "Rename relativity.html to jumping-man.html and remove the 'compass' vs 'parallel transport'
+buttons; it should always be in 'compass' mode."
+
+`git mv`, then exactly one link to update: `docs/index.html`. Every other `relativity` reference in the
+tree is to the **dataset** -- `relativity.json`, the 2011 database, the row in
+`data-extraction.md`'s tables, the timings in `performance.md` -- and those are unchanged, the same
+way `dungeon-atlas.json` kept its name when its page was renamed. `notes/log.md` still says
+`relativity.html` in two places and stays that way, being append-only.
+
+The radio pair and the whole `.controls` div are gone, `rotationMode: "compass"` is hard-coded, and the
+`build(mode)` wrapper with its rebuild-on-change listener collapses to a single construction -- it only
+existed to swap modes.
+
+**One prose edit was forced by the removal**, not optional: the first note ended "Switch between the two
+above and drag in a circle to feel the difference", pointing at a control that no longer exists. It now
+explains `parallel-transport` as the library default that every other example uses, with this page as
+the exception. The second note (compass mode cannot pin the grabbed point and the bearing at once) was
+already independent of the control and stands.
+
+Verified: the old URL 404s, the new one serves 200, and all eight internal links on `index.html`
+resolve. The radios and `.controls` are gone from the DOM, `rotationMode` reads "compass", and
+`view.rotationMode === ROTATION_COMPASS` -- and it demonstrably WORKS rather than merely being set:
+dragging a full circle drifts the bearing by **8.9e-14 degrees**, which is the property the page exists
+to show. 137 tests, `npm run check` ok. No `src/` change, so no rebuild needed.
+
+**Left for Jim.** The page is still headed "Compass mode", and the index still links it under that
+name, which is the feature rather than the content -- the art is a Mario-like figure jumping along a
+worldline on altitude/time axes, which is presumably where "jumping man" comes from. Retitling is his
+prose to write, so I did not presume; the mechanical rename is complete either way. This page is also
+still fixed at 620x620 and so still overflows on a phone, along with escher, escher-atlas, dungeon and
+clock.
+
+---
+
+## 2026-08-07 — the shrink-wrap trap caught Jim immediately, so the library now warns about it
+
+Jim: "I tried to make the widget in jumping-man.html fill its container like the one in
+dungeon-man.html, but it didn't work." His change was right in every respect except one: the `<div
+id="map">` was missing `class="fill"`, so it was still `display: inline-block`.
+
+**Measured:** the container reported `clientWidth` **300** and the widget came out 300x300 inside a
+704 px column. 300 is a fresh `<canvas>`'s default width -- the inline-block had shrink-wrapped the
+canvas that had just been inserted into it, so it was reporting the widget's own output back at it.
+Nothing threw, nothing appeared in the console, and the picture looked plausible.
+
+I had documented this trap in the README when adding `aspectRatio`, one task earlier, and it caught him
+anyway on the very next page. A hazard that only a comment protects you from is not protected.
+
+**The library now detects it.** The container's width is read WHILE IT IS STILL EMPTY, before the
+canvas is appended. That single change does two things:
+
+* it is the more correct measurement anyway -- a block container reports the same width before and
+  after, so nothing is lost;
+* an empty shrink-wrapping container is **0 px** wide, which is an unambiguous signal. Once the canvas
+  is in, it reports 300 and is indistinguishable from a healthy container.
+
+On that signal, with `aspectRatio` set and no explicit `width`, it `console.warn`s: what is wrong, the
+three CSS shapes that cause it, and the fix. A warning and not a throw, because a container inside a
+hidden tab is legitimately 0 wide at construction and `autoResize` will pick up the real size later.
+
+Verified in the browser across six configurations: warns for `inline-block`, `float:left` and
+`width: fit-content`; silent for `display:block; width:100%`, for an explicit `width` (which answers
+the question, so there is nothing to warn about), and when `aspectRatio` is not used at all. **No false
+positives** -- the negative cases matter as much as the positive one, since a warning that cries wolf
+gets filtered out.
+
+Three tests added (140 total). The fix to the page itself is one attribute.
+
+Verified afterwards: canvas fills the column, square, matching `surface.cssWidth`, at body widths
+320/480/700/900; compass mode still holds a bearing to 5.1e-14 degrees around a full circle after all
+that resizing; and the four fixed-size pages plus dungeon-man render at their original sizes with no
+spurious warning.
+
+README updated -- the shrink-wrap paragraph now names the 300 px symptom and says the widget warns.

@@ -70,6 +70,12 @@ Every math-bearing symbol in the original code, and every formula in this librar
 
 ### Original client (`OLD/hyperbolic-storage-space/WebContent/HyperbolicViewport.js`)
 
+> **Historical.** `OLD/` is gone and no code in this repository compares against it any more; the
+> differential tests that used it were replaced by direct property tests in the compatibility-layer
+> removal. This section stays because it records **which of these formulas were verified correct** as
+> well as which were broken, and several of the correct ones look wrong. Do not "fix" anything marked
+> verified here without redoing the verification and recording the new result.
+
 | symbol | status | evidence |
 |---|---|---|
 | `halfPlane_to_hyperShadow` | **BUG** — double cancellation near the half-plane basepoint `i` | returns *exactly 0* for `d/2 ≲ 5e-9`; 4.4e-5 relative error at `5e-7`. `sqrt((s₊+s₋)/(s₊−s₋))` cancels as `s₊→s₋`, then `(u−1/u)/2` cancels again |
@@ -94,6 +100,8 @@ Every math-bearing symbol in the original code, and every formula in this librar
 | `updateOffset` pan gate | **BUG** — freezes instead of clamping | pan is gated on `x²+y² < viewThreshold²`, so dragging past the rim stops and then *resumes where it froze* |
 
 ### Original server (`OLD/hyperbolic-storage-space/src/org/hyperbolicstorage/GeographicalTiles.java`)
+
+> **Historical**, on the same terms as the section above.
 
 | symbol | status | evidence |
 |---|---|---|
@@ -193,7 +201,7 @@ design never materialises a global frame at all.
 
 Layer 1 (symbolic) was run BEFORE writing any implementation code, deliberately: a wrong formula is
 far cheaper to catch before its assumptions have spread. Re-runnable as
-`python3 tools/audit_atlas_math.py`. **31/31 claims pass**, 29 proved symbolically in SymPy and 2
+`python3 dev/audit_atlas_math.py`. **31/31 claims pass**, 29 proved symbolically in SymPy and 2
 (11c, 12) verified by high-precision sampling by design.
 
 | # | claim | verdict |
@@ -220,7 +228,7 @@ far cheaper to catch before its assumptions have spread. Re-runnable as
 | 10 | reduction rule `r^q = ±I` | correct |
 | 10b | the rotated conjugate `g_k = S g_0 S^-1` also squares to −I | correct |
 | 11 | the bisector of two centres 2ψ apart meets the bearing at exactly the inradius ψ | correct: at the midpoint `A = cosh(t)`, `B = 0`, `w = cosh(t)`, so `A²+B²−w² = 0` |
-| 11b | **FINDING** — the containment test in `tools/fit_escher_tile.py` is NOT that bisector | see below |
+| 11b | **FINDING** — the `A > nw^2` containment test is NOT that bisector | see below |
 | 11c | that boundary is the perpendicular bisector and meets the bearing at the inradius | correct, 2.0e-15 over 5 tilings × 400 bearings |
 | 12 | `cosh(d/2) = \|w₁w₂ − ζ̄₁ζ₂\|` is isometry-invariant, so valid on RELATIVE coordinates | correct, 2.3e-14 over 20,000 samples |
 | 13 | `x = const` in the tile-local half-plane maps to a circle orthogonal to the unit circle (`c = 1`) | correct — so it is a geodesic, and the current straight-chord clip is wrong |
@@ -230,7 +238,8 @@ far cheaper to catch before its assumptions have spread. Re-runnable as
 
 ## The one finding
 
-`inside_octagon_local` in `tools/fit_escher_tile.py` tests
+`inside_octagon_local`, in the 2012 Escher tile cutter (removed in the PR #2 cleanup; see git
+history), tested
 
     outside  <=>  w·nw − x·nx − y·ny  >  nw²
 
@@ -285,7 +294,7 @@ silently presented as proofs. In an audit harness. Fixed; claims 11c and 12 are 
 ## Layer 2 — numerical, far from the origin (2026-08-06)
 
 Run after implementation, since far-field sampling needs something to sample. Re-runnable as
-`python3 tools/audit_atlas_numeric.py` (60-digit mpmath; about a minute). **7/7 pass.**
+`python3 dev/audit_atlas_numeric.py` (60-digit mpmath; about a minute). **7/7 pass.**
 
 **Stage 0 first, and this ordering is the point.** The oracle is built and cross-validated *before* it
 is allowed to judge any code, three independent ways — global frames composed as a half-plane quotient,

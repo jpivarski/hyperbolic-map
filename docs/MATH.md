@@ -340,7 +340,7 @@ Neither `V` nor `F_k` ever exists numerically. Both factors of `net` are `O(1)` 
 can be on screen, and the relative frame is built by multiplying **one constant generator per step of
 a walk from the camera** — never from the two tiles' absolute addresses.
 
-Three facts make it work, all proved in `tools/audit_atlas_math.py`:
+Three facts make it work, all proved in `dev/audit_atlas_math.py`:
 
 | | |
 |---|---|

@@ -23,7 +23,6 @@ const OPTIONS = {
   allowZoom: true,
   allowRotate: true,
   rimRotate: true,
-  panClamp: true,
   wheelZoom: true,
   wheelZoomStep: 1.1,
   interactRadius: 0.9,
@@ -140,32 +139,42 @@ test("STUCK DRAG: tab becoming hidden mid-drag ends the gesture", () => {
 });
 
 test("dragging past the rim clamps instead of freezing", () => {
-  // The second half of the reported bug. In 2011 updateOffset simply returned when the cursor left
-  // the interaction radius, so the pan stalled and then jumped when the cursor came back.
+  // The second half of the reported bug: the pan used to simply return when the cursor left the
+  // interaction radius, so it stalled and then jumped when the cursor came back. Clamping instead
+  // means two things, and both have to be asserted or the test says nothing:
+  //
+  //   1. going FURTHER along the same ray changes nothing -- the target is pinned to the circle;
+  //   2. changing DIRECTION beyond the rim still moves the view -- it tracks the bearing.
+  //
+  // Assertion 1 alone is also what a freeze looks like, which is why 2 is here.
   const { el, view } = setup();
   el.dispatch("pointerdown", pointerEvent({ clientX: 200, clientY: 200 }));
   el.dispatch("pointermove", pointerEvent({ clientX: 380, clientY: 200 })); // |z| = 0.9, at the rim
   const atRim = matrixOf(view);
-  el.dispatch("pointermove", pointerEvent({ clientX: 800, clientY: 200 })); // way outside
+
+  el.dispatch("pointermove", pointerEvent({ clientX: 800, clientY: 200 })); // same ray, way outside
   const beyond = matrixOf(view);
-  // It must keep tracking (clamped), not stall at exactly the rim value...
-  const changed = beyond.some((v, i) => Math.abs(v - atRim[i]) > 1e-12);
-  assert.ok(changed || true, "clamped position may coincide with the rim position");
-  // ...and the clamped target must be exactly on the interaction circle.
+  // Not assertUnchanged's 1e-15: the clamp recomputes through a normalise, so the two agree to
+  // 1.8e-15 rather than to the last bit. Still eleven orders below the 1e-9 change in the next step.
+  for (let i = 0; i < 4; i++) {
+    assert.ok(
+      Math.abs(beyond[i] - atRim[i]) < 1e-12,
+      `clamping should pin the target to the interaction circle (component ${i}: ${atRim[i]} -> ${beyond[i]})`,
+    );
+  }
+
+  el.dispatch("pointermove", pointerEvent({ clientX: 800, clientY: 320 })); // outside, new bearing
+  const turned = matrixOf(view);
+  assert.ok(
+    turned.some((v, i) => Math.abs(v - atRim[i]) > 1e-9),
+    "a change of direction beyond the rim must still pan -- this is the freeze the bug report described",
+  );
+
+  // The clamped target is exactly on the interaction circle, and the view stays on the manifold.
   const [cx, cy] = clampToRadius(3.0, 0.0, 0.9);
   assert.ok(Math.abs(Math.hypot(cx, cy) - 0.9) < 1e-15);
-  // Most importantly the view must remain finite and on the manifold.
   const m = view.liveMatrix;
   assert.ok(Number.isFinite(m.ar) && Number.isFinite(m.br));
-});
-
-test("panClamp: false reproduces the 2011 freeze, for comparison", () => {
-  const { el, view } = setup({ panClamp: false });
-  el.dispatch("pointerdown", pointerEvent({ clientX: 200, clientY: 200 }));
-  el.dispatch("pointermove", pointerEvent({ clientX: 300, clientY: 200 }));
-  const inside = matrixOf(view);
-  el.dispatch("pointermove", pointerEvent({ clientX: 800, clientY: 200 })); // outside the radius
-  assertUnchanged(inside, matrixOf(view), "with panClamp off, out-of-range moves are ignored");
 });
 
 test("a press in the annulus rotates rather than pans", () => {
@@ -183,7 +192,7 @@ test("a press outside the disk is ignored and does not capture", () => {
   assert.equal(el.captured.size, 0);
 });
 
-test("allowRotate: false disables rim rotation (the 2011 option did not)", () => {
+test("allowRotate: false disables rim rotation", () => {
   const { el, input } = setup({ allowRotate: false });
   el.dispatch("pointerdown", pointerEvent({ clientX: 390, clientY: 200 }));
   assert.notEqual(input.mode, MODE_ROTATE);

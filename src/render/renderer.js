@@ -15,16 +15,15 @@
 
 import { geodesicArc, Arc } from "./geodesic.js";
 import { FLAG_STROKE, FLAG_MARKER } from "../data/drawable.js";
-import { coshHalfDistanceSquared, screenRadiusToThresholdSquared, capMayBeVisible, capThreshold } from "../core/minkowski.js";
+import { capThreshold } from "../core/minkowski.js";
 
-// The 2011 constants, for the faithful-port mode.
-export const LEGACY_MAX_STRAIGHT_LINE_LENGTH = 0.1;
+// Text sizing. A text drawable carries an `up` vector rather than a pixel height, so its size is a
+// dimensionless MULTIPLIER applied to a base font: the glyphs scale with the geometry, which is the
+// only thing that makes sense when the projection compresses distance towards the rim. The base is
+// 14pt = 14 * 96/72 px. Reading the multiplier as a pixel height instead makes every glyph
+// sub-pixel and silently drops all the text.
 export const FONT_SCALE = 0.05;
-// The 2011 renderer set a fixed `14pt sans-serif` font and then applied `ctx.scale(size, size)`, so
-// its `size` was a dimensionless MULTIPLIER, not a pixel height -- and its MIN_TEXT_SIZE = 0.5 was a
-// multiplier too. 14pt is 14 * 96/72 px. Reading `size` as pixels makes every glyph sub-pixel and
-// silently drops all the text, which is exactly what happened on the first attempt at this port.
-export const LEGACY_BASE_FONT_PX = (14 * 96) / 72;
+export const BASE_FONT_PX = (14 * 96) / 72;
 
 const scratch = [0, 0];
 const arc = new Arc();
@@ -62,15 +61,11 @@ export class RenderStats {
   }
 }
 
-// Culling modes.
-//   "endpoints" reproduces the 2011 test: keep an edge only if one of its two projected endpoints
-//               is inside the draw radius. This WRONGLY DROPS long edges that cross the visible
-//               region without either endpoint inside it, and it also runs after all the projection
-//               work, so it saves nothing. Kept so the defect can be seen and compared.
-//   "cap"       rejects a whole drawable up front with a 6-multiply Minkowski test against its
-//               precomputed bounding cap. Correct, and far cheaper.
-export const CULL_ENDPOINTS = "endpoints";
-export const CULL_CAP = "cap";
+// Culling is always the same test, so it is not an option: reject a whole drawable up front with a
+// 6-multiply Minkowski test against its precomputed bounding cap. The obvious alternative -- keep an
+// edge only if one of its two projected endpoints is inside the draw radius -- is both wrong and
+// slower: it drops long edges that cross the visible region without either endpoint inside it, and it
+// can only run after all the projection work has already been done.
 
 export class Renderer {
   constructor() {
@@ -99,8 +94,6 @@ export class Renderer {
       onAfterDraw = null,
       onDrawBackground = null,
       onDrawRim = null,
-      cullMode = CULL_CAP,
-      arcMode = "sagitta",
       sagittaTolerancePx = 0.25,
       minTextPx = 3,
       minFeaturePx = 0,
@@ -137,8 +130,6 @@ export class Renderer {
           pass.clip(ctx, view);
         }
         this.drawContent(ctx, view, pass.drawables, pass.matrix, {
-          cullMode,
-          arcMode,
           sagittaTolerancePx,
           minTextPx,
           minFeaturePx,
@@ -203,75 +194,70 @@ export class Renderer {
     const shiftX = view.cx;
     const shiftY = view.cy;
     const drawRadius = view.drawRadius;
-    const drawRadius2 = drawRadius * drawRadius;
 
     // Everything the cap test needs, computed once per frame.
     const centre = m.centreLocal([0, 0]);
     const cX = centre[0];
     const cY = centre[1];
     const cW = Math.sqrt(1 + cX * cX + cY * cY);
-    const inDiskThreshold2 = screenRadiusToThresholdSquared(Math.min(drawRadius, 0.999999));
     const capCache = new Map();
 
     const minFeaturePx = opts.minFeaturePx || 0;
-    const straightIfShorterThan = opts.arcMode === "fixed" ? LEGACY_MAX_STRAIGHT_LINE_LENGTH : 0;
     // The sagitta tolerance is given in pixels; convert to disk units for this frame's zoom.
-    const sagittaTolerance = opts.arcMode === "fixed" ? 0 : opts.sagittaTolerancePx / scale;
+    const sagittaTolerance = opts.sagittaTolerancePx / scale;
 
     stats.drawables += scene.length;
 
     for (let di = 0; di < scene.length; di++) {
       const d = scene[di];
 
-      if (opts.cullMode === CULL_CAP) {
-        let thr = capCache.get(d.cap.radius);
-        if (thr === undefined) {
-          thr = capThreshold(Math.min(drawRadius, 0.999999), d.cap.radius);
-          capCache.set(d.cap.radius, thr);
-        }
-        // cosh(d/2)^2 between the view centre and this drawable's bounding cap -- the same quantity
-        // the visibility test needs, so compute it once and use it twice.
-        const cap = d.cap;
-        const A = cap.w * cW - cap.x * cX - cap.y * cY;
-        const B = cap.x * cY - cap.y * cX;
-        const ch2 = A * A + B * B;
-        if (ch2 > thr * thr) continue;
+      let thr = capCache.get(d.cap.radius);
+      if (thr === undefined) {
+        thr = capThreshold(Math.min(drawRadius, 0.999999), d.cap.radius);
+        capCache.set(d.cap.radius, thr);
+      }
+      // cosh(d/2)^2 between the view centre and this drawable's bounding cap -- the same quantity
+      // the visibility test needs, so compute it once and use it twice.
+      const cap = d.cap;
+      const A = cap.w * cW - cap.x * cX - cap.y * cY;
+      const B = cap.x * cY - cap.y * cX;
+      const ch2 = A * A + B * B;
+      if (ch2 > thr * thr) continue;
 
-        // Sub-pixel gate. In the Poincare disk the Euclidean and hyperbolic metrics differ by
-        // (1 - |z|^2)/2, and |z| = tanh(d/2) gives 1 - |z|^2 = 1/cosh^2(d/2) = 1/ch2 -- so the cap's
-        // on-screen DIAMETER is capRadius * scale / ch2, with no extra projection whatsoever.
-        //
-        // This matters far more in the hyperbolic plane than it would on a map: measured on the
-        // Escher scene at its default view, 59% of the 38,640 shapes project to under one pixel, and
-        // they carry 45% of all vertices. They are crushed against the rim where the projection
-        // compresses infinite area into a finite ring.
-        //
-        // The STROKE has to be counted, not just the geometry. A shape 0.3 px across drawn with a
-        // 2 px stroke still paints a 2 px mark, so a gate on the fill's size alone erases marks that
-        // are plainly visible. Measured before this was added: at a panned view, 0.17% of colour
-        // channels changed, some by a full 255, while a control comparing two identical renders
-        // differed by exactly nothing -- so those were real losses, not rasterizer noise.
-        //
-        // Default 0, i.e. off. The viewport raises it only while a gesture is in flight.
-        if (minFeaturePx > 0) {
-          const st = d.style;
-          const inkPx =
-            (cap.radius * scale) / ch2 + (st.stroke && st.stroke !== "none" ? st.lineWidth : 0);
-          if (inkPx < minFeaturePx) {
-            stats.subPixelSkipped++;
-            continue;
-          }
+      // Sub-pixel gate. In the Poincare disk the Euclidean and hyperbolic metrics differ by
+      // (1 - |z|^2)/2, and |z| = tanh(d/2) gives 1 - |z|^2 = 1/cosh^2(d/2) = 1/ch2 -- so the cap's
+      // on-screen DIAMETER is capRadius * scale / ch2, with no extra projection whatsoever.
+      //
+      // This matters far more in the hyperbolic plane than it would on a map: measured on the
+      // Escher scene at its default view, 59% of the 38,640 shapes project to under one pixel, and
+      // they carry 45% of all vertices. They are crushed against the rim where the projection
+      // compresses infinite area into a finite ring.
+      //
+      // The STROKE has to be counted, not just the geometry. A shape 0.3 px across drawn with a
+      // 2 px stroke still paints a 2 px mark, so a gate on the fill's size alone erases marks that
+      // are plainly visible. Measured before this was added: at a panned view, 0.17% of colour
+      // channels changed, some by a full 255, while a control comparing two identical renders
+      // differed by exactly nothing -- so those were real losses, not rasterizer noise.
+      //
+      // Default 0, i.e. off. The viewport raises it only while a gesture is in flight.
+      if (minFeaturePx > 0) {
+        const st = d.style;
+        const inkPx =
+          (cap.radius * scale) / ch2 + (st.stroke && st.stroke !== "none" ? st.lineWidth : 0);
+        if (inkPx < minFeaturePx) {
+          stats.subPixelSkipped++;
+          continue;
         }
       }
       stats.survivors++;
 
-      if (d.kind === "path") this.drawPath(ctx, d, m, scale, shiftX, shiftY, drawRadius2, straightIfShorterThan, sagittaTolerance, opts, inDiskThreshold2, cX, cY, cW);
+      if (d.kind === "path") this.drawPath(ctx, d, m, scale, shiftX, shiftY, sagittaTolerance, opts);
       else if (d.kind === "text") this.drawText(ctx, d, m, scale, shiftX, shiftY, opts);
       else if (d.kind === "marker") this.drawMarker(ctx, d, m, scale, shiftX, shiftY);
     }
   }
 
-  drawPath(ctx, d, m, scale, shiftX, shiftY, drawRadius2, straightIfShorterThan, sagittaTolerance, opts, inDiskThreshold2, cX, cY, cW) {
+  drawPath(ctx, d, m, scale, shiftX, shiftY, sagittaTolerance, opts) {
     const stats = this.stats;
     const decimate = opts.decimateTolerancePx || 0;
     const decimate2 = decimate * decimate;
@@ -283,16 +269,12 @@ export class Renderer {
     ensureVertexCapacity(n);
     const px = vertX;
     const py = vertY;
-    let anyInside = false;
     for (let i = 0; i < n; i++) {
       m.applyToLocal(d.xs[i], d.ys[i], d.ws[i], scratch);
       px[i] = scratch[0];
       py[i] = scratch[1];
-      if (px[i] * px[i] + py[i] * py[i] < drawRadius2) anyInside = true;
     }
     stats.pointsProjected += n;
-
-    if (opts.cullMode === CULL_ENDPOINTS && !anyInside) return;
     stats.drawn++;
 
     const style = d.style;
@@ -328,7 +310,7 @@ export class Renderer {
             continue;
           }
         }
-        this.edgeTo(ctx, px[i], py[i], px[j], py[j], scale, shiftX, shiftY, straightIfShorterThan, sagittaTolerance);
+        this.edgeTo(ctx, px[i], py[i], px[j], py[j], scale, shiftX, shiftY, sagittaTolerance);
         ex = px[j] * scale;
         ey = py[j] * scale;
       }
@@ -371,7 +353,7 @@ export class Renderer {
             continue;
           }
         }
-        this.edgeTo(ctx, px[i], py[i], px[j], py[j], scale, shiftX, shiftY, straightIfShorterThan, sagittaTolerance);
+        this.edgeTo(ctx, px[i], py[i], px[j], py[j], scale, shiftX, shiftY, sagittaTolerance);
         sx0 = px[j] * scale;
         sy0 = py[j] * scale;
         penAt = j;
@@ -422,8 +404,8 @@ export class Renderer {
     }
   }
 
-  edgeTo(ctx, x1, y1, x2, y2, scale, shiftX, shiftY, straightIfShorterThan, sagittaTolerance) {
-    geodesicArc(x1, y1, x2, y2, arc, straightIfShorterThan, sagittaTolerance);
+  edgeTo(ctx, x1, y1, x2, y2, scale, shiftX, shiftY, sagittaTolerance) {
+    geodesicArc(x1, y1, x2, y2, arc, sagittaTolerance);
     if (arc.straight) {
       ctx.lineTo(x2 * scale + shiftX, -y2 * scale + shiftY);
     } else {
@@ -452,7 +434,7 @@ export class Renderer {
 
     // The up-vector's projected length sets the size, so text shrinks with the hyperbolic
     // foreshortening exactly like the geometry around it.
-    const sizePx = scale * FONT_SCALE * Math.hypot(ux - ax, uy - ay) * LEGACY_BASE_FONT_PX;
+    const sizePx = scale * FONT_SCALE * Math.hypot(ux - ax, uy - ay) * BASE_FONT_PX;
     if (!(sizePx > opts.minTextPx)) {
       stats.textSkipped++;
       return;

@@ -97,6 +97,12 @@ rotational symmetry about the origin): order 3 dominates — 34 % of inner centr
 versus 3–5 % for orders 2, 4, 5, 6, 7, 8, 10, 11, 12. So the traced art is centred on a **`{8,3}`
 vertex** (a 3-fold point at disk radius 0.405616), *not* an octagon centre. The fit must re-anchor it.
 
+> **The scripts named below no longer exist.** `fit_escher_tile.py` and its replacement
+> `trace_escher_tile.py`, and the raster they read, were removed in the PR #2 cleanup: the demos
+> are not regenerated from sources any more, and the committed `docs/escher-atlas.json` is the
+> artefact. Both scripts are in git history. What follows is kept as the record of how the tile
+> was derived and why the first attempt was wrong.
+
 ## Fit procedure (`tools/fit_escher_tile.py`)
 
 1. Read the hand-traced fundamental block `svgtools/examples/escher_circle_limit_3_step2.svg` — 6 groups

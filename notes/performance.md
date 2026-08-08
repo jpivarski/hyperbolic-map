@@ -7,15 +7,24 @@ number.** This machine is often busy with unrelated work. If anything else is si
 report that the machine was busy and defer — a benchmark taken next to a training job is worse than no
 benchmark, because it looks authoritative.
 
-**Measure the original first.** Until there is a baseline from running the 2011
-`HyperbolicViewport.js` against static data, "faster" is unfalsifiable.
+**State what a number is relative to.** "Faster" is unfalsifiable on its own; every figure below
+names the before-state it improved on.
 
 ## Status
 
 | item | state |
 |---|---|
-| legacy baseline (escher, clock, dungeon, relativity) | **deferred — machine busy** |
+| legacy baseline (escher, clock, dungeon, relativity) | **abandoned — see below** |
 | post-rewrite measurements | not yet measured |
+
+### Abandoned, 2026-08-07
+
+The 2011 baseline will never be measured. The harness that would have produced it (`bench/ab.html`,
+`bench/baseline.html`, `bench/make_legacy_fixtures.py`) loaded the deleted `OLD/` tree and was removed
+with the rest of the compatibility layer. Nothing is lost that matters: the numbers in "What each
+optimisation bought" below are all before/after measurements of *this* library against itself, which
+is the comparison that actually guides work. The original deferral record is kept below because the
+rule it illustrates still stands.
 
 ### Deferral record, 2026-08-05 19:55
 

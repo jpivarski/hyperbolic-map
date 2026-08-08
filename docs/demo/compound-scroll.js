@@ -15,7 +15,7 @@
 //   * the picture depends only on the view  -- re-setting the same camera reproduces it
 //
 // The last one is the sharp one, and it is measured against a FRESH canvas, because re-reading one
-// canvas across renders is unreliable in Chrome (software/GPU promotion; see notes/legacy-decoded.md).
+// canvas across renders is unreliable in Chrome (software/GPU promotion; see notes/canvas-testing.md).
 
 /* global window, document */
 

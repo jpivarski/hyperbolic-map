@@ -56,14 +56,14 @@ Recorded so nobody re-spends the effort assuming it is settled.
 - **A BVH over the Minkowski caps.** 38,640 flat cap tests are ~0.2 ms, so not worth it yet. Design
   leaves room (`scene.js` can own an optional index) but it is explicitly not in v1. Revisit above
   ~10⁶ drawables.
-- **`{p,q}` LOD semantics.** The 2011 `minRadius`/`maxRadius` tested whether a drawable's *tile* was
-  inside a circle, not the drawable itself. The v2 `visibleFrom`/`visibleTo` reinterprets these as
-  thresholds on the drawable's own projected position. Slightly different behaviour; escher is the only
-  dataset that uses it (`maxRadius = 0.75` on some records). Worth an eyeball comparison against the
-  original rather than assuming equivalence.
-- **`radiusBasis`.** The original sized the disk by `canvas.width` on both axes, so on a non-square
-  canvas the disk overflows vertically. Defaulting to `min(width, height)` is a **behaviour change, not
-  a bug fix**; the legacy behaviour stays available. Confirm which the examples should use.
+- ~~**`{p,q}` LOD semantics.**~~ **Closed 2026-08-07.** `visibleFrom`/`visibleTo` were parsed and
+  stored but never read by the renderer, so the reinterpretation was never in force and there was
+  nothing to compare. The fields are removed. Zoom-gated LOD for *single-patch* mode is therefore an
+  unimplemented feature, not a subtly-different one; if it is ever wanted, design it fresh. Atlas mode
+  has a working per-tile mechanism already (`lod`/`lodPx`).
+- ~~**`radiusBasis`.**~~ **Closed 2026-08-07.** The option is removed; the disk is always sized by
+  `min(width, height)` so it always fits. Sizing by width on both axes only ever clipped the disk on a
+  portrait canvas, which is not a behaviour anyone would choose deliberately.
 
 
 ## The far-field precision ceiling, and the floating origin that would remove it

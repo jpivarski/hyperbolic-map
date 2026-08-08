@@ -23,16 +23,27 @@ anything mathematical.
 - **Do not "correct" anything marked verified-correct in `notes/math-audit.md`** without first
   reproducing the verification and recording the new result there. Several parts of the original code
   look wrong and are not.
-- **Never commit `OLD/`.** It holds two archived disk images and the original repo; it is
-  `.gitignore`d and is source material only.
+- **Never commit `OLD/`.** It held two archived disk images and the original 2011-2012 repo, and it
+  is not redistributable. It has been deleted from the working tree. Note there is **no `.gitignore`
+  rule** stopping it coming back -- if you ever restore it locally, check `git status` before staging.
+  Nothing in this repository depends on it: the last code that did was removed in the PR #2 cleanup.
+- **The demos are not regenerated from sources.** The scripts that built `docs/*.json` from the 2011
+  databases and from the Escher raster were removed in the PR #2 cleanup; the committed JSON under
+  `docs/` is the artefact. Do not try to rebuild it -- edit it, or write a new generator.
 - **Before quoting any performance number, check CPU and GPU load** immediately before and after the
   measurement, and record both alongside the result. This machine is often busy with unrelated work.
   If it is busy, say so and defer the measurement rather than reporting a misleading figure.
 - **No global software installs.** Temporary or local installs only. `node`, `npm` and `python3` are
   already available.
-- The library has **zero runtime dependencies** and must stay that way. `tools/check-bundle.mjs`
-  enforces the source constraints that let `tools/build.mjs` work without a bundler — run
+- The library has **zero runtime dependencies** and must stay that way. `dev/check-bundle.mjs`
+  enforces the source constraints that let `dev/build.mjs` work without a bundler — run
   `npm run check` after touching module structure.
+- **`dev/` is maintenance scripting, not shipped code**: the bundler and its style checker, the two
+  mathematical audits (`audit_atlas_math.py` needs `sympy`; `audit_atlas_numeric.py` needs `mpmath`
+  and is fed by `node dev/emit_atlas_samples.mjs > build/atlas-samples.json`), and
+  `capture_server.py` for exact canvas-pixel diffs. Re-run both audits after changing anything in
+  `src/core/` or `src/data/atlas/`. A future `tools/` directory is reserved for USER-facing scripts
+  (SVG conversion, tile-art guides) and is not the same thing.
 
 ## Notes index
 
@@ -40,7 +51,7 @@ anything mathematical.
 |---|---|
 | [`log.md`](notes/log.md) | append-only chronological implementation record |
 | [`math-audit.md`](notes/math-audit.md) | every formula, its verification status, and the numbers |
-| [`legacy-decoded.md`](notes/legacy-decoded.md) | what each 2011 function actually did, and its bugs |
+| [`canvas-testing.md`](notes/canvas-testing.md) | why canvas pixels are not deterministic across draws |
 | [`su11-core.md`](notes/su11-core.md) | the SU(1,1) representation and the projection kernel |
 | [`tilings.md`](notes/tilings.md) | `{p,q}` and binary tiling formulas, generators, tile keys |
 | [`escher-circle-limit-iii.md`](notes/escher-circle-limit-iii.md) | the `{8,3}`/`433` derivation and the art fit |

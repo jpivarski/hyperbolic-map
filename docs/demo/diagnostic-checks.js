@@ -168,7 +168,7 @@ function walkAddress(tiling, n, seed) {
 // frame and compose it with the global view. Near the origin those frames are small and trustworthy,
 // so agreement there says the anchored machinery computes the same thing rather than merely something
 // self-consistent. (Far from the origin the naive route is the broken one, which is checked separately
-// in tools/audit_atlas_numeric.py against a 60-digit oracle.)
+// in dev/audit_atlas_numeric.py against a 60-digit oracle.)
 export async function checkGroundTruth(lines) {
   const H = window.HyperbolicMap;
   let worst = 0;
@@ -218,7 +218,7 @@ export async function checkGroundTruth(lines) {
 // two antialias differently. Re-panning one canvas and re-reading it made the SAME view differ from
 // itself by 28,841 colour channels (worst 101) while two genuinely different views differed by 6 --
 // the measurement was pure canvas state. With a fresh canvas the control (same address twice) is
-// exactly 0, which is what makes the comparison mean anything. See notes/legacy-decoded.md.
+// exactly 0, which is what makes the comparison mean anything. See notes/canvas-testing.md.
 async function renderFresh(key, address, opts) {
   const H = window.HyperbolicMap;
   const spec = DIAG_TILINGS[key];
@@ -584,6 +584,11 @@ window.runAllChecks = runAllChecks;
 // Each check is exported separately as well, so an automated driver can run them one at a time. The
 // whole suite takes minutes -- it builds and settles a viewport per tiling per distance -- and a single
 // call that long hits protocol timeouts.
+//
+// `smoothness` is declared below this point and is included here by hoisting. It was MISSING from this
+// map for a while, which meant any driver iterating `window.diagChecks` silently skipped the most
+// sensitive check in the suite -- the one that caught the stabiliser bug. Anything added below must be
+// added here too.
 window.diagChecks = {
   groundTruth: checkGroundTruth,
   invariance: checkInvariance,
@@ -592,6 +597,7 @@ window.diagChecks = {
   addressRoundTrip: checkAddressRoundTrip,
   bounded: checkBounded,
   picking: checkPicking,
+  smoothness: checkSmoothness,
 };
 
 // ---- 9. SMOOTHNESS across a tile boundary -------------------------------------------------------

@@ -206,3 +206,51 @@ test("the mode guards refuse in the right mode and name the alternative", () => 
   assert.throws(() => P.assertGlobalCoordinatesUsable.call(wandered, "panTo"), /anchored to tile 3\.1\.4/);
   assert.throws(() => P.assertGlobalCoordinatesUsable.call(wandered, "panTo"), /Use getCamera\(\)/);
 });
+
+// ---- panning must not rotate -----------------------------------------------------------------------
+
+test("panTo/panToTile preserve the screen rotation", () => {
+  // Both used to assign a bare `translationToLocal(...).inverse()`, which has screen rotation zero, so
+  // any pan silently levelled the map. Invisible on a page that never rotates; on dungeon-man.html,
+  // which opens at rotation pi because its art is drawn upside down in the cell frame, pressing "jump
+  // to row" turned the whole dungeon over.
+  //
+  // Tested on the prototype with a stand-in `this`: panMatrix needs no DOM, and the two callers differ
+  // only in which guard they run first.
+  const P = HyperbolicViewport.prototype;
+
+  // The assumption the fix rests on: the pure translation carries no rotation of its own, so
+  // left-multiplying by Rot(theta) sets the total to exactly theta.
+  for (const [x, y] of [[0, 0], [0.3, -1.2], [-4, 7], [120, -35]]) {
+    assert.ok(
+      Math.abs(Isom.translationToLocal(x, y).inverse().screenRotation()) < 1e-15,
+      `translationToLocal(${x}, ${y}).inverse() should have zero screen rotation`,
+    );
+  }
+
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  for (const theta of [0, Math.PI, 2.86, -1.1, Math.PI / 2]) {
+    const self = { view: { matrix: Isom.rotation(theta) } };
+    for (const [x, y] of [[0, 0], [0.3, -1.2], [-4, 7]]) {
+      const m = P.panMatrix.call(self, x, y);
+      // 1. the rotation is carried over...
+      assert.ok(
+        Math.abs(wrap(m.screenRotation() - theta)) < 1e-12,
+        `pan to (${x}, ${y}) at rotation ${theta} gave ${m.screenRotation()}`,
+      );
+      // 2. ...and it still actually pans: the requested point lands at the centre.
+      const at = m.applyToLocal(x, y, undefined, [0, 0]);
+      assert.ok(
+        Math.hypot(at[0], at[1]) < 1e-12,
+        `pan to (${x}, ${y}) left it at ${at} instead of the centre`,
+      );
+    }
+  }
+
+  // NEGATIVE CONTROL: the old implementation must fail assertion 1, or the test proves nothing.
+  const old = Isom.translationToLocal(0.3, -1.2).inverse();
+  assert.ok(
+    Math.abs(wrap(old.screenRotation() - Math.PI)) > 3,
+    "the old bare-translation form should NOT preserve a pi rotation",
+  );
+});

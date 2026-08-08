@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dungeon Man &mdash; hyperbolic-map-widget</title>
+<link rel="stylesheet" href="demo/style.css">
+</head>
+<body>
+<nav><a href="index.html">&larr; all examples</a></nav>
+
+<h1>Dungeon Man</h1>
+
+<div style="display: flex; align-items: center;">
+  <label><input type="checkbox" id="numbers" checked> room numbers</label>
+  <div style="margin-left: auto;">
+    <label>
+      row <input id="row" type="number" value="0" style="width:5em">
+      col <input id="col" type="number" value="0" style="width:6em">
+      <button id="go">go!</button>
+    </label>
+  </div>
+</div>
+
+<div id="map" class="fill"></div>
+
+<h2>How this is drawn</h2>
+
+<p>Using an atlas of binary (Böröczky) tiles, this map's <tt>tileData</tt> fetches data from three sources and merges them:</p>
+
+<ol>
+  <li>a <strong>prototype room</strong> that is drawn in every tile;</li>
+  <li><strong>dungeon denizens</strong> who are randomly assigned to each room;</li>
+  <li><strong>room numbers</strong> that index every room with a pair of numbers.</li>
+</ol>
+
+<p>See the code in <a href="https://github.com/jpivarski/hyperbolic-map-widget/blob/main/docs/dungeon-man.html">docs/dungeon-man.html</a>.</p>
+
+<h2>What it represents</h2>
+
+<p>In my opinion, binary tiles are the simplest way to think about hyperbolic space and intrinsic curvature in general.</p>
+
+<p>Start by imagining a 2-dimensional room. It has four doors: north, west, east, and south.</p>
+
+<img src="img/dungeon_room.jpg" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>In a Euclidean, 2-dimensional world, we could make a grid of rooms in which the east door of one room is the west door of another room. That would have many familiar properties, such as the fact that an east → east → north trip takes you to the same room as an east → north → east trip and a north → east → east trip.</p>
+
+<p>Now imagine doing something strange: connect the east door of a room to the west door of the same room. A Dungeon Man living in 2-dimensional space doesn't realize that he's now on the surface of a cylinder (because he can't imagine 3 dimensions): he only knows that the east door is somehow a portal to the west of the room. It's magic, but not impossible to reason about.</p>
+
+<img src="img/circular_dungeon.jpg" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>Since we can make arbitrary portals, now consider replacing the north door with two doors: "ronth" and "ornth." They each lead to the south door of different rooms, which are connected through their east and west doors. We now have something like a grid of rooms, except that each row of the grid has twice as many rooms as the previous.</p>
+
+<img src="img/map.jpg" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>If we try to stitch this together with cloth, it buckles. The Dungeon Man doesn't feel the curliness of the cloth any more than he felt the cylinder: all he can see is the way the rooms connect to each other.</p>
+
+<img src="img/curly_dungeons.jpg" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>The way the rooms connect have surprising consequences: to get from room A to room B below, he could go east → east → east → east → east → east → east (7 steps) or south → south → east → ornth → ornth (5 steps). The weird connectivity not only changes what paths get to the same room, but which are the shortest paths to get there.
+
+<img src="img/curly_dungeons2.jpg" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>So far, we've been talking about magic portals connecting the doors with ordinary space in the room. Intrinsic curvature is this weird connectivity at a small scale: instead of sewing together rooms, imagine crocheting every stitch of a surface with more stitches in every row.</p>
+
+<img src="img/crochet.png" style="width: 80%; display: block; margin: 10px auto;">
+
+<p>Or connect every pixel the way we've been connecting rooms—pixels that are so small they can't be seen. Mathematically, the connections are infinitesimal and need to be defined using calculus.</p>
+
+<img src="img/neighboring-pixels.svg" style="width: 50%; display: block; margin: 10px auto;">
+
+<p>Although we are viewing models of 2-dimensional curvature in 3 dimensions, we don't need a higher-dimensional space to make sense of it. Intrinsic curvature is defined by how the space is connected, with large-scale observable effects like the shortest path between two points being something other than what you'd expect in Euclidean space, or the sum of angles in a triangle being more or less than 180°, or the area of a circle being more or less than 2π times the radius.</p>
+
+<p>The Poincaré disk is one way to project it onto a flat computer screen, like a projection of the spherical Earth onto a map widget, but I prefer to zoom into the individual rooms to see curvature as a matter of connectivity.</p>
+
+<script src="lib/hyperbolic-map.iife.js"></script>
+<script type="module">
+import { errorBox } from "./demo/common.js";
+import { imageLayer } from "./demo/layers.js";
+
+try {
+  const doc = await (await fetch("dungeon-atlas.json")).json();
+  const kinds = Object.keys(doc.critters).length;
+
+  // Room-number anchors, on the cell's own vertical axis, in the cell's own local coordinates.
+  //
+  // The 2012 art is drawn UPSIDE DOWN in the cell frame -- measured: dungeon.html presents the hero
+  // cell with its local +y axis pointing straight down (bearing 179.87 degrees), which is how that
+  // page comes out the right way up. So this page turns the camera by pi as well, below, and that
+  // makes local -y the SCREEN-UP direction. Hence both numbers below are negative: the labels sit at
+  // the top of the room, and the up-vector points further up.
+  //
+  // The labels have to be turned with the camera, or a correctly-oriented dungeon would carry
+  // upside-down room numbers -- which is exactly what dungeon.html does. Only the labels move,
+  // though. The room art must NOT be flipped per cell: the doors deliberately straddle cell
+  // boundaries, so rotating each cell's art about its own centre would misalign every junction. A
+  // camera rotation is rigid and keeps them all joined.
+  //
+  // `up` is not just an orientation, it is also the SIZE: the renderer takes the glyph height from
+  // the projected distance |up - at|. So the two constants are independent -- where the label sits,
+  // and how big it is -- which is what lets it be tucked into the strip above the critters. Measured
+  // at zoom 2.2, where the disk radius is 682 px and one local unit is about 682 px: the room spans
+  // screen y -89 to +140, the cell spans +-174, and the critters reach up to -53.5 (mr-T), -48.9
+  // (link), then a cluster at -42. A block centred at -78 with a 27 px glyph spans -105 to -51,
+  // which clears seven of the nine and touches only mr-T, who turns up in one room in 120.
+  const NUM_Y = -0.115;      // where the two-line block is centred
+  const NUM_GLYPH = 0.040;   // length of the up-vector, i.e. the glyph height
+  const numAt = [0, NUM_Y];
+  const numUp = [0, NUM_Y - NUM_GLYPH];
+
+  // Start on the hero's room, cell (latitude -1, longitude 0), which prints as row 0 column 0. The
+  // camera is ANCHORED to that cell, so the starting view is the identity in the cell's own frame --
+  // no global coordinate is computed for it at all.
+  const HERO = { lat: -1n, lon: 0n };
+
+  // ---- populating an infinite dungeon ------------------------------------------------------------
+  //
+  // There are infinitely many rooms, so their contents cannot be chosen in advance and stored. They
+  // are chosen on demand instead, by HASHING the cell's own coordinates together with one random salt
+  // drawn at page load. One draw fixes the whole infinite dungeon: every room's contents are then a
+  // pure function of (salt, lat, lon), so a room looks the same every time you walk back to it, at any
+  // depth, without anything being remembered between visits. Reload for a different dungeon.
+  //
+  // The salt is 64 random bits from the CSPRNG. It is drawn out here, not inside build(), so that
+  // toggling "room numbers" rebuilds the viewport without redecorating the world.
+  const SALT = (() => {
+    if (globalThis.crypto && globalThis.crypto.getRandomValues) {
+      const b = new BigUint64Array(1);
+      globalThis.crypto.getRandomValues(b);
+      return b[0];
+    }
+    // Fallback: two 32-bit halves from Math.random.
+    const hi = BigInt(Math.floor(Math.random() * 4294967296));
+    return (hi << 32n) | BigInt(Math.floor(Math.random() * 4294967296));
+  })();
+
+  // splitmix64's finaliser, in BigInt. Two reasons it has to be BigInt rather than Number arithmetic:
+  // addresses are BigInt and exact at any depth (descending one latitude doubles the longitude, so a
+  // double stops being exact about fifty levels down), and a hash needs full 64-bit wraparound, which
+  // Number cannot do above 2^53.
+  //
+  // The avalanche matters here. Adjacent rooms have addresses differing by one in lat or lon, and a
+  // weak hash would put visible streaks and stripes of the same critter along a row of neighbours.
+  const M64 = (1n << 64n) - 1n;
+  function mix64(z) {
+    z = (z + 0x9E3779B97F4A7C15n) & M64;
+    z = ((z ^ (z >> 30n)) * 0xBF58476D1CE4E5B9n) & M64;
+    z = ((z ^ (z >> 27n)) * 0x94D049BB133111EBn) & M64;
+    return (z ^ (z >> 31n)) & M64;
+  }
+
+  // `& M64` on a negative BigInt gives its two's-complement low 64 bits, which is exactly what is
+  // wanted: latitudes are negative going down and longitudes run both ways.
+  function cellHash(lat, lon, tweak) {
+    return mix64(mix64(mix64(SALT ^ (lat & M64)) ^ (lon & M64)) ^ tweak);
+  }
+
+  // Everything except link, which is placed by hand. mr-T is the rare one.
+  const COMMON = ["octorock", "stalfos", "fire", "fairy", "tektite", "old-woman", "old-man"];
+  const RARE = "mr-T";
+  // Weights in 210ths: mr-T is 1/30 = 7/210, and the other seven split the remaining 29/30 evenly at
+  // 29/210 each. 7 + 7*29 = 210 exactly, so the split is exact rather than a rounded approximation.
+  const RARE_WEIGHT = 7n;
+  const COMMON_WEIGHT = 29n;
+  const TOTAL_WEIGHT = RARE_WEIGHT + BigInt(COMMON.length) * COMMON_WEIGHT;
+
+  // Which critter lives in this room, or null for an empty one. Two independent draws off two
+  // separately-tweaked hashes rather than two slices of one, so that "is it occupied" cannot
+  // correlate with "who is it".
+  function critterFor(lat, lon) {
+    if (lat === HERO.lat && lon === HERO.lon) return "link";
+    // Three rooms in four are empty. 4 divides 2^64, so this quarter is exact.
+    if (cellHash(lat, lon, 1n) % 4n !== 0n) return null;
+    const r = cellHash(lat, lon, 2n) % TOTAL_WEIGHT;
+    if (r < RARE_WEIGHT) return RARE;
+    return COMMON[Number((r - RARE_WEIGHT) / COMMON_WEIGHT)];
+  }
+
+  // PAINTER'S ORDER, and it is not cosmetic. This art is drawn unclipped and neighbouring cells
+  // overlap on purpose, so which cell paints last decides what you see at every seam. The atlas's own
+  // walk order is nearest-first from the CAMERA, which makes that camera-dependent: pan a little and
+  // two overlapping cells swap, so a seam that was hidden appears as a stray stroke across a floor
+  // plate. Sorting by the ADDRESS instead is stable, because the relative order of any two cells never
+  // changes.
+  //
+  // "V>>" is latitude first ascending, then longitude ascending. It is the one that makes THIS art
+  // join up: the abutting floor plate paints over the doorway's mouth stroke instead of under it. Any
+  // of the eight would render legal geometry; only this one renders the intended picture. See
+  // binaryDrawOrder in the library for the code's grammar.
+  const tiling = new HyperbolicMap.BinaryTiling({ drawOrder: "V>>" });
+
+  let viewport = null;
+  function build() {
+    const wantNumbers = document.getElementById("numbers").checked;
+    const keep = viewport ? viewport.getCamera() : null;
+    if (viewport) viewport.destroy();
+
+    viewport = new HyperbolicMap.HyperbolicViewport({
+      container: "#map",
+      // Fill the column, stay square, and follow it when the window resizes.
+      aspectRatio: 1,
+      autoResize: true,
+      anchor: HERO,
+      // The 2012 art is upside down in the cell frame; see the note on the label anchors above.
+      rotation: Math.PI,
+      zoom: 3,
+      minZoom: 0.5,
+      maxZoom: 12,
+      interactRadius: 0.9,
+      background: "#606060",
+      rimFill: "#5d5d4e",
+      // Both sit at z < 0, so they are drawn before the disk's opaque fill and show only OUTSIDE it.
+      // Zoom out to see them: like the 2012 viewer, they hide once the disk covers the canvas.
+      // The shell turns with the disk, the stars behind it do not -- see demo/layers.js for what
+      // "turns with the disk" has to mean once the view is anchored to a tile rather than global.
+      layers: [
+        imageLayer({ src: "assets/stars.jpg", z: -20, fit: "cover", rotateWithDisk: false }),
+        imageLayer({ src: "assets/turtle.png", z: -10, scale: 1.6, rotateWithDisk: true }),
+      ],
+      atlas: {
+        tiling: tiling,
+        maxTiles: 220,
+        // The art straddles cell boundaries deliberately; clipping it would sever every junction.
+        clip: "never",
+        // Three overlays merged here. The callback returns DATA, never URLs or geometry
+        // transformations -- the library rotates each tile's contents into place.
+        tileData: (tile) => {
+          // Addresses are BigInt, exact at any depth: descending one latitude doubles the longitude,
+          // so a plain number stops being exact around fifty levels down.
+          const { lat, lon } = tile.address;
+          const drawables = doc.room.slice();
+          const who = critterFor(lat, lon);
+          if (who) drawables.push(...doc.critters[who]);
+          // The hero's room is left unlabelled, as in 2012.
+          if (wantNumbers && !(lat === -1n && lon === 0n)) {
+            drawables.push({
+              type: "text", text: String(-lat - 1n), at: numAt, up: numUp,
+              fill: "#000000", baseline: "bottom", align: "center",
+            });
+            drawables.push({
+              type: "text", text: String(-lon), at: numAt, up: numUp,
+              fill: "#000000", baseline: "top", align: "center",
+            });
+          }
+          return { version: 1, coordinates: "local", drawables };
+        },
+      },
+    });
+    if (keep) viewport.setCamera(keep);
+    window.viewport = viewport;
+    window.tiling = tiling;
+  }
+  build();
+  document.getElementById("numbers").addEventListener("change", build);
+
+  // Jump to a room by its printed number. row = -latitude-1, col = -longitude.
+  document.getElementById("go").addEventListener("click", () => {
+    const row = parseInt(document.getElementById("row").value, 10) || 0;
+    const col = parseInt(document.getElementById("col").value, 10) || 0;
+    // panToTile takes the ADDRESS, so this works at any depth -- no global frame is ever formed, and
+    // there is no coordinate to lose precision. The previous version built the cell's global frame and
+    // panned to its centre, which is exactly the pattern this rewrite removed.
+    viewport.panToTile({ lat: BigInt(-row - 1), lon: BigInt(-col) }, [0, 0]);
+  });
+} catch (err) {
+  errorBox(err);
+}
+</script>
+</body>
+</html>
