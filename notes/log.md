@@ -2578,3 +2578,39 @@ horizontally rather than wrapping — these are lines meant to be copied.
 Every heading has an id and both `#atlas-of-tiles` links resolve. All four demo pages load
 `style.css` (200) and are styled. The page renders: tables, code blocks, lists and nesting all
 correct in Chrome.
+
+
+## 2026-08-08-l — Release prep 8: the demos as a 2x2 grid at the top of the README
+
+Issue #4. "See the demos: <url>" was one line of text at the top of the README; it is now four square
+screenshots in the order Jim asked for — Dungeon Man top-left, Jumping Man top-right, Circle Limit III
+bottom-left, the clock bottom-right — each panel and each caption linking to its own live demo rather
+than to a shared index. Written as a plain `<table>`, which GitHub renders (checked against
+`gh api /markdown` and viewed in Chrome) and which a Markdown table cannot do without a header row.
+
+The two link boxes on the same list were done in the previous commit: **How to use it** to the
+documentation site, **What the mathematics is** to `docs/MATH.md`, in that order, where "Options" used
+to start.
+
+### How the images were made, and why they are not the pages' default views
+
+`dev/capture_server.py` serving `docs/`, with each page's own viewport asked for its canvas pixels via
+`toDataURL` and POSTed to `/__shot/`. That is the tool's whole reason for existing — a browser
+screenshot would carry page chrome and a device-pixel rescale, and these are the renderer's own output
+at 500x500.
+
+Two of the four are framed deliberately rather than captured as-loaded:
+
+* **Dungeon Man** opens at `zoom: 3`, which is one room and reads as a grey grid. Backed out to 0.97
+  so the whole disk, the world-turtle and the star field are in frame.
+* **The clock** at the origin is a nearly empty face: everything interesting — 720 minutes and 43,200
+  seconds — is crushed against the rim. Panned out to hyperbolic distance 1.5, where the hour hand,
+  the hour numerals and the crowd of minute ticks are all visible at once, which is the entire point
+  the demo is making.
+
+Escher and Jumping Man are their default views; they already show what they are.
+
+Quantized to a 256-colour palette and run through `optipng`: **884 KB -> 276 KB** for the four, with
+no visible loss at this size. They live in `docs/img/`, which is outside the npm `files` list, and npm
+rewrites relative README image URLs against `repository`, so they resolve on npmjs.com as well as on
+GitHub.

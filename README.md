@@ -2,7 +2,16 @@
 
 A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model). Think of it like Google Earth for a negatively curved surface, rather than a sphere, which is positively curved.
 
-**See the demos:** https://jpivarski.github.io/hyperbolic-map/
+<table>
+<tr>
+<td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/dungeon-man.html"><img src="docs/img/demo-dungeon-man.png" alt="Dungeon Man: a video-game dungeon whose rooms have five doors each, on the back of a world-turtle" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/dungeon-man.html">Dungeon Man</a></td>
+<td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/jumping-man.html"><img src="docs/img/demo-jumping-man.png" alt="Jumping Man: a jump plotted with time across and altitude up, on a hyperbolic plane" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/jumping-man.html">Jumping Man</a></td>
+</tr>
+<tr>
+<td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/escher.html"><img src="docs/img/demo-escher.png" alt="M.C. Escher's Circle Limit III: interlocking fish in four colors on an {8,3} tiling" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/escher.html">Circle Limit III</a></td>
+<td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/clock.html"><img src="docs/img/demo-clock.png" alt="A one-handed clock with all 12 hours, 720 minutes and 43,200 seconds on one face" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/clock.html">Hyperbolic clock</a></td>
+</tr>
+</table>
 
 Scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers or dragging the outer ring with a mouse.
 
