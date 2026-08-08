@@ -2171,3 +2171,56 @@ The four overlap wedges are hand-drawn approximations of the neighbours' fish ra
 shapes, so the seams do not line up to the pixel. Harmless — each is clipped to its own octagon — but it
 is why the artwork can never satisfy the symmetry lint, and why the lint is off rather than merely
 loosened.
+
+
+## 2026-08-08-e — Release prep 1/6: the two superseded single-patch demo pages are gone
+
+Issue #4, second box. `docs/escher.html` and `docs/dungeon.html` were the 2012-faithful single-patch
+demos. Both have atlas successors that do the same thing without the defect that motivated them, and
+both pages said so in their own prose: escher's traced art "peters out a few layers from the centre",
+the dungeon's single patch "starts to break down" far from the origin. Keeping two pages per subject,
+one of which is the broken one, is not what a first release should ship.
+
+### Removed
+
+| path | why |
+|---|---|
+| `docs/escher.html` | superseded by `escher-atlas.html` |
+| `docs/dungeon.html` | superseded by `dungeon-man.html` |
+| `docs/escher.json` (8.6 MB) | referenced only by `docs/escher.html` |
+| `docs/dungeon.json` (2.1 MB) | referenced only by `docs/dungeon.html` |
+| `docs/demo/dungeon-rooms.js` | imported only by `docs/dungeon.html` |
+| `attachReadout` in `docs/demo/common.js` | called only by those two pages |
+| `.status, .readout` in `docs/demo/style.css` | the only markup using them went with the pages |
+| `statusEl` parameter of `loadDrawables` | both surviving callers passed one argument |
+
+Jim's call to take the orphaned JSON as well as the pages. It is the recovered 2011 artefact and
+`AGENTS.md` says not to try rebuilding it, but it is in git history and nothing in the tree reads it,
+so a fresh clone and the Pages site are ~11 MB lighter for no loss.
+
+`docs/tiling-diagnostics.html` keeps its own `#readout` — that is an id selector in its own `<style>`
+block, not the class that went.
+
+### Repointed rather than deleted
+
+* `docs/index.html` — the gallery is four examples instead of six.
+* `docs/dungeon-man.html` — two comments cited a measurement made *on* `dungeon.html` (the hero cell's
+  local +y pointing straight down, bearing 179.87 degrees). The measurement still stands and still
+  explains why this page turns the camera by pi, so it is attributed to "the single-patch dungeon page
+  that this one replaced" rather than deleted.
+* `bench/sweep.js` — same treatment for the comment explaining why a blank disk is not automatically a
+  bug. It has no page list of its own; it is injected into whatever page is open.
+* `tools/README.md` — the precision table keeps its `escher.json` and `dungeon.json` rows, daggered and
+  footnoted. They are the widest-extent measurements in the set (extent 13 and 11710) and the whole
+  point of the table is the trend from tile-local art to whole-plane data; deleting the two rows that
+  show the failure would leave a table that no longer makes its own argument.
+* `notes/data-extraction.md` — the `visibleTo: 0.75` sentence moved to past tense.
+
+`notes/log.md` keeps every reference it already had. It is the append-only record of what happened,
+and what happened is that those files existed.
+
+### Verified
+
+`npm run check` ok; `npm test` **179/179**, unchanged — no test read either dataset. `clock.html` and
+`jumping-man.html` (the two callers of the edited `loadDrawables`) load and render with a clean
+console apart from the usual `favicon.ico` 404.

@@ -176,8 +176,7 @@ Verified: `drawables` of `docs/escher-atlas.json`, and `critters.fairy` and `roo
 `docs/dungeon-atlas.json`, are **bit-for-bit identical** after a round trip in all three coordinate
 systems — including after being re-saved by Inkscape 1.1.2 in between. Compiling the result with the
 library's own `compileDrawables` gives identical point arrays, identical flags and *identity-identical*
-interned style objects, for those and for `docs/relativity.json`, `docs/clock.json` and
-`docs/escher.json` too.
+interned style objects, for those and for `docs/relativity.json` and `docs/clock.json` too.
 
 ### Not preserved
 
@@ -221,10 +220,14 @@ local units:
 |---|---|---|---|---|
 | `escher-atlas.json` `drawables` | 0.43 | 4e-12 | 5e-12 | 1e-11 |
 | `dungeon-atlas.json` `critters.fairy` | 0.11 | 7e-13 | 8e-13 | 6e-13 |
-| `escher.json` `drawables` | 13 | 1e-10 | 2e-8 | 9e-7 |
+| `escher.json` `drawables` † | 13 | 1e-10 | 2e-8 | 9e-7 |
 | `clock.json` `drawables` | 31 | 3e-10 | 3e-7 | **1e-3** |
 | `relativity.json` `drawables` | 77 | 4e-10 | 8e-8 | 2e-6 |
-| `dungeon.json` `drawables` | 11710 | 6e-8 | **0.13** | **200** |
+| `dungeon.json` `drawables` † | 11710 | 6e-8 | **0.13** | **200** |
+
+† `escher.json` and `dungeon.json` were the 2011 single-patch demo datasets, removed before the 0.1.0
+release along with the pages that used them. Their rows stay because they are the widest-extent
+measurements in the set and the point of the table is the trend, not the files.
 
 The bold cells get a warning. If you see one: use `--coords local`, which is the best conditioned of
 the three, or split the data into an [atlas of tiles](../README.md#atlas-of-tiles) and convert one tile

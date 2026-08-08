@@ -134,9 +134,10 @@ sub-path.
 
 The 2011 `minRadius`/`maxRadius` zoom-gated level of detail has **no v2 equivalent**. It was briefly
 carried as `visibleFrom`/`visibleTo`, which the parser stored and the renderer never read; those
-fields were removed rather than left to lie. `docs/escher.json` still carries `visibleTo: 0.75` on
-32,760 of its 38,640 records and they are simply ignored. Per-tile level of detail in atlas mode is a
-different, working mechanism: see `lod`/`lodPx` in README.md.
+fields were removed rather than left to lie. (The extracted `docs/escher.json` carried `visibleTo:
+0.75` on 32,760 of its 38,640 records, which were simply ignored; that dataset was itself removed
+before the 0.1.0 release along with the single-patch page that used it.) Per-tile level of detail in
+atlas mode is a different, working mechanism: see `lod`/`lodPx` in README.md.
 
 ## Output sizing
 

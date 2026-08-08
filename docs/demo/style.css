@@ -54,13 +54,6 @@ p { margin: 0.75rem 0; }
 #map canvas { cursor: grab; }
 #map canvas:active { cursor: grabbing; }
 
-.status, .readout {
-  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--muted);
-  margin: 0.25rem 0;
-  min-height: 1.5em;
-}
-
 .note {
   font-size: 0.9rem;
   color: var(--muted);

@@ -85,14 +85,15 @@ try {
 
   // Room-number anchors, on the cell's own vertical axis, in the cell's own local coordinates.
   //
-  // The 2012 art is drawn UPSIDE DOWN in the cell frame -- measured: dungeon.html presents the hero
-  // cell with its local +y axis pointing straight down (bearing 179.87 degrees), which is how that
-  // page comes out the right way up. So this page turns the camera by pi as well, below, and that
-  // makes local -y the SCREEN-UP direction. Hence both numbers below are negative: the labels sit at
-  // the top of the room, and the up-vector points further up.
+  // The 2012 art is drawn UPSIDE DOWN in the cell frame -- measured on the single-patch dungeon page
+  // that this one replaced: it presented the hero cell with its local +y axis pointing straight down
+  // (bearing 179.87 degrees), which is how that page came out the right way up. So this page turns
+  // the camera by pi as well, below, and that makes local -y the SCREEN-UP direction. Hence both
+  // numbers below are negative: the labels sit at the top of the room, and the up-vector points
+  // further up.
   //
   // The labels have to be turned with the camera, or a correctly-oriented dungeon would carry
-  // upside-down room numbers -- which is exactly what dungeon.html does. Only the labels move,
+  // upside-down room numbers -- which is exactly what that page did. Only the labels move,
   // though. The room art must NOT be flipped per cell: the doors deliberately straddle cell
   // boundaries, so rotating each cell's art about its own centre would misalign every junction. A
   // camera rotation is rigid and keeps them all joined.

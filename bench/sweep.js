@@ -305,9 +305,9 @@
       }
       // A blank disk is only a BUG if re-setting the same view fills it back in. On its own it just
       // means the view has been panned past the edge of a finite dataset -- which is exactly what
-      // happens on escher.html, whose traced art gives up a few layers from the centre, and is the
-      // whole reason escher-atlas.html exists. The first version of this sweep reported twelve
-      // "blank" findings there, all of them the data honestly running out.
+      // happened on the single-patch Escher page, whose traced art gave up a few layers from the
+      // centre, and is the whole reason the atlas version replaced it. The first version of this
+      // sweep reported twelve "blank" findings there, all of them the data honestly running out.
       if (ink < baselineInk * 0.15 && inkAfterReset > ink * 2 + 0.05) {
         findings.push({ step, what, kind: "blank-recovered-by-reset", ink, inkAfterReset, stats });
       }
