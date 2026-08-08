@@ -1863,7 +1863,7 @@ README updated -- the shrink-wrap paragraph now names the 300 px symptom and say
 
 ---
 
-## 2026-08-08 — Canonical tile identity: exact ids over Z[2cos(pi/N)]
+## 2026-08-08-a — Canonical tile identity: exact ids over Z[2cos(pi/N)]
 
 **What.** A `{p,q}` tile now has a canonical id and a canonical frame, both functions of the tile
 rather than of the route the camera took to reach it. Tile art may be fully asymmetric and may depend
@@ -1922,3 +1922,80 @@ linear in distance rather than quadratic.
 
 **Left.** Performance, deliberately deferred to a later pass; `notes/open-questions.md` records the
 three routes (cheaper canonicalisation, amortising the burst, a shortlex normal form).
+
+## 2026-08-08-b — `tools/`: drawables <-> SVG, so artwork can be drawn in Inkscape
+
+**What.** The two user-facing scripts `AGENTS.md` has been reserving `tools/` for, plus
+`tools/README.md`. `README.md:49` already promised them.
+
+```
+python3 tools/drawables_to_svg.py FROM.json TO.svg  JSON-PATH [--coords ...] [--guidelines ...]
+python3 tools/svg_to_drawables.py FROM.svg  TO.json JSON-PATH
+```
+
+`JSON-PATH` is dotted, with integer steps for arrays, because drawables are always a *part* of a file:
+`drawables` in `escher-atlas.json`, `critters.fairy` in `dungeon-atlas.json`. The reader **overwrites**
+that array in place; copying is the user's job, deliberately.
+
+**Constraints, from Jim.** Standard library only and each file individually self-contained, because the
+audience is JavaScript developers who can run `python3` but have no Python environment to manage —
+"or more likely, everyone has a *different* setup". So `resolve_json_path` is duplicated **verbatim**
+in both files between `KEEP IN SYNC` banners, with a one-line check in `tools/README.md` that asserts
+the two copies are character-for-character identical. It returns `(parent, key, value)` so that one
+identical function serves the reader (which assigns through `parent[key]`) and the writer (which only
+wants `value`).
+
+**Rejected: exact geodesic arcs for drawable edges.** In `disk` and `halfplane` coordinates a geodesic
+*is* a circular arc, so SVG `A` commands would match the viewer pixel-for-pixel. Jim chose straight
+`L` segments instead, and it is the right call for a hand-editing tool: one SVG node per JSON point
+means dragging a node moves exactly that point. The cost is measured — at a 500 px disk radius 99 % of
+`escher-atlas.json` edges bow under 0.35 px, worst 6 px — and documented. Guidelines, which are display
+only and never read back, *are* sampled as true curves.
+
+**Guidelines.** One `<g class="hyperbolic-map-widget-guidelines">`, which the reader skips, under the
+art. `RegularTiling(p,q,m)` draws the base border, one ring of neighbours, and a large **R** in each
+neighbour showing the rotation that neighbour is placed in — which makes THE STABILISER RULE visible
+at the seams where violating it actually tears. `BinaryTiling()` draws six neighbours, not five: a
+prototype cell has no longitude, so it does not know which parent parity applies, and both are shown.
+Only the writer computes any of this.
+
+**Measured, guidelines.** `{8,3}` `chi`/`psi` agree with `notes/tilings.md` and with
+`escher-atlas.json`'s own `meta` to 1e-12; the sampled border passes through all 8 vertices to 1e-14;
+its minimum and maximum hyperbolic radius are exactly the inradius and circumradius; the 8 neighbour
+centres are all distinct and at `2*psi` to 1.1e-15; the binary cell reproduces the documented box to
+1e-12 and has hyperbolic area exactly 0.5. Sampling error 0.003 px for borders and 0.045 px for the R,
+against **5.5 px** for the vertex-to-vertex straight lines the sampling replaces — which is the whole
+reason it is there.
+
+**Measured, round trip.** `escher-atlas.json` `drawables` and `dungeon-atlas.json` `critters.fairy` and
+`room` come back **bit-for-bit identical** in all three coordinate systems, including after Inkscape
+1.1.2 re-saves the file in between. Getting there needed `hmw:source` + `hmw:keys`, which carry the
+original field values and their order: without them an untouched shape came back subtly rewritten
+(`"stroke": "#000000"` dropped as a default, `lineWidth: 2` inflated to `2.0`). Compiling the results
+with the library's own `compileDrawables` gives identical point arrays, identical flags and
+**identity-identical interned style objects** for those three and for `relativity.json`, `clock.json`
+and `escher.json` — the interning makes that a real test of the resolved appearance, not just of the
+JSON.
+
+**The single-patch datasets do not round-trip, and cannot.** An SVG's precision is absolute while local
+coordinates grow like `sinh(d/2)`, so `dungeon.json`'s full 5270 drawables — extent 11710, hyperbolic
+distance ~20 — lose 0.13 local units in `disk` and **199** in `halfplane`. This is §6 of `docs/MATH.md`,
+not a fixable bug. So the writer *measures* it: every point goes through the exact text the file will
+carry and back, and it prints the worst error and warns when it exceeds `1e-6` of the local extent.
+`--coords local` is the best conditioned of the three (6e-8 on the same data) and the warning says so.
+
+**Metadata.** `hmw:params` JSON written twice — an attribute on the root `<svg>` and an element inside
+`<metadata>` — after checking that Inkscape 1.1.2 preserves both. Two channels so that a future
+Inkscape dropping one is a warning, not a broken round trip. This is what lets the reader have no
+`--coords`.
+
+**Also checked.** `npm run check` passes (no module structure was touched). The reader survives a
+hand-built SVG exercising a group `transform`, `style=""` overriding presentation attributes,
+`fill-opacity`, a cubic curve, `rect`/`circle`/`polyline`/`polygon`/`text`, a multi-subpath `d`, a
+`display:none` layer and `sodipodi:namedview`. Every error path prints `error: <message>` naming the
+user's data, not a traceback.
+
+**Left.** `--coords halfplane` on data reaching the basepoint region is the least tested path. Text
+size and rotation are display-only in the SVG: `up` rides along with an Inkscape move or rotation via
+`hmw:upLength`, but editing the font size does not change it. `class`-based styles cannot be previewed,
+since the stylesheet lives in the viewport options the scripts never see.
