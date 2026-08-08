@@ -4,7 +4,7 @@
    height="1080"
    viewBox="0 0 1080 1080"
    version="1.1"
-   hmw:params="{&quot;coords&quot;: &quot;disk&quot;, &quot;generator&quot;: &quot;hyperbolic-map-widget tools/drawables_to_svg.py&quot;, &quot;guidelines&quot;: &quot;RegularTiling(8, 3, 4)&quot;, &quot;originX&quot;: 540.0, &quot;originY&quot;: 540.0, &quot;scale&quot;: 500.0, &quot;source&quot;: {&quot;file&quot;: &quot;docs/escher-atlas.json&quot;, &quot;jsonPath&quot;: &quot;drawables&quot;}, &quot;strokeScale&quot;: 1.6666666666666667, &quot;version&quot;: 1}"
+   hmw:params="{&quot;coords&quot;: &quot;disk&quot;, &quot;generator&quot;: &quot;hyperbolic-map tools/drawables_to_svg.py&quot;, &quot;guidelines&quot;: &quot;RegularTiling(8, 3, 4)&quot;, &quot;originX&quot;: 540.0, &quot;originY&quot;: 540.0, &quot;scale&quot;: 500.0, &quot;source&quot;: {&quot;file&quot;: &quot;docs/escher-atlas.json&quot;, &quot;jsonPath&quot;: &quot;drawables&quot;}, &quot;strokeScale&quot;: 1.6666666666666667, &quot;version&quot;: 1}"
    id="svg542"
    sodipodi:docname="escher-atlas-drawables-done.svg"
    inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
@@ -12,7 +12,7 @@
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg"
-   xmlns:hmw="https://github.com/jpivarski/hyperbolic-map-widget">
+   xmlns:hmw="https://github.com/jpivarski/hyperbolic-map">
   <defs
      id="defs546" />
   <sodipodi:namedview
@@ -38,10 +38,10 @@
      inkscape:current-layer="g540" />
   <metadata
      id="metadata2">
-    <hmw:params>{&quot;coords&quot;: &quot;disk&quot;, &quot;generator&quot;: &quot;hyperbolic-map-widget tools/drawables_to_svg.py&quot;, &quot;guidelines&quot;: &quot;RegularTiling(8, 3, 4)&quot;, &quot;originX&quot;: 540.0, &quot;originY&quot;: 540.0, &quot;scale&quot;: 500.0, &quot;source&quot;: {&quot;file&quot;: &quot;docs/escher-atlas.json&quot;, &quot;jsonPath&quot;: &quot;drawables&quot;}, &quot;strokeScale&quot;: 1.6666666666666667, &quot;version&quot;: 1}</hmw:params>
+    <hmw:params>{&quot;coords&quot;: &quot;disk&quot;, &quot;generator&quot;: &quot;hyperbolic-map tools/drawables_to_svg.py&quot;, &quot;guidelines&quot;: &quot;RegularTiling(8, 3, 4)&quot;, &quot;originX&quot;: 540.0, &quot;originY&quot;: 540.0, &quot;scale&quot;: 500.0, &quot;source&quot;: {&quot;file&quot;: &quot;docs/escher-atlas.json&quot;, &quot;jsonPath&quot;: &quot;drawables&quot;}, &quot;strokeScale&quot;: 1.6666666666666667, &quot;version&quot;: 1}</hmw:params>
   </metadata>
   <g
-     class="hyperbolic-map-widget-drawables"
+     class="hyperbolic-map-drawables"
      id="g540"
      style="display:inline;opacity:1">
     <path
@@ -442,7 +442,7 @@
        id="path34076" />
   </g>
   <g
-     class="hyperbolic-map-widget-guidelines"
+     class="hyperbolic-map-guidelines"
      fill="none"
      stroke-width="1.5"
      id="g72"

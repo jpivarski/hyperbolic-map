@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert hyperbolic-map-widget drawables into an SVG you can edit in Inkscape.
+"""Convert hyperbolic-map drawables into an SVG you can edit in Inkscape.
 
     python3 drawables_to_svg.py FROM-FILE TO-FILE JSON-PATH [--coords ...] [--guidelines ...]
 
@@ -90,11 +90,11 @@ def resolve_json_path(document, json_path):
 # End of the shared region.
 # --------------------------------------------------------------------------------------------------
 
-NAMESPACE = "https://github.com/jpivarski/hyperbolic-map-widget"
+NAMESPACE = "https://github.com/jpivarski/hyperbolic-map"
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
-GUIDELINES_CLASS = "hyperbolic-map-widget-guidelines"
-DRAWABLES_CLASS = "hyperbolic-map-widget-drawables"
+GUIDELINES_CLASS = "hyperbolic-map-guidelines"
+DRAWABLES_CLASS = "hyperbolic-map-drawables"
 
 # The library's own defaults, from DEFAULT_STYLE in src/data/drawable.js.  A style attribute is
 # written into the SVG whenever it matters for display, but `svg_to_drawables.py` only writes one
@@ -722,7 +722,7 @@ def indent(element, level=0):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Convert hyperbolic-map-widget drawables into an SVG for editing in Inkscape.",
+        description="Convert hyperbolic-map drawables into an SVG for editing in Inkscape.",
         epilog="The coordinate system is recorded in the SVG, so svg_to_drawables.py can invert it.",
     )
     parser.add_argument("from_file", metavar="from-file", help="the JSON document to read")
@@ -828,7 +828,7 @@ def main(argv=None):
     )
 
     params = {
-        "generator": "hyperbolic-map-widget tools/drawables_to_svg.py",
+        "generator": "hyperbolic-map tools/drawables_to_svg.py",
         "version": 1,
         "coords": args.coords,
         "scale": layout.scale,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert an SVG edited in Inkscape back into hyperbolic-map-widget drawables.
+"""Convert an SVG edited in Inkscape back into hyperbolic-map drawables.
 
     python3 svg_to_drawables.py FROM-FILE TO-FILE JSON-PATH
 
@@ -10,7 +10,7 @@ This OVERWRITES that array in TO-FILE.  Copy the file first if you want to keep 
 
 No --coords option: `drawables_to_svg.py` records the coordinate system it used in the SVG, and this
 script reads it back and inverts the projection accordingly.  The
-`class="hyperbolic-map-widget-guidelines"` group is recognized and ignored.
+`class="hyperbolic-map-guidelines"` group is recognized and ignored.
 
 Standard library only, and deliberately standalone -- users of this library have Python available but
 no environment in which to install anything.  See tools/README.md.
@@ -92,10 +92,10 @@ def resolve_json_path(document, json_path):
 # End of the shared region.
 # --------------------------------------------------------------------------------------------------
 
-NAMESPACE = "https://github.com/jpivarski/hyperbolic-map-widget"
+NAMESPACE = "https://github.com/jpivarski/hyperbolic-map"
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
-GUIDELINES_CLASS = "hyperbolic-map-widget-guidelines"
+GUIDELINES_CLASS = "hyperbolic-map-guidelines"
 
 # The library's own defaults, from DEFAULT_STYLE in src/data/drawable.js (plus `closed`, which
 # defaults to true, and `radius`, which falls back to markerRadius).  A field is written into the JSON
@@ -869,7 +869,7 @@ def read_params(root, filename):
         return params
 
     raise SystemExit(
-        "error: {} carries no hyperbolic-map-widget metadata, so the coordinate system is "
+        "error: {} carries no hyperbolic-map metadata, so the coordinate system is "
         "unknown.\n       Only SVGs produced by drawables_to_svg.py can be converted back; if "
         "Inkscape stripped\n       the metadata, re-export from JSON and re-apply your edits.".format(
             filename
@@ -879,7 +879,7 @@ def read_params(root, filename):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Convert an SVG edited in Inkscape back into hyperbolic-map-widget drawables.",
+        description="Convert an SVG edited in Inkscape back into hyperbolic-map drawables.",
         epilog="This OVERWRITES the array at JSON-path in to-file.  Copy the file first if you want "
         "to keep the original.",
     )

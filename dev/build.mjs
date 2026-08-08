@@ -101,7 +101,7 @@ for (const n of entryImports) if (!publicNames.includes(n)) publicNames.push(n);
 const version = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
 
 const parts = [];
-parts.push(`/* hyperbolic-map-widget ${version} - https://github.com/jpivarski/hyperbolic-map-widget
+parts.push(`/* hyperbolic-map ${version} - https://github.com/jpivarski/hyperbolic-map
  * Built by dev/build.mjs (concatenation in dependency order; no bundler).
  * Generated file - do not edit. Edit src/ and run \`npm run build\`.
  */`);

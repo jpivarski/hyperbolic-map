@@ -1,6 +1,6 @@
 # tools
 
-Two scripts for drawing and editing hyperbolic-map-widget artwork by hand in
+Two scripts for drawing and editing hyperbolic-map artwork by hand in
 [Inkscape](https://inkscape.org/) instead of writing [the drawable
 format](../README.md#the-drawable-format) by hand.
 
@@ -65,7 +65,7 @@ affine is recorded in the metadata, so `svg_to_drawables.py` reads the inverse r
 
 ### `--guidelines "SPEC"`
 
-Adds light gray tile borders **beneath** the art, as one `<g class="hyperbolic-map-widget-guidelines">`
+Adds light gray tile borders **beneath** the art, as one `<g class="hyperbolic-map-guidelines">`
 that `svg_to_drawables.py` recognizes and ignores. Omit it and no guidelines are added.
 
 Everything in the group is sampled along the **true hyperbolic curve** — 48 segments per tile edge, 16
@@ -241,7 +241,7 @@ the shape it had instead of gaining ten digits of float noise on every point.
 
 The projection parameters are stored **twice**: as an `hmw:params` attribute on the root `<svg>`, and as
 an `<hmw:params>` element inside `<metadata>`, both in the namespace
-`https://github.com/jpivarski/hyperbolic-map-widget`. Inkscape 1.1.2 was verified to preserve both
+`https://github.com/jpivarski/hyperbolic-map`. Inkscape 1.1.2 was verified to preserve both
 through a save; two copies means a future Inkscape dropping one is a warning rather than a broken round
 trip. If both are gone, `svg_to_drawables.py` says so and stops rather than guessing.
 

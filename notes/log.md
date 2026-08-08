@@ -2368,3 +2368,57 @@ pages, the Python tools and the two audits, were swept — those describe the co
 was not before this change either: `--coords local` comes back with a worst coordinate delta of 4e-11
 (the tool itself prints "round-trip precision: worst 4.3e-12"). Pre-existing and unrelated to
 spelling; it belongs to the documentation-correctness box later in issue #4.
+
+
+## 2026-08-08-i — Release prep 5/6: `hyperbolic-map-widget` -> `hyperbolic-map`. THE API IS NOW FROZEN.
+
+Issue #4, sixth box. Mechanically small — the identifier appeared in 15 tracked files — but it is the
+point after which the public surface stops moving, so it gets its own commit and its own entry.
+
+Already right and untouched: the bundle filenames (`dist/hyperbolic-map.iife.js`, `.min.js`), the
+browser global `HyperbolicMap`, and all 49 thrown-error prefixes, every one of which already said
+`hyperbolic-map:`.
+
+Changed: `package.json` `name` and `repository.url`; the README heading (`# Hyperbolic Map Widget` ->
+`# Hyperbolic Map`), `npm install` line, `import` line and the GitHub Pages URL; every `<title>` and
+every "See the code in" GitHub link across `docs/*.html`; `docs/index.html`'s `<h1>`; the
+`src/index.js` header; the banner `dev/build.mjs` emits; `bench/bench.mjs`'s printed title;
+`tools/README.md`.
+
+### The part that needed care: the SVG interchange format
+
+`tools/drawables_to_svg.py` and `tools/svg_to_drawables.py` embed the name in three places that are
+part of the on-disk format, not just prose: the XML namespace URI
+`https://github.com/jpivarski/hyperbolic-map`, and the two class names
+`hyperbolic-map-guidelines` and `hyperbolic-map-drawables`. `docs/escher-atlas-drawables.svg` is a
+committed artifact carrying all three, so it was updated in lockstep.
+
+Consequences, both verified rather than assumed:
+
+* the renamed reader still reads the renamed committed SVG **bit-for-bit** back to
+  `docs/escher-atlas.json` — 96 drawables, exactly equal;
+* the renamed reader **refuses** an old-namespace SVG, with the "carries no hyperbolic-map metadata"
+  message and exit code 1. It does not silently guess a coordinate system. Anyone holding an SVG
+  exported before this commit must re-export from JSON; there is no in-place upgrade and, pre-1.0,
+  there should not be one.
+
+### Known-broken until Jim renames the repo
+
+Every `https://github.com/jpivarski/hyperbolic-map...` link and the
+`https://jpivarski.github.io/hyperbolic-map/` demos URL 404 until the GitHub repo itself is renamed,
+which is a later box on the same checklist. GitHub redirects the old name after a rename, so doing it
+in this order is right; doing it the other way round would have left the tree stale instead.
+
+### Not changed: "widget" as an ordinary English noun
+
+`README.md` still says "a widget that fills its column" and "The widget checks for this", and its
+opening sentence still calls the library a map widget. Those are English, not the package name, and
+whether the library should still describe itself that way is a documentation-voice question that
+belongs to the HUMAN read-through box, not to a rename.
+
+### Verified
+
+`npm run check`; `npm test` **179/179**; `npm run build` (both bundles and `docs/lib/` regenerated,
+banner now reads `hyperbolic-map 0.1.0`). `grep -rn hyperbolic-map-widget` finds nothing outside this
+log. Browser: `index.html` — title and `<h1>` read `hyperbolic-map`, all four gallery links and both
+`MATH.md` links return 200; `escher.html` renders with an empty console.

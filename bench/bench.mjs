@@ -107,7 +107,7 @@ const before = loadAverage();
 const after = loadAverage();
 
 console.log("");
-console.log("hyperbolic-map-widget microbenchmarks");
+console.log("hyperbolic-map microbenchmarks");
 console.log(`  node ${process.version}, ${CORES} cores`);
 if (before) {
   console.log(`  load average ${before.one.toFixed(2)} / ${before.five.toFixed(2)} / ${before.fifteen.toFixed(2)}`);

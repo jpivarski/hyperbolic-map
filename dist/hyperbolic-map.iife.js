@@ -1,4 +1,4 @@
-/* hyperbolic-map-widget 0.1.0 - https://github.com/jpivarski/hyperbolic-map-widget
+/* hyperbolic-map 0.1.0 - https://github.com/jpivarski/hyperbolic-map
  * Built by dev/build.mjs (concatenation in dependency order; no bundler).
  * Generated file - do not edit. Edit src/ and run `npm run build`.
  */
@@ -5766,7 +5766,7 @@ class BinaryTiling {
 }
 
 // ===== src/index.js =====
-// hyperbolic-map-widget -- public surface.
+// hyperbolic-map -- public surface.
 //
 // This file is a barrel: it only re-exports. dev/build.mjs uses the names imported here to decide
 // what the browser bundle exposes on the global `HyperbolicMap` object, so anything intended to be

@@ -1,8 +1,8 @@
-# Hyperbolic Map Widget
+# Hyperbolic Map
 
 A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model). Think of it like Google Earth for a negatively curved surface, rather than a sphere, which is positively curved.
 
-**See the demos:** https://jpivarski.github.io/hyperbolic-map-widget/
+**See the demos:** https://jpivarski.github.io/hyperbolic-map/
 
 Scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers or dragging the outer ring with a mouse.
 
@@ -11,11 +11,11 @@ The library is pure JavaScript (ES2020) without any runtime dependencies. It has
 ## Install
 
 ```bash
-npm install hyperbolic-map-widget
+npm install hyperbolic-map
 ```
 
 ```js
-import { HyperbolicViewport } from "hyperbolic-map-widget";
+import { HyperbolicViewport } from "hyperbolic-map";
 ```
 
 or drop in the bundle and use the `HyperbolicMap` global:

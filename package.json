@@ -1,5 +1,5 @@
 {
-  "name": "hyperbolic-map-widget",
+  "name": "hyperbolic-map",
   "version": "0.1.0",
   "description": "Interactive viewer for vector maps of the hyperbolic plane, drawn in the Poincar\u00e9 disk. Zero dependencies.",
   "keywords": [
@@ -42,6 +42,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jpivarski/hyperbolic-map-widget.git"
+    "url": "git+https://github.com/jpivarski/hyperbolic-map.git"
   }
 }

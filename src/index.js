@@ -1,4 +1,4 @@
-// hyperbolic-map-widget -- public surface.
+// hyperbolic-map -- public surface.
 //
 // This file is a barrel: it only re-exports. dev/build.mjs uses the names imported here to decide
 // what the browser bundle exposes on the global `HyperbolicMap` object, so anything intended to be
