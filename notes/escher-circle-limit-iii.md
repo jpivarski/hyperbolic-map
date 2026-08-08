@@ -26,9 +26,9 @@ The word "alternate" is load-bearing — see the frame section below.
 - **One fish is a fundamental domain. 4 fish per octagon**, by area:
   `{8,3}` octagon `= 6π − 8·(2π/3) = 2π/3`; `433` domain `= 2 × π/12 = π/6`; ratio exactly 4.
 - Dunham's family index for Escher's is `(4,3,3)`: four right fins, three left fins, three noses meet.
-- Rotation centres: **order 4 at octagon centres** (right fins); the two classes of `{8,3}` vertices
+- Rotation centers: **order 4 at octagon centers** (right fins); the two classes of `{8,3}` vertices
   carry the two order-3 motifs (noses at the white-curve crossings, left fins at the "triangle"
-  centres — this pairing is a reasoned inference, not something found stated explicitly).
+  centers — this pairing is a reasoned inference, not something found stated explicitly).
 - `433` is the **unique index-2 subgroup of `832`**. Proof: a homomorphism `832 → ℤ/2` must kill the
   3-fold generator (odd order), and the relation `R₈R₃R₂ = 1` then forces `φ(R₈) = φ(R₂)`; the only
   nontrivial choice has kernel with cone points `4,3,3`.
@@ -40,11 +40,11 @@ The word "alternate" is load-bearing — see the frame section below.
 ## The decisive constraint for the demo
 
 Repeating identical data in every tile makes the pattern invariant under the walk group `G` **iff the
-tile art is invariant under `Stab_G(tile)`** — as a SHAPE. The colouring is a separate question and is
-answered separately, by a colour symmetry; see "Escher's four colours" below. For `G = 433` on `{8,3}`:
+tile art is invariant under `Stab_G(tile)`** — as a SHAPE. The coloring is a separate question and is
+answered separately, by a color symmetry; see "Escher's four colors" below. For `G = 433` on `{8,3}`:
 
 - `R₈ ∉ 433` (there is no order-8 cone point), so `Stab_{433}(octagon) = ⟨R₈²⟩ = **C₄**`.
-  Verified numerically: enumerating `433` words that fix the central octagon, the realised screen
+  Verified numerically: enumerating `433` words that fix the central octagon, the realized screen
   rotations are exactly `{0, 2, 4, 6}·(2π/8)` — never an odd multiple.
 - So **the tile art must be 4-fold symmetric, not 8-fold.** Eight-fold art would give Dunham's
   `(8,3,3)` pattern, a different member of the family, not Escher's.
@@ -56,15 +56,15 @@ answered separately, by a colour symmetry; see "Escher's four colours" below. Fo
 
 Both "obvious" generators are **wrong** here:
 
-- ✗ `R₈` (rotate `2π/8` about the tile centre) — not in `433`; flips the vertex parity.
+- ✗ `R₈` (rotate `2π/8` about the tile center) — not in `433`; flips the vertex parity.
 - ✗ the half-turn about a shared edge midpoint — `433` has **no** order-2 cone points at all. This is
   the *default* general-purpose `{p,q}` generator, so it is the easy mistake.
 
-Correct minimal generating set: `R₄` (rotation `2π/4` about the tile centre, the tile's own symmetry)
+Correct minimal generating set: `R₄` (rotation `2π/4` about the tile center, the tile's own symmetry)
 and `R₃(V, ±1)` (rotation `±2π/3` about a **class-A** vertex). Any two of the three rotations of a
 `(p,q,r)` rotation group generate it.
 
-All 8 edge-neighbours are reachable: each vertex has 3 octagons around it, so `R₃(V,±1)` gives the two
+All 8 edge-neighbors are reachable: each vertex has 3 octagons around it, so `R₃(V,±1)` gives the two
 octagons across the two edges incident at `V`; with 4 class-A vertices that is `4 × 2 = 8`. Verified —
 the edge→(vertex, sense) map is `{0:(0,+), 1:(0,−), 2:(2,+), 3:(2,−), 4:(4,+), 5:(4,−), 6:(6,+), 7:(6,−)}`.
 
@@ -76,13 +76,13 @@ orbits, and `V₁ = R₈·V₀ ∉ 433·V₀`. So the two classes **alternate** 
 precisely why the tiling is called *alternated*.
 
 Globally consistent because the `{8,3}` edge graph is **bipartite** (planar, all faces even 8-cycles).
-Pick the colouring once — two ways, mirror images of each other, giving the two chiralities of the
+Pick the coloring once — two ways, mirror images of each other, giving the two chiralities of the
 pattern — and every octagon's `C₄` frame is determined. **No extra data stored per tile.**
 
 ## Why the existing 2012 data cannot just be reused
 
 `OLD/hyperbolic-storage-space/svgtools/examples/escher.py` replicated a traced 6-fish block by Möbius
-translations of local length **1.07** in nine directions spaced `2π/9`, with ad-hoc rotations and colour
+translations of local length **1.07** in nine directions spaced `2π/9`, with ad-hoc rotations and color
 permutations, under the author's own comment:
 
 > "The following transformations are approximate; some fish don't line up in orientation or color.
@@ -91,17 +91,17 @@ permutations, under the author's own comment:
 and in the blog post: *"I made some mistakes and gave up adding fishes a few layers from the center."*
 
 1.07 matches no regular `{9,q}` tiling (`{9,4}` wants 0.876, `{9,5}` wants 1.249), and `{8,3}`'s true
-centre-to-centre local distance is `sinh ψ = 0.840896`.
+center-to-center local distance is `sinh ψ = 0.840896`.
 
 **Measured symmetry of the 38,640 stored polygons** (centroids projected to the disk, tested for
 rotational symmetry about the origin): order 3 dominates — 34 % of inner centroids match under 120°
-versus 3–5 % for orders 2, 4, 5, 6, 7, 8, 10, 11, 12. So the traced art is centred on a **`{8,3}`
-vertex** (a 3-fold point at disk radius 0.405616), *not* an octagon centre. The fit must re-anchor it.
+versus 3–5 % for orders 2, 4, 5, 6, 7, 8, 10, 11, 12. So the traced art is centered on a **`{8,3}`
+vertex** (a 3-fold point at disk radius 0.405616), *not* an octagon center. The fit must re-anchor it.
 
 > **The scripts named below no longer exist.** `fit_escher_tile.py` and its replacement
 > `trace_escher_tile.py`, and the raster they read, were removed in the PR #2 cleanup: the demos
 > are not regenerated from sources any more, and the committed `docs/escher-atlas.json` is the
-> artefact. Both scripts are in git history. What follows is kept as the record of how the tile
+> artifact. Both scripts are in git history. What follows is kept as the record of how the tile
 > was derived and why the first attempt was wrong.
 
 ## Fit procedure (`tools/fit_escher_tile.py`)
@@ -110,9 +110,9 @@ vertex** (a 3-fold point at disk radius 0.405616), *not* an octagon centre. The 
    of 20/26/20/26/20/26 paths, consistent with the measured 3-fold structure — converting to disk
    coordinates via its `PoincareDisk` element (`cx = 299.67141723633`, `cy = 301.22943115234`,
    `rx = 295.49002075195`).
-2. **Re-anchor** from the traced 3-fold vertex onto an octagon centre.
+2. **Re-anchor** from the traced 3-fold vertex onto an octagon center.
 3. Least-squares fit a Möbius adjustment carrying the fish contact points onto the exact `{8,3}` 4-fold
-   and 3-fold centres.
+   and 3-fold centers.
 4. Symmetrise to exact `C₄`.
 5. Emit `docs/escher-atlas.json` — 4 fish in tile-local coordinates.
 6. **Report the residual RMS boundary mismatch** and quote it in `docs/MATH.md` as a documented
@@ -145,15 +145,15 @@ it is not the reason I expected.
 
 **It had no 4-fold structure at all.** The library's symmetry check scores it `Infinity`: not one of its
 90 shapes has a C4 partner. Its own metadata says why — the cutter's bearing scan "does NOT
-discriminate" (spread 1.06x), so the octagon centre was *defaulted* to bearing 0 rather than located.
+discriminate" (spread 1.06x), so the octagon center was *defaulted* to bearing 0 rather than located.
 
 **And no cut of the traced vector art could have worked.** Four independently traced copies of one fish
 have different vertex counts, so they cannot map onto one another exactly. Measured at the vector art's
-own known 3-fold centre, the exact check also returns `Infinity`. Symmetry has to be **constructed**,
+own known 3-fold center, the exact check also returns `Infinity`. Symmetry has to be **constructed**,
 not found: trace one wedge and repeat it by exact rotation.
 
 **The vector art is also mis-scaled.** Using a validated centroid-matching metric (origin, m=3: 0.0097;
-non-symmetries: 0.20-0.29), no 4-fold centre exists anywhere on the circle of radius chi. Its 3-fold
+non-symmetries: 0.20-0.29), no 4-fold center exists anywhere on the circle of radius chi. Its 3-fold
 lattice sits at 1.85 where `{8,3}` predicts 1.7214 — about 4% of radial scale error. That is consistent
 with the disk radius having been measured slightly wrong when the art was produced.
 
@@ -167,7 +167,7 @@ Fitted alignment, all by the same criterion:
 | | |
 |---|---|
 | disk radius | 158.5 px |
-| disk centre | (157.5, 157.0) |
+| disk center | (157.5, 157.0) |
 | library -> raster rotation | -22.5 deg (the octagon's vertices sit at raster bearings 0, 45, 90, ...) |
 
 Controls: rotating to the other vertex class scores 0.50 (it is also a genuine 3-fold point, so this is
@@ -176,39 +176,39 @@ expected), and rotating 20 degrees to where no vertex lies scores 0.42.
 ### Two classification attempts that failed
 
 1. **Brightness threshold for the ink.** Swallowed the dark blue and dark red fish whole: of the 2,360
-   dark pixels in the central region, 2,132 are saturated fish colour and only 228 are neutral outline.
+   dark pixels in the central region, 2,132 are saturated fish color and only 228 are neutral outline.
    The tile came out with black holes where those fish should be.
 2. **Local-median contrast.** Found the lines but broke them into dashes.
 
-What works is a **black top-hat** — how much darker is this pixel than the closing of its neighbourhood
+What works is a **black top-hat** — how much darker is this pixel than the closing of its neighborhood
 — which is the operator meant for thin dark structures and finds a 1 px outline on any background.
 
-## Escher's four colours, and how they are produced
+## Escher's four colors, and how they are produced
 
-A colour here is not a property of a fish, or of a tile. Every motion of the tiling permutes the four
-colours, so what a fish is painted is
+A color here is not a property of a fish, or of a tile. Every motion of the tiling permutes the four
+colors, so what a fish is painted is
 
-    palette[ phi(F)[ that fish's base colour ] ]
+    palette[ phi(F)[ that fish's base color ] ]
 
-with `F` the tile's canonical frame and `phi: 433 -> S_4` a homomorphism — a COLOUR SYMMETRY in the
+with `F` the tile's canonical frame and `phi: 433 -> S_4` a homomorphism — a COLOR SYMMETRY in the
 crystallographic sense. Repeating one tile's art cannot express that on its own, and neither can a tile
 class: `{8,3}` m=4 admits `Z/3`, and the group needed has 12 elements and is not abelian.
 
 **The image is `A_4`.** A three-fold rotation must cycle the three fish meeting at a vertex, so its image
-is a 3-cycle. The four-fold rotation `P` about an octagon centre must swap the two colours that octagon
-shows — this is the old observation that "around an octagon centre the fish alternate", i.e. that the
-colouring is `C_2` while the shape is `C_4` — so its image is a double transposition. Both are even, and
+is a 3-cycle. The four-fold rotation `P` about an octagon center must swap the two colors that octagon
+shows — this is the old observation that "around an octagon center the fish alternate", i.e. that the
+coloring is `C_2` while the shape is `C_4` — so its image is a double transposition. Both are even, and
 they generate the walk group, so `im(phi) <= A_4`. Order 12, confirmed by construction.
 
 **One free parameter, and how it was pinned down.** The walk group fixes everything but `phi(G_0)`:
 `inverseIndex` is `[1,0,3,2,5,4,7,6]` and `P.G_g.P^-1 = G_{g+2}`, so generator 1 is generator 0's inverse
-and the rest are conjugates. Of the 24 permutations of four colours:
+and the rest are conjugates. Of the 24 permutations of four colors:
 
 | stage | left | what it rules out |
 |---|---|---|
 | all candidates | 24 | — |
 | a homomorphism at all | **8** | 16 pass every cheap algebraic check and are caught only by walking the tile graph |
-| three colours at each three-fold vertex | **6** | Escher's own rule; necessary, not sufficient |
+| three colors at each three-fold vertex | **6** | Escher's own rule; necessary, not sufficient |
 | area agreement with the woodcut | **1** | 78.4% of 5,436 grid points, against 45.9% for the runner-up |
 
 The last row is measurement, not argument. k-means over a scan of the print recovers Escher's four inks
@@ -216,12 +216,12 @@ The last row is measurement, not argument. k-means over a scan of the print reco
 candidate was rendered and compared with the print point by point over the disk with the rotation fitted.
 The answer is `phi(G_0) = [2,0,1,3]`, in `docs/demo/escher-colors.js`.
 
-**Measure the whole area, not sampled fish centres.** Scoring only the centroid of each fish ranked a
+**Measure the whole area, not sampled fish centers.** Scoring only the centroid of each fish ranked a
 DIFFERENT candidate first, at 79% against 70%. That candidate paints the four overlap wedges — the parts
-of neighbours' fish that fall inside an octagon — to match the fish they sit against, so they merge into
-large single-colour blobs and the four-colour interlock collapses. A centroid cannot see it; the eye sees
+of neighbors' fish that fall inside an octagon — to match the fish they sit against, so they merge into
+large single-color blobs and the four-color interlock collapses. A centroid cannot see it; the eye sees
 it instantly, and so does an area comparison. The regression test asserts that no overlap takes one of
-its own octagon's two colours.
+its own octagon's two colors.
 
 **Why this works now and could not before.** `phi(P)` is not the identity, so `phi` does not descend to
 tiles on its own — and it does not have to. Choosing the other coset representative `F.P` rotates the art
@@ -230,11 +230,11 @@ same `F` decide both, which is exactly what canonical tile frames give.
 
 ### Result
 
-Four colours, arranged as Escher arranged them, from one octagon of art repeated forever. Twelve
-recoloured copies of the tile cover the whole plane — one per group element — so the atlas's compile memo
+Four colors, arranged as Escher arranged them, from one octagon of art repeated forever. Twelve
+recolored copies of the tile cover the whole plane — one per group element — so the atlas's compile memo
 still collapses every tile onto a handful of compiled objects.
 
 The tile is hand-drawn in Inkscape (`tools/svg_to_drawables.py`), so the outlines are approximate and the
 fish are simplified, and the artwork is no longer `C_4`-exact: the symmetry lint is off on that page and
-must stay off, since the colouring is deliberately only `C_2`. What is exact is the geometry and the
+must stay off, since the coloring is deliberately only `C_2`. What is exact is the geometry and the
 group.

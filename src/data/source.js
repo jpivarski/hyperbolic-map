@@ -12,7 +12,7 @@
 // shared `passes(view)` shape is why HyperbolicViewport.render() is a single loop over pass
 // producers rather than a branch on which mode it is in.
 //
-// A source supplies compiled drawables for the current view. Two flavours:
+// A source supplies compiled drawables for the current view. Two flavors:
 //
 //   StaticSource    a fixed array, compiled once.
 //   CallbackSource  an async function of the view, with caching, in-flight de-duplication and
@@ -42,7 +42,7 @@ export class CallbackSource {
   constructor(fn, options = {}) {
     this.fn = fn;
     this.styleSheet = options.styleSheet;
-    // Do not ask again until the view centre has moved by this fraction of the visible radius, or
+    // Do not ask again until the view center has moved by this fraction of the visible radius, or
     // the zoom has changed by this fraction. Without a gate, a per-frame source would issue a
     // request every frame of a drag.
     this.moveFraction = options.moveFraction !== undefined ? options.moveFraction : 0.25;
@@ -67,7 +67,7 @@ export class CallbackSource {
   // and never again however far the user scrolled. Content simply never arrived.
   //
   // What actually matters is whether the previously-requested region has slid off the screen. So:
-  // project the previous request's centre under the CURRENT view and see how far it has drifted from
+  // project the previous request's center under the CURRENT view and see how far it has drifted from
   // the middle, as a fraction of the disk radius. That is bounded, scale-free, and directly
   // meaningful, and it behaves sensibly at every zoom.
   needsRequest(view, now) {
@@ -95,9 +95,9 @@ export class CallbackSource {
   }
 
   request(view, now) {
-    const centre = view.matrix.centreLocal([0, 0]);
-    const cw = Math.sqrt(1 + centre[0] ** 2 + centre[1] ** 2);
-    this.lastRequest = { cx: centre[0], cy: centre[1], cw: cw, zoom: view.zoom };
+    const center = view.matrix.centerLocal([0, 0]);
+    const cw = Math.sqrt(1 + center[0] ** 2 + center[1] ** 2);
+    this.lastRequest = { cx: center[0], cy: center[1], cw: cw, zoom: view.zoom };
     this.lastRequestTime = now;
 
     // Supersede any request still outstanding.
@@ -112,7 +112,7 @@ export class CallbackSource {
     this.controller = controller;
 
     const req = {
-      centre: [centre[0], centre[1]],
+      center: [center[0], center[1]],
       zoom: view.zoom,
       drawRadius: view.drawRadius,
       // How much of the disk can actually be on screen at this zoom. At zoom 3 on a square canvas

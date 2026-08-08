@@ -22,10 +22,10 @@
 // tile instead, and the matrix is multiplied by one O(1) generator. Measured: 1,256 tile crossings of
 // {8,3} leave max|V_c| at 1.105. Without it, 500 crossings would need entries of order 1e165.
 //
-// Note the camera tile does NOT have to be the tile containing the view centre. It only has to be
+// Note the camera tile does NOT have to be the tile containing the view center. It only has to be
 // NEAR it, so that V_c stays O(1) and the walk starts nearby. Tile identity comes from the walk's
-// addresses, not from which tile the camera picked, so a greedy nearest-centre rule is sufficient and
-// works uniformly for tilings whose cells are not Voronoi cells of their centres (the binary one).
+// addresses, not from which tile the camera picked, so a greedy nearest-center rule is sufficient and
+// works uniformly for tilings whose cells are not Voronoi cells of their centers (the binary one).
 
 import { Isom } from "../../core/isom.js";
 
@@ -47,8 +47,8 @@ export class Anchor {
     return this.tiling.addressEquals(this.address, this.tiling.originAddress());
   }
 
-  // The view centre expressed in camera-tile-local coordinates: V_c^-1(0). All small numbers.
-  viewCentreLocal(matrix, out) {
+  // The view center expressed in camera-tile-local coordinates: V_c^-1(0). All small numbers.
+  viewCenterLocal(matrix, out) {
     const inv = matrix.inverse();
     inv.applyToDisk(0, 0, this._buf);
     const zx = this._buf[0];
@@ -62,10 +62,10 @@ export class Anchor {
     return out;
   }
 
-  // Move the camera to whichever neighbour's centre is nearest the view centre, repeatedly.
+  // Move the camera to whichever neighbor's center is nearest the view center, repeatedly.
   //
   // Every quantity here is in camera-local coordinates, so nothing knows or cares how far the camera
-  // has travelled. Bounded iteration because a single frame can only move the view a little; the
+  // has traveled. Bounded iteration because a single frame can only move the view a little; the
   // limit exists so a pathological setCamera cannot spin.
   // Returns the accumulated RIGHT factor: the caller must replace its matrix with matrix.mul(shift),
   // and must apply the same shift to any other representation of the same view (the ViewState keeps a
@@ -82,33 +82,33 @@ export class Anchor {
     let shift = Isom.identity();
     let current = matrix;
     let steps = 0;
-    // Monotonicity guard. Each step must bring the view centre strictly closer to the camera tile's
-    // centre; that is what makes the descent terminate. Enforcing it here rather than trusting each
+    // Monotonicity guard. Each step must bring the view center strictly closer to the camera tile's
+    // center; that is what makes the descent terminate. Enforcing it here rather than trusting each
     // tiling's rule means a tiling with a subtly non-monotone `stepToward` degrades to "stop early"
     // instead of spinning to the iteration cap -- which is what a 2-cycle looks like: 4,096 steps on a
     // single camera move.
     let previous = Infinity;
     for (; steps < maxSteps; steps++) {
-      this.viewCentreLocal(current, c);
+      this.viewCenterLocal(current, c);
       if (!(c[2] < previous)) break;
       previous = c[2];
       // Ask the tiling which way to go. Each tiling answers with an EXACT, monotone rule -- the most
       // violated half-plane for a regular tiling, the box test for a binary cell -- so the descent
-      // cannot cycle. It must be the TILING's rule and not a generic nearest-centre comparison with a
+      // cannot cycle. It must be the TILING's rule and not a generic nearest-center comparison with a
       // tolerance: that suits Voronoi cells but not binary ones, and mixing it with a containment check
       // makes the two rules fight -- measured, 500 small camera moves then cost 143,407 re-anchor steps
       // against about 30.
       //
-      // The answer is an INDEX INTO the neighbour list, which is why the list's order is part of the
+      // The answer is an INDEX INTO the neighbor list, which is why the list's order is part of the
       // Tiling contract. Naming a generator instead cannot work for the binary tiling, whose parent
       // step has two parities: an odd-longitude cell offers only PARENT_ODD, so a request for
       // PARENT_EVEN finds nothing and the camera can never move up at all.
-      const nbrs = this.tiling.neighbours(this.address);
+      const nbrs = this.tiling.neighbors(this.address);
       const dir = this.tiling.stepToward(c[0], c[1]);
       if (dir < 0 || dir >= nbrs.length) break;
       const chosen = nbrs[dir];
       // stepFrame, not generator: on a {p,q} tiling the step carries the C_m correction that lands
-      // in the neighbour's CANONICAL frame, so V_c is always the view in the anchor's canonical
+      // in the neighbor's CANONICAL frame, so V_c is always the view in the anchor's canonical
       // frame rather than in whichever frame the route happened to produce.
       const g = this.tiling.stepFrame(this.address, chosen.gen);
       shift = shift.mul(g).normalize();
@@ -135,7 +135,7 @@ export class Anchor {
       const w = Math.sqrt(1 + px * px + py * py);
       if (!(w < previous)) break;
       previous = w;
-      const nbrs = this.tiling.neighbours(address);
+      const nbrs = this.tiling.neighbors(address);
       const dir = this.tiling.stepToward(px, py);
       if (dir < 0 || dir >= nbrs.length) break;
       const g = this.tiling.stepFrame(address, nbrs[dir].gen);
@@ -156,25 +156,25 @@ export class Anchor {
   // Breadth-first from the camera tile, starting at the identity and multiplying by one constant
   // generator per step. Two radii: a tile is INCLUDED when its circumscribed disk meets the visible
   // disk, and the walk CONTINUES through a slightly larger radius so a tile touching only at a corner
-  // is still reachable through a neighbour that was itself included.
+  // is still reachable through a neighbor that was itself included.
   //
   // Returns [{ address, rel }] with `rel` mapping tile-local coordinates into camera-local ones.
-  neighbourhood(matrix, visibleRadius, maxTiles = 256) {
+  neighborhood(matrix, visibleRadius, maxTiles = 256) {
     this.lastTruncated = false;
     const tiling = this.tiling;
     const rho = 2 * Math.atanh(Math.min(visibleRadius, 0.9995));
     const chi = tiling.metrics.circumradius;
-    const spacing = tiling.metrics.centreSpacing;
+    const spacing = tiling.metrics.centerSpacing;
     const includeCosh = Math.cosh((rho + chi) / 2);
     const walkCosh = Math.cosh((rho + chi + spacing) / 2);
 
-    const c = this.viewCentreLocal(matrix, [0, 0, 0]);
+    const c = this.viewCenterLocal(matrix, [0, 0, 0]);
     const cx = c[0];
     const cy = c[1];
     const cw = c[2];
 
     const buf = this._buf;
-    // cosh(d/2) from the view centre to a tile centre, both in camera-local coordinates.
+    // cosh(d/2) from the view center to a tile center, both in camera-local coordinates.
     const coshHalfTo = (rel) => {
       rel.applyToDisk(0, 0, buf);
       const k = 1 / Math.sqrt(Math.max(1e-300, 1 - buf[0] * buf[0] - buf[1] * buf[1]));
@@ -190,7 +190,7 @@ export class Anchor {
     // construction from (lat, lon), a regular one because its id is an exact integer name for the tile
     // -- so the key IS the identity and a Set is the whole answer.
     //
-    // Note what is NOT here: no geometric comparison, no rounding of centres into buckets, no "these
+    // Note what is NOT here: no geometric comparison, no rounding of centers into buckets, no "these
     // two are within a quarter of a tile spacing so call them the same". Deciding identity by proximity
     // has a distance ceiling wherever it is done, because two distinct tiles eventually sit closer
     // together than the error in the numbers describing them. The exact id has no threshold in it.
@@ -211,7 +211,7 @@ export class Anchor {
     // nearest-first choice meaningful rather than nominal.
     const gatherLimit = Math.max(maxTiles + 8, maxTiles * 2);
     // A hard bound on dequeues, separate from the bound on results: every admitted tile pushes its
-    // neighbours, so a dedup failure would otherwise grow the queue geometrically while `out` never
+    // neighbors, so a dedup failure would otherwise grow the queue geometrically while `out` never
     // fills. Degrading to fewer tiles is acceptable; not returning is not.
     let examined = 0;
     const maxExamined = 24 * maxTiles + 512;
@@ -229,8 +229,8 @@ export class Anchor {
         out.push(node);
         dist.push(ch);
       }
-      // Look before naming. `tiling.generator(g)` moves the tile CENTRE exactly where the real step
-      // does -- they differ only by a rotation about that centre -- so a candidate costs 4 float
+      // Look before naming. `tiling.generator(g)` moves the tile CENTER exactly where the real step
+      // does -- they differ only by a rotation about that center -- so a candidate costs 4 float
       // multiplies to test, and only the survivors are turned into addresses. Naming is the expensive
       // half: on a regular tiling an address is an exact integer object costing ~117 ring multiplies to
       // build. Which tiles are RETURNED is unaffected, since a rejected candidate would be dropped by
@@ -240,7 +240,7 @@ export class Anchor {
       // there the walk stops on the TILE BUDGET (`gatherLimit`) long before anything falls outside
       // `walkCosh`, so no candidate is ever rejected. It pays when the visible radius is what binds --
       // a small `maxTiles`, or zoomed in far enough that few tiles are on screen.
-      const gens = tiling.neighbourGens(node.address);
+      const gens = tiling.neighborGens(node.address);
       for (let i = 0; i < gens.length; i++) {
         const g = gens[i];
         const probe = node.rel.mul(tiling.generator(g));
@@ -252,7 +252,7 @@ export class Anchor {
       }
     }
 
-    // Always honour the budget, and note that the condition is on the RESULT and not on the queue.
+    // Always honor the budget, and note that the condition is on the RESULT and not on the queue.
     // Truncating only when candidates remain would let a walk that gathered past maxTiles and then ran
     // out return MORE tiles than asked for -- a silent overrun for a caller sizing its cache to
     // maxTiles.
@@ -266,7 +266,7 @@ export class Anchor {
   }
 
   // Largest absolute matrix entry of a camera-relative view. Exposed because it is the single number
-  // that shows this design working: it must stay O(1) no matter how far the camera has travelled.
+  // that shows this design working: it must stay O(1) no matter how far the camera has traveled.
   static maxEntry(m) {
     return Math.max(Math.abs(m.ar), Math.abs(m.ai), Math.abs(m.br), Math.abs(m.bi));
   }

@@ -15,7 +15,7 @@
 // radius, so dragging past the rim silently froze the pan instead of clamping it -- and then
 // resumed from where it froze. Together these are what made the bug feel erratic.
 //
-// Defence in depth here, because any single mechanism can be defeated:
+// Defense in depth here, because any single mechanism can be defeated:
 //   1. setPointerCapture on pointerdown, so moves and the release are delivered even off-canvas;
 //   2. end the gesture on pointerup, pointercancel AND lostpointercapture;
 //   3. in pointermove, if a mouse reports buttons === 0 the button is already up (this catches a
@@ -217,7 +217,7 @@ export class PointerInput {
       this.gestureEnded();
     } else if (this.pointers.size === 1 && this.mode === MODE_PINCH) {
       // Lifting one of two fingers resumes a one-finger pan from the survivor, matching the 2011
-      // behaviour.
+      // behavior.
       this.view.commit();
       const p = [...this.pointers.values()][0];
       if (p.x * p.x + p.y * p.y < this.options.interactRadius ** 2 && this.options.allowPan) {
@@ -256,7 +256,7 @@ export class PointerInput {
     if (x * x + y * y >= this.options.drawRadius ** 2) return;
     if (e.preventDefault) e.preventDefault();
 
-    // Normalise across deltaMode: 0 = pixels, 1 = lines, 2 = pages.
+    // Normalize across deltaMode: 0 = pixels, 1 = lines, 2 = pages.
     let delta = e.deltaY;
     if (e.deltaMode === 1) delta *= 16;
     else if (e.deltaMode === 2) delta *= 100;

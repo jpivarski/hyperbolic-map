@@ -39,8 +39,8 @@ export const DEFAULT_STYLE = {
 // and it makes it impossible to spot runs of same-styled shapes.
 //
 // The table is module-scope so that the atlas, which compiles each tile separately, shares one set
-// across every tile. It is capped: a pathological generator emitting a unique colour per shape would
-// otherwise grow it without bound, and falling back to unshared objects is merely the old behaviour.
+// across every tile. It is capped: a pathological generator emitting a unique color per shape would
+// otherwise grow it without bound, and falling back to unshared objects is merely the old behavior.
 const styleTable = new Map();
 const STYLE_TABLE_LIMIT = 4096;
 

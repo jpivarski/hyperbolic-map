@@ -2,7 +2,7 @@
 //
 // WHY EXACT. A {p,q} tile's identity is a group element, and comparing group elements through their
 // float matrices is what breaks at hyperbolic distance ~37: the entries grow like cosh(d/2), one ULP
-// of |a|^2 exceeds the spacing between adjacent tile centres, and the walk starts to disagree with
+// of |a|^2 exceeds the spacing between adjacent tile centers, and the walk starts to disagree with
 // itself about which tiles it has already seen (measured; see notes/open-questions.md). Integers do
 // not have a distance ceiling, so identity is decided here and only rendering is left to floats.
 //

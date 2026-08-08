@@ -89,7 +89,7 @@ Call it on every gesture commit and every ~8 factors inside a long generator wor
   4.1e-14. Recomputed fresh from the gesture anchor each frame, so nothing accumulates. Worst case with
   a rim-to-rim drag at `interactRadius = 0.9` gives `1 − |β|² ≈ 0.011`: one digit lost.
 - **Compass.** `north(M) = arg((a·i + b)/(b̄·i + ā))` — the bearing of the half-plane's ideal point,
-  which works because geodesics through the disk centre are straight diameters. One `atan2`, verified
+  which works because geodesics through the disk center are straight diameters. One `atan2`, verified
   equal to the original's 30-line `halfPlaneOrientation` to 7.3e-13. Apply as
   `M ← Rot(bearing − north(M))·M`.
 - **Pinch.** Exactly determined: 4 unknowns (zoom + 3 for the isometry), 4 constraints (2 fingers × 2

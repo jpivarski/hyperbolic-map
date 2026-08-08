@@ -14,10 +14,15 @@
 // "degenerate" branch is not an approximation -- it is the correct answer there.
 //
 // Sweep direction: the whole in-disk portion of a geodesic subtends 2*atan(1/r) < pi at the arc's
-// centre, so any sub-segment is the MINOR arc. Normalising the angle difference into (-pi, pi] and
+// center, so any sub-segment is the MINOR arc. Normalizing the angle difference into (-pi, pi] and
 // sweeping that way is therefore always right.
 
 // Result object, reused by the caller to avoid allocating per edge.
+//
+// `anticlockwise` is the one British spelling in this library, and it is deliberate: that is the
+// name the HTML specification gives the sixth argument of `CanvasRenderingContext2D.arc()`, which
+// this field is passed straight into. Spelling it the American way here would make the call site
+// read `ctx.arc(..., arc.counterclockwise)` and hide the correspondence.
 export class Arc {
   constructor() {
     this.straight = true;
@@ -37,7 +42,7 @@ const DEGENERATE = 1e-10;
 // An edge is drawn as a straight chord only when it is visually straight: `sagittaTolerance`, in disk
 // units, is the largest bulge that may be flattened away. A fixed chord-LENGTH threshold would be
 // zoom-independent and therefore visibly wrong when zoomed in, since the same chord bulges further
-// across the screen the closer it is to the centre. Pass sagittaTolerance = 0 to always use an arc.
+// across the screen the closer it is to the center. Pass sagittaTolerance = 0 to always use an arc.
 export function geodesicArc(x1, y1, x2, y2, out, sagittaTolerance) {
   const denom = x1 * y2 - x2 * y1;
   const dist2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
@@ -78,7 +83,7 @@ export function geodesicArc(x1, y1, x2, y2, out, sagittaTolerance) {
   //
   //   canvas angle       = -theta
   //   signed short sweep = d = wrap(theta2 - theta1) in (-pi, pi]
-  //   d > 0 means increasing theta (counter-clockwise in the maths frame), which is DECREASING
+  //   d > 0 means increasing theta (counter-clockwise in the math frame), which is DECREASING
   //   canvas angle, which is what canvas calls anticlockwise = true.
   //
   // With delta = theta1 - theta2 = -d, that is `anticlockwise = delta < 0`.

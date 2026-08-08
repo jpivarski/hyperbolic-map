@@ -141,7 +141,7 @@ test("cmp is a strict total order", () => {
   for (let i = 1; i < sorted.length; i++) assert.ok(R.cmp(sorted[i - 1], sorted[i]) <= 0);
 });
 
-test("serialize is injective and stable, and normalises -0n", () => {
+test("serialize is injective and stable, and normalizes -0n", () => {
   const R = new ExactRing(8);
   const seen = new Map();
   let s = 4242;
@@ -158,7 +158,7 @@ test("serialize is injective and stable, and normalises -0n", () => {
   }
   const negZero = R.zero();
   negZero[0] = -0n;
-  assert.equal(R.serialize(negZero), R.serialize(R.zero()), "-0n must serialise as 0");
+  assert.equal(R.serialize(negZero), R.serialize(R.zero()), "-0n must serialize as 0");
 });
 
 test("the multiply counter tracks exact work, so 'no BigInt work per frame' is measurable", () => {

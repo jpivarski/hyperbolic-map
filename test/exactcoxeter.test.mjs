@@ -69,7 +69,7 @@ test("rho = Sb.Sa has order p and its powers are all distinct", () => {
       const Rk = exactMatPow(cx.R, cx.rho, k);
       for (const prev of seen) assert.ok(!exactMatEquals(cx.R, Rk, prev), `{${p},${q}}: rho^${k} repeats`);
       seen.push(Rk);
-      // every power fixes the tile centre -- that is what makes it a stabiliser candidate
+      // every power fixes the tile center -- that is what makes it a stabilizer candidate
       assert.ok(exactVecEquals(cx.R, exactMatVec(cx.R, Rk, cx.vO), cx.vO), `{${p},${q}}: rho^${k} moves vO`);
     }
   }

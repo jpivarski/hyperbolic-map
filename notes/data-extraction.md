@@ -81,7 +81,7 @@ see `su11-core.md`.
   2026-08-07) from a cell-keyed table of 399 placements into a library of **9 named pieces of art in
   generic cell-local coordinates**, any of which can go in any cell. `dungeon-man.html` now places
   them by hashing each cell's address with a per-page-load salt, so the dungeon is infinite rather than
-  stopping at latitude ±20. The original placement list is a 2012 artefact and is not reproducible from
+  stopping at latitude ±20. The original placement list is a 2012 artifact and is not reproducible from
   this repository.
 - The **clock face** was generated offline by `svgtools/examples/clock.py` (720 minute ticks, 43,200
   second ticks, 12 hour numerals). Radii in local units: hour ticks 1.0→1.1, numerals at 1.2 (up-vector

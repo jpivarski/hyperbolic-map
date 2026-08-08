@@ -5,7 +5,7 @@
 // one formula with another is how an inverted inradius survived the first pass of the audit
 // (cos(pi/p)/sin(pi/q) is the HALF-EDGE, and the two swap under p <-> q, so they look interchangeable).
 //
-// The anchored tests all share one theme: nothing may depend on how far the camera has travelled. A
+// The anchored tests all share one theme: nothing may depend on how far the camera has traveled. A
 // test that passes at the origin and not at 500 tiles out has found a real bug, so most assertions are
 // run at a range of distances and compared ACROSS them.
 
@@ -106,7 +106,7 @@ test("{p,q} rejects non-hyperbolic parameters", () => {
   assert.doesNotThrow(() => regularMetrics(5, 4));
 });
 
-test("frameSymmetry accepts only p and p/2, because a smaller m cannot reach its own neighbours", () => {
+test("frameSymmetry accepts only p and p/2, because a smaller m cannot reach its own neighbors", () => {
   // Dividing p is not enough, and the failure was silent. For m < p the generators are rotations about
   // the m vertices whose index is a multiple of p/m, two per vertex, so they reach 2m of the p edges;
   // covering the plane needs 2m >= p, and m | p with m < p forces m = p/2 exactly.
@@ -134,7 +134,7 @@ test("frameSymmetry accepts only p and p/2, because a smaller m cannot reach its
   }
 });
 
-test("edge half-turn generators reach every neighbour, for odd p too", () => {
+test("edge half-turn generators reach every neighbor, for odd p too", () => {
   for (const [p, q] of PAIRS) {
     const t = new RegularTiling({ p, q });
     const want = Math.tanh(t.metrics.inradius);
@@ -178,7 +178,7 @@ test("{8,3} with frameSymmetry 4 uses the 433 rotation generators, not half-turn
   const reached = new Set();
   for (let g = 0; g < t.generatorCount(); g++) {
     const c = t.generator(g).applyToDisk(0, 0, [0, 0]);
-    assert.ok(Math.abs(Math.hypot(c[0], c[1]) - want) < 1e-9, "generator does not land on a neighbour centre");
+    assert.ok(Math.abs(Math.hypot(c[0], c[1]) - want) < 1e-9, "generator does not land on a neighbor center");
     const k = Math.round((Math.atan2(c[1], c[0]) / (2 * Math.PI)) * 8);
     reached.add(((k % 8) + 8) % 8);
   }
@@ -217,9 +217,9 @@ test("every tiling's generator set is closed under inverse, up to sign", () => {
 
 // ---- the binary tiling's constant generators ----
 
-test("the six binary generators are constants that reproduce F_cur^-1 . F_neighbour", () => {
+test("the six binary generators are constants that reproduce F_cur^-1 . F_neighbor", () => {
   // The heart of the binary case (audit claim 5): every latitude and longitude cancels, so one
-  // constant matrix per neighbour direction suffices no matter where the cell is. Checked against the
+  // constant matrix per neighbor direction suffices no matter where the cell is. Checked against the
   // global frames near the origin, where those are still trustworthy.
   const t = new BinaryTiling();
   let worst = 0;
@@ -227,7 +227,7 @@ test("the six binary generators are constants that reproduce F_cur^-1 . F_neighb
     const address = { lat: BigInt(lat), lon: BigInt(lon) };
     const F = t.globalFrameForTesting(address);
     const Finv = F.inverse();
-    for (const nb of t.neighbours(address)) {
+    for (const nb of t.neighbors(address)) {
       const ref = Finv.mul(t.globalFrameForTesting(nb.address)).normalize();
       const got = t.generator(nb.gen);
       const plus = Math.max(Math.abs(ref.ar - got.ar), Math.abs(ref.ai - got.ai),
@@ -257,10 +257,10 @@ test("binary child-then-parent round trips exactly, which is what proves the par
   assert.equal(t.inverseGenerator(BIN_CHILD1), BIN_PARENT_ODD);
 });
 
-test("binary cells have five neighbours, and the parent step follows longitude parity", () => {
+test("binary cells have five neighbors, and the parent step follows longitude parity", () => {
   const t = new BinaryTiling();
   for (const [lat, lon] of [[0, 0], [0, 1], [0, -1], [3, 6], [3, 7], [-4, -5], [-4, -6]]) {
-    const nbrs = t.neighbours({ lat: BigInt(lat), lon: BigInt(lon) });
+    const nbrs = t.neighbors({ lat: BigInt(lat), lon: BigInt(lon) });
     assert.equal(nbrs.length, 5);
     const parent = nbrs[4];
     assert.equal(
@@ -279,14 +279,14 @@ test("binary addresses are exact at depths where a float64 longitude would not b
   // whole reason addresses are integers and never enter the geometry.
   const t = new BinaryTiling();
   let a = t.originAddress();
-  for (let i = 0; i < 60; i++) a = t.neighbours(a)[3].address; // child1 each time
+  for (let i = 0; i < 60; i++) a = t.neighbors(a)[3].address; // child1 each time
   assert.equal(a.lat, -60n);
   // child1 repeatedly gives lon = 2^60 - 1 (all ones), which is beyond exact float64 integer range.
   assert.equal(a.lon, (1n << 60n) - 1n);
   assert.ok(Number(a.lon) !== Number(a.lon - 1n) === false || true);
   assert.notEqual(a.lon.toString(), String(Number(a.lon)), "the longitude is past float64 exactness");
   // And walking back up returns exactly to the origin.
-  for (let i = 0; i < 60; i++) a = t.neighbours(a)[4].address;
+  for (let i = 0; i < 60; i++) a = t.neighbors(a)[4].address;
   assert.equal(a.lat, 0n);
   assert.equal(a.lon, 0n);
 });
@@ -326,7 +326,7 @@ test("the binary cell's local box is the same for every (latitude, longitude)", 
 
 // ---- containsLocal ----
 
-test("containsLocal for a regular tiling is the nearest-centre region, not the legacy one", () => {
+test("containsLocal for a regular tiling is the nearest-center region, not the legacy one", () => {
   // Audit claim 11: the boundary is the perpendicular bisector, which passes through the edge midpoint
   // at exactly the inradius. Claim 11b found that comparing A against nw^2 instead -- as the 2012
   // Escher tile cutter did -- gives a DIFFERENT, larger region, so this must not share that formula.
@@ -334,7 +334,7 @@ test("containsLocal for a regular tiling is the nearest-centre region, not the l
     const t = new RegularTiling(spec);
     const psi = t.metrics.inradius;
     const chi = t.metrics.circumradius;
-    assert.ok(t.containsLocal(0, 0), "the tile centre must be inside");
+    assert.ok(t.containsLocal(0, 0), "the tile center must be inside");
     for (let k = 0; k < t.p; k++) {
       const ang = (2 * Math.PI * k) / t.p;
       // Just inside and just outside the edge midpoint, along the edge normal.
@@ -406,7 +406,7 @@ test("re-anchoring keeps the view matrix O(1) over thousands of tile crossings",
   assert.ok(worst < 10, `binary max|V| reached ${worst}`);
 });
 
-test("re-anchoring realises the identity V_{c.g} = V_c . G_g", () => {
+test("re-anchoring realizes the identity V_{c.g} = V_c . G_g", () => {
   // Verified against the global frames near the origin, where those are trustworthy: the anchored
   // view times the camera's global frame must equal the original global view, before and after.
   const t = new RegularTiling({ p: 5, q: 4 });
@@ -427,14 +427,14 @@ test("re-anchoring realises the identity V_{c.g} = V_c . G_g", () => {
   }
 });
 
-test("the neighbourhood walk returns distinct tiles at every distance", () => {
-  // The old walk deduplicated by rounding world coordinates, and past d ~ 16 every neighbour rounded
+test("the neighborhood walk returns distinct tiles at every distance", () => {
+  // The old walk deduplicated by rounding world coordinates, and past d ~ 16 every neighbor rounded
   // to the same tag, so it returned a single tile. Now the frames are camera-relative and O(1), so
   // this must hold arbitrarily far out -- including 500 tiles, where a global frame would need entries
   // of 1e165 and could not be formed at all.
   for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 7, q: 3 }, { p: 5, q: 4 }, { p: 6, q: 4 }]) {
     const t = new RegularTiling(spec);
-    const half = t.metrics.centreSpacing * 0.5;
+    const half = t.metrics.centerSpacing * 0.5;
     for (const walk of [0, 1, 5, 50, 500]) {
       const anchor = new Anchor(t);
       anchor.address = advanceAddress(t, walk, 700 + walk);
@@ -443,12 +443,12 @@ test("the neighbourhood walk returns distinct tiles at every distance", () => {
         `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`,
       );
       const V = Isom.identity();
-      const tiles = anchor.neighbourhood(V, 0.62, 200);
+      const tiles = anchor.neighborhood(V, 0.62, 200);
       assert.ok(tiles.length > 5, `{${spec.p},${spec.q}} only ${tiles.length} tiles after ${walk} steps`);
-      const centres = tiles.map((x) => toLocal(x.rel));
-      for (let i = 0; i < centres.length; i++) {
-        for (let j = i + 1; j < centres.length; j++) {
-          const sep = 2 * Math.acosh(Math.max(1, coshHalfBetween(centres[i], centres[j])));
+      const centers = tiles.map((x) => toLocal(x.rel));
+      for (let i = 0; i < centers.length; i++) {
+        for (let j = i + 1; j < centers.length; j++) {
+          const sep = 2 * Math.acosh(Math.max(1, coshHalfBetween(centers[i], centers[j])));
           assert.ok(
             sep > half,
             `{${spec.p},${spec.q}} after ${walk} steps: two tiles only ${sep.toFixed(9)} apart`,
@@ -459,7 +459,7 @@ test("the neighbourhood walk returns distinct tiles at every distance", () => {
   }
 });
 
-test("the neighbourhood walk is IDENTICAL however far the camera has travelled", () => {
+test("the neighborhood walk is IDENTICAL however far the camera has traveled", () => {
   // The sharpest statement of the fix. A regular tiling is homogeneous, so the set of relative frames
   // around the camera cannot depend on where the camera is -- and now it provably does not, because
   // nothing in the computation knows.
@@ -470,15 +470,15 @@ test("the neighbourhood walk is IDENTICAL however far the camera has travelled",
   // -1.2e-16 far away, which toFixed(12) prints as "-0.000000000000" against "0.000000000000". Twelve
   // decimals is the precision this test asserts; below it, zero is zero.
   //
-  // Note this compares tile CENTRES, not frames. The frames genuinely do differ between locations, by
-  // a rotation of each tile about its own centre -- that is the canonical orientation doing its job.
+  // Note this compares tile CENTERS, not frames. The frames genuinely do differ between locations, by
+  // a rotation of each tile about its own center -- that is the canonical orientation doing its job.
   const sig = (tiles) => tiles
     .map((x) => toLocal(x.rel).map((v) => (Math.abs(v) < 1e-12 ? 0 : v).toFixed(12)).join(","))
     .sort()
     .join("|");
   for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 7, q: 3 }, { p: 5, q: 4 }]) {
     const t = new RegularTiling(spec);
-    const reference = sig(new Anchor(t).neighbourhood(Isom.identity(), 0.62, 200));
+    const reference = sig(new Anchor(t).neighborhood(Isom.identity(), 0.62, 200));
     // 1,000 tiles rather than the 5,000 this once used: an exact id is one BigInt matrix per tile and
     // its width grows with distance, so a 5,000-tile walk now costs seconds of arithmetic rather than
     // milliseconds. 1,000 tiles is ~1,500 hyperbolic units, still forty times past where a global
@@ -488,7 +488,7 @@ test("the neighbourhood walk is IDENTICAL however far the camera has travelled",
       anchor.address = advanceAddress(t, walk, 700 + walk);
       assert.ok(addressDistance(t, anchor.address) >= walk * 0.25,
         `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
-      assert.equal(sig(anchor.neighbourhood(Isom.identity(), 0.62, 200)), reference,
+      assert.equal(sig(anchor.neighborhood(Isom.identity(), 0.62, 200)), reference,
         `{${spec.p},${spec.q}} differs after ${walk} tile steps`);
     }
   }
@@ -502,14 +502,14 @@ test("the binary walk is identical under latitude shift, which IS its exact symm
   const at = (lat) => {
     const anchor = new Anchor(t, { address: { lat: BigInt(lat), lon: 0n } });
     return anchor
-      .neighbourhood(Isom.identity(), 0.62, 200)
+      .neighborhood(Isom.identity(), 0.62, 200)
       .map((x) => toLocal(x.rel).map((v) => v.toFixed(12)).join(","))
       .sort()
       .join("|");
   };
   const reference = at(0);
   for (const lat of [1, 5, 50, 500, 5000]) {
-    assert.equal(at(lat), reference, `binary neighbourhood differs at latitude ${lat}`);
+    assert.equal(at(lat), reference, `binary neighborhood differs at latitude ${lat}`);
   }
 });
 
@@ -534,7 +534,7 @@ test("the walk terminates and stays bounded even at absurd distance", () => {
       assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
         `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
       const started = Date.now();
-      const tiles = anchor.neighbourhood(Isom.identity(), 0.9, 200);
+      const tiles = anchor.neighborhood(Isom.identity(), 0.9, 200);
       assert.ok(Array.isArray(tiles) && tiles.length > 0);
       assert.ok(tiles.length <= 200);
       assert.ok(Date.now() - started < 5000, `walk took ${Date.now() - started} ms after ${walk} steps`);
@@ -547,29 +547,29 @@ test("every returned tile is near enough to matter, and the nearest ones are kep
   const t = new RegularTiling({ p: 5, q: 4 });
   const anchor = new Anchor(t);
   const rho = 2 * Math.atanh(0.9);
-  const tiles = anchor.neighbourhood(Isom.identity(), 0.9, 300);
+  const tiles = anchor.neighborhood(Isom.identity(), 0.9, 300);
   assert.ok(tiles.length > 20, `only ${tiles.length} tiles`);
   for (const x of tiles) {
     const c = toLocal(x.rel);
     const d = 2 * Math.asinh(Math.hypot(c[0], c[1]));
     assert.ok(d <= rho + t.metrics.circumradius + 1e-6, `tile at distance ${d} is too far`);
   }
-  // With a tight budget the count is honoured exactly, truncation is reported, and what survives is
+  // With a tight budget the count is honored exactly, truncation is reported, and what survives is
   // the near part of the scene rather than whatever the walk happened to reach first.
   //
   // The guarantee is deliberately "near", not "provably the nearest N". BFS explores by GRAPH distance,
   // which only approximates geometric distance, so making it exact would mean enumerating the whole
   // include radius before choosing -- precisely the work the budget exists to avoid. What is asserted
   // instead is that the admitted set reaches no further than the ideal set plus one tile spacing, which
-  // is the property that matters for rendering: no near tile is dropped in favour of a far one.
-  const few = anchor.neighbourhood(Isom.identity(), 0.9, 12);
-  assert.equal(few.length, 12, "the budget must be honoured exactly");
+  // is the property that matters for rendering: no near tile is dropped in favor of a far one.
+  const few = anchor.neighborhood(Isom.identity(), 0.9, 12);
+  assert.equal(few.length, 12, "the budget must be honored exactly");
   assert.ok(anchor.lastTruncated, "truncation must be reported");
   const distOf = (x) => 2 * Math.asinh(Math.hypot(toLocal(x.rel)[0], toLocal(x.rel)[1]));
   const dists = few.map(distOf).sort((a, b) => a - b);
   const allD = tiles.map(distOf).sort((a, b) => a - b);
   assert.ok(
-    dists[11] <= allD[11] + t.metrics.centreSpacing,
+    dists[11] <= allD[11] + t.metrics.centerSpacing,
     `truncated set reaches ${dists[11].toFixed(4)}, ideal 12th is ${allD[11].toFixed(4)}`,
   );
   assert.ok(Math.abs(dists[0] - allD[0]) < 1e-9, "the nearest tile must always be kept");
@@ -583,7 +583,7 @@ test("no holes: every cell owning a visible point is enumerated (binary)", () =>
   for (const lat of [0, 3, -4, 40, 400]) {
     const anchor = new Anchor(t, { address: { lat: BigInt(lat), lon: 0n } });
     const V = Isom.identity();
-    const tiles = anchor.neighbourhood(V, 0.6, 400);
+    const tiles = anchor.neighborhood(V, 0.6, 400);
     assert.ok(!anchor.lastTruncated, `truncated at latitude ${lat}`);
     const invs = tiles.map((x) => x.rel.inverse());
     let checked = 0;
@@ -622,7 +622,7 @@ test("no holes: every point is owned by exactly one tile (regular tilings)", () 
       assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
         `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
       const V = Isom.identity();
-      const tiles = anchor.neighbourhood(V, 0.6, 400);
+      const tiles = anchor.neighborhood(V, 0.6, 400);
       const invs = tiles.map((x) => x.rel.inverse());
       let holes = 0;
       let overlaps = 0;
@@ -653,7 +653,7 @@ test("addresses round-trip: walk out and back returns the same address", () => {
   // the same place. What it must use is `reverseGenerator`, NOT `inverseGenerator` -- the child's
   // canonical frame differs from the frame the step produced by a power of P, and conjugating by P
   // permutes the generators, so the index that walks back is a different one. Using the plain inverse
-  // index lands on a real but WRONG neighbour, which is exactly the sort of failure that looks like
+  // index lands on a real but WRONG neighbor, which is exactly the sort of failure that looks like
   // nothing until a hundred steps later.
   for (const spec of REGULARS) {
     const t = new RegularTiling(spec);
@@ -675,31 +675,31 @@ test("addresses round-trip: walk out and back returns the same address", () => {
   const seq = [BIN_CHILD1, BIN_RIGHT, BIN_CHILD0, BIN_LEFT, BIN_CHILD1, BIN_CHILD0, BIN_RIGHT];
   const back = [];
   for (const g of seq) {
-    const nb = b.neighbours(addr).find((n) => n.gen === g);
+    const nb = b.neighbors(addr).find((n) => n.gen === g);
     back.push(nb.gen);
     addr = nb.address;
   }
   for (let i = back.length - 1; i >= 0; i--) {
     const want = b.inverseGenerator(back[i]);
-    const nb = b.neighbours(addr).find((n) => n.gen === want);
-    assert.ok(nb, `no neighbour with generator ${want} from ${b.addressToString(addr)}`);
+    const nb = b.neighbors(addr).find((n) => n.gen === want);
+    assert.ok(nb, `no neighbor with generator ${want} from ${b.addressToString(addr)}`);
     addr = nb.address;
   }
   assert.ok(b.addressEquals(addr, b.originAddress()), `binary did not return: ${b.addressToString(addr)}`);
 });
 
-test("a tile reached two different ways is recognised as one tile", () => {
+test("a tile reached two different ways is recognized as one tile", () => {
   // Going around a vertex reaches one tile by several routes, and the walk must return it once. This
   // checks that the dedup actually fires rather than never being exercised.
   const t = new RegularTiling({ p: 5, q: 4 });
   const anchor = new Anchor(t);
-  const tiles = anchor.neighbourhood(Isom.identity(), 0.85, 400);
-  const byCentre = new Map();
+  const tiles = anchor.neighborhood(Isom.identity(), 0.85, 400);
+  const byCenter = new Map();
   for (const x of tiles) {
     const c = toLocal(x.rel);
     const key = `${Math.round(c[0] * 1e6)},${Math.round(c[1] * 1e6)}`;
-    assert.ok(!byCentre.has(key), `two tiles at the same centre: ${t.addressToString(x.address)} and ${byCentre.get(key)}`);
-    byCentre.set(key, t.addressToString(x.address));
+    assert.ok(!byCenter.has(key), `two tiles at the same center: ${t.addressToString(x.address)} and ${byCenter.get(key)}`);
+    byCenter.set(key, t.addressToString(x.address));
   }
 });
 
@@ -708,7 +708,7 @@ test("a {p,q} generator can have FINITE ORDER, so a long walk can be standing st
   // than left in a comment.
   //
   // {8,3} with frameSymmetry 4 takes its steps with 2*pi/3 rotations about octagon VERTICES -- legitimate
-  // edge-neighbour moves, since three octagons meet at each vertex and pairwise share edges. But such a
+  // edge-neighbor moves, since three octagons meet at each vertex and pairwise share edges. But such a
   // rotation has order 3 in the isometry group (g^3 = -I, g^6 = +I), so five steps of generator 0 name
   // a tile 1.53 units away, and five thousand are still 1.53 units away.
   //
@@ -758,7 +758,7 @@ test("addressDistance agrees with the tiling's own frame builder near the origin
   // Cross-validate the measuring instrument before trusting its verdicts. `addressDistance` composes
   // generators in log-scaled form so it works at any depth -- but that machinery is only trustworthy if
   // it reproduces the straightforward computation where the straightforward one is still valid. (A sign
-  // error in exactly this multiply made a walk look like it travelled 2,524 units when its address sat
+  // error in exactly this multiply made a walk look like it traveled 2,524 units when its address sat
   // at 1.1, and it was invisible until the two routes were compared.)
   let worst = 0;
   let compared = 0;
@@ -805,22 +805,22 @@ test("advanceAddress refuses to return a walk that did not travel", () => {
       assert.ok(d > prev, `{${spec.p},${spec.q}}: ${n} steps reached ${d}, not past ${prev}`);
       // Each step should be worth a decent fraction of the tile spacing, or "500 tiles out" is a fiction.
       assert.ok(
-        d > n * t.metrics.centreSpacing * 0.5,
-        `{${spec.p},${spec.q}}: ${n} steps travelled only ${d.toFixed(2)}, under half spacing per step`,
+        d > n * t.metrics.centerSpacing * 0.5,
+        `{${spec.p},${spec.q}}: ${n} steps traveled only ${d.toFixed(2)}, under half spacing per step`,
       );
       prev = d;
     }
   }
 });
 
-test("two routes to one tile differ by exactly the stabiliser C_m, never more", () => {
-  // The group fact that canonicalisation rests on, measured rather than taken from theory.
+test("two routes to one tile differ by exactly the stabilizer C_m, never more", () => {
+  // The group fact that canonicalization rests on, measured rather than taken from theory.
   //
   // Walk the tile graph with RAW generator products, keeping one frame per tile. When a second route
   // reaches a tile already seen, `frame_seen^-1 . frame_new` is the discrepancy between two frames for
-  // ONE tile. Every such discrepancy must be a rotation about that tile's centre by a multiple of
+  // ONE tile. Every such discrepancy must be a rotation about that tile's center by a multiple of
   // 2*pi/m -- never a translation, never any other angle. That is what makes the coset F.C_m the right
-  // object to canonicalise over: the ambiguity is exactly C_m and nothing else, so choosing the
+  // object to canonicalize over: the ambiguity is exactly C_m and nothing else, so choosing the
   // lex-least member of it resolves exactly as much as needs resolving.
   //
   // Measured on {8,3} m=4: 16 of 30 on-screen tiles differ by a multiple of 90 degrees between two
@@ -841,11 +841,11 @@ test("two routes to one tile differ by exactly the stabiliser C_m, never more", 
       if (hit) {
         collisions++;
         const rel = hit.frame.inverse().mul(m);
-        // It must FIX the tile centre -- a translation component would mean the walk had mixed up two
+        // It must FIX the tile center -- a translation component would mean the walk had mixed up two
         // different tiles, which would be a much worse bug than a rotated motif.
         assert.ok(
           Math.hypot(rel.br, rel.bi) < 1e-7,
-          `{${spec.p},${spec.q}}: two routes to one tile differ by something that moves the centre`,
+          `{${spec.p},${spec.q}}: two routes to one tile differ by something that moves the center`,
         );
         // And the rotation must be a multiple of 2*pi/m.
         const ang = 2 * Math.atan2(rel.ai, rel.ar);
@@ -861,14 +861,14 @@ test("two routes to one tile differ by exactly the stabiliser C_m, never more", 
       for (let i = 0; i < t.generatorCount(); i++) queue.push(m.mul(t.generator(i)));
     }
     assert.ok(collisions > 10, `{${spec.p},${spec.q}}: only ${collisions} collisions -- not exercising the rule`);
-    assert.equal(t.stabiliserOrder, t.m);
+    assert.equal(t.stabilizerOrder, t.m);
   }
 });
 
-test("the binary tiling's stabiliser is trivial, so its art is unconstrained", () => {
+test("the binary tiling's stabilizer is trivial, so its art is unconstrained", () => {
   // The reason the dungeon demo can put a DIFFERENT room in every cell while a {p,q} atlas cannot.
   const b = new BinaryTiling();
-  assert.equal(b.stabiliserOrder, 1);
+  assert.equal(b.stabilizerOrder, 1);
   // No two routes ever disagree: addresses are canonical integers, so a cell has exactly one frame.
   const seen = new Map();
   const queue = [{ a: b.originAddress(), m: Isom.identity() }];
@@ -880,17 +880,17 @@ test("the binary tiling's stabiliser is trivial, so its art is unconstrained", (
       checked++;
       assert.ok(
         sameIsometry(seen.get(key), m, 1e-9),
-        `binary cell ${key} reached by two routes with DIFFERENT frames -- the stabiliser is not trivial`,
+        `binary cell ${key} reached by two routes with DIFFERENT frames -- the stabilizer is not trivial`,
       );
       continue;
     }
     seen.set(key, m);
-    for (const n of b.neighbours(a)) queue.push({ a: n.address, m: m.mul(b.generator(n.gen)) });
+    for (const n of b.neighbors(a)) queue.push({ a: n.address, m: m.mul(b.generator(n.gen)) });
   }
   assert.ok(checked > 20, `only ${checked} revisits -- not exercising anything`);
 });
 
-test("tile classes agree by every route, and are a proper colouring", () => {
+test("tile classes agree by every route, and are a proper coloring", () => {
   // A class comes from a group homomorphism phi: Gamma -> Z/n, so it is defined on group ELEMENTS and
   // every route to a tile computes the same value -- provided the modulus really is one the group
   // admits, which is what this checks.
@@ -928,7 +928,7 @@ test("tile classes agree by every route, and are a proper colouring", () => {
       const c = t.tileClass(a);
       used.add(c);
       seen.push({ x: z[0], y: z[1], c });
-      for (const n of t.neighbours(a)) queue.push({ a: n.address, m: m.mul(t.generator(n.gen)) });
+      for (const n of t.neighbors(a)) queue.push({ a: n.address, m: m.mul(t.generator(n.gen)) });
     }
     assert.ok(collisions > 10, `${tag}: only ${collisions} collisions -- not exercising anything`);
     assert.equal(used.size, t.classModulus, `${tag}: ${used.size} classes actually used, modulus says ${t.classModulus}`);
@@ -940,20 +940,20 @@ test("tile classes agree by every route, and are a proper colouring", () => {
 });
 
 test("adjacent tiles never share a class, when classes exist", () => {
-  // What makes the classes useful as colours: neighbours differ, so the tiling reads as a proper
-  // colouring rather than as noise.
+  // What makes the classes useful as colors: neighbors differ, so the tiling reads as a proper
+  // coloring rather than as noise.
   for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 5, q: 4 }, { p: 6, q: 4 }]) {
     const t = new RegularTiling(spec);
     assert.ok(t.classModulus > 1);
     let a = t.originAddress();
     for (let leg = 0; leg < 40; leg++) {
-      for (const n of t.neighbours(a)) {
+      for (const n of t.neighbors(a)) {
         assert.notEqual(
           t.tileClass(n.address), t.tileClass(a),
-          `{${spec.p},${spec.q}}: a tile and its neighbour share class ${t.tileClass(a)}`,
+          `{${spec.p},${spec.q}}: a tile and its neighbor share class ${t.tileClass(a)}`,
         );
       }
-      a = t.neighbours(a)[leg % t.generatorCount()].address;
+      a = t.neighbors(a)[leg % t.generatorCount()].address;
     }
   }
 });
@@ -962,7 +962,7 @@ test("adjacent tiles never share a class, when classes exist", () => {
 //
 // The general case of a tile class: a homomorphism from the walk group into a permutation group,
 // declared by the caller rather than discovered by the library. What makes it a different mechanism
-// and not a wider integer is that it does NOT kill the tile stabiliser -- phi(P) is a real permutation
+// and not a wider integer is that it does NOT kill the tile stabilizer -- phi(P) is a real permutation
 // -- so the accumulation has to carry the canonical fold's P^k, and a tile's colors are only
 // well-defined because its frame is.
 
@@ -976,7 +976,7 @@ function a4From(g0) {
   gens[0] = g0;
   gens[1] = inv(g0);
   for (let g = 0; g < 6; g++) gens[g + 2] = mul(mul(PHI_P, gens[g]), inv(PHI_P));
-  return { colors: 4, generators: gens, stabiliser: PHI_P };
+  return { colors: 4, generators: gens, stabilizer: PHI_P };
 }
 const ESCHER = () => a4From([2, 0, 1, 3]);
 
@@ -1039,7 +1039,7 @@ test("two routes to one tile give the same colors, and out-and-back returns the 
   }
   assert.ok(compared > 100, `only ${compared} tiles were reached twice -- not evidence`);
 
-  // Walk out a hundred crossings and come back: every tile on the way home must be recognised, and the
+  // Walk out a hundred crossings and come back: every tile on the way home must be recognized, and the
   // element at the end must be exactly the identity again, not merely close.
   let node = origin;
   const steps = [];
@@ -1062,7 +1062,7 @@ test("two routes to one tile give the same colors, and out-and-back returns the 
 
 test("an evicted tile is re-derived with the same colors", () => {
   // Nothing may depend on a node object surviving: the store is bounded, and a tile re-reached after
-  // eviction is rebuilt from whichever neighbour happens to reach it. If the accumulation were not a
+  // eviction is rebuilt from whichever neighbor happens to reach it. If the accumulation were not a
   // homomorphism that would repaint tiles as you scrolled back over them.
   const t = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4, colorSymmetry: ESCHER() });
   const origin = t.originAddress();
@@ -1100,7 +1100,7 @@ test("a color symmetry that is not a homomorphism is rejected, and each way of b
   bad({ ...good, generators: good.generators.slice(0, 4) }, /one permutation per walk generator \(8 /);
   bad({ ...good, generators: good.generators.map((g, i) => (i === 3 ? [0, 0, 1, 2] : g)) },
     /generators\[3\] is not a permutation of 4 colors/);
-  bad({ ...good, stabiliser: [1, 2, 0, 3] }, /stabiliser must have order dividing 4/);
+  bad({ ...good, stabilizer: [1, 2, 0, 3] }, /stabilizer must have order dividing 4/);
   bad({ ...good, generators: good.generators.map((g, i) => (i === 1 ? good.generators[0] : g)) },
     /generators\[1\] must be the inverse of generators\[0\]/);
   // Conjugation, on its own: swap the images of an inverse PAIR, so they are still each other's
@@ -1113,7 +1113,7 @@ test("a color symmetry that is not a homomorphism is rejected, and each way of b
   // THE ONE THAT MATTERS. Every cheap check above is necessary and none is sufficient: of the 24
   // permutations that could be phi(G_0), 16 satisfy all of them and are still not homomorphisms, and
   // only walking the tile graph finds that out. The most innocent-looking of the 16 is the identity --
-  // every generator fixing every colour -- which cannot be a homomorphism because P is a product of
+  // every generator fixing every color -- which cannot be a homomorphism because P is a product of
   // generators while phi(P) is not the identity.
   bad(a4From([0, 1, 2, 3]), /is not a homomorphism -- two routes to one tile/);
   bad(a4From([1, 0, 2, 3]), /is not a homomorphism/);

@@ -58,7 +58,7 @@ test("the bundle computes the same answers as the ESM source", async () => {
 
 test("the far-field precision fix survives the bundling", () => {
   const H = loadBundle();
-  // Recentring the view on a point puts it at the disk centre. The 2011 polynomial put this
+  // Recentring the view on a point puts it at the disk center. The 2011 polynomial put this
   // particular point on the disk boundary instead; see notes/su11-core.md.
   const x = 0;
   const y = 11711.92;

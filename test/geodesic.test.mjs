@@ -48,8 +48,8 @@ test("the arc circle is orthogonal to the unit circle and passes through both po
 });
 
 // Reconstruct the walk canvas performs for ctx.arc(cx, cy, r, -start, -end, anticlockwise), back in
-// the maths frame. Canvas sweeps from start to end in INCREASING canvas-angle unless anticlockwise,
-// and canvas angles are the negation of ours -- so `anticlockwise` means increasing maths angle.
+// the math frame. Canvas sweeps from start to end in INCREASING canvas-angle unless anticlockwise,
+// and canvas angles are the negation of ours -- so `anticlockwise` means increasing math angle.
 function sweepExtent(arc, flip) {
   const a0 = arc.startAngle;
   let a1 = arc.endAngle;
@@ -129,7 +129,7 @@ test("the swept arc stays inside the unit disk", () => {
     // Walk the arc the way canvas would and check every sample is inside the disk.
     let a0 = out.startAngle;
     let a1 = out.endAngle;
-    // In the maths frame, anticlockwise (in canvas terms) means increasing theta.
+    // In the math frame, anticlockwise (in canvas terms) means increasing theta.
     if (out.anticlockwise) {
       while (a1 < a0) a1 += 2 * Math.PI;
     } else {

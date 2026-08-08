@@ -173,7 +173,7 @@ export class Renderer {
 
   // The per-drawable style cache is only valid while nothing else writes to the context, so every
   // path that does must clear it. Cheaper to be blunt about this than to reason case by case: a
-  // stale cache means a shape silently painted in the previous shape's colour.
+  // stale cache means a shape silently painted in the previous shape's color.
   forgetCanvasState() {
     this.lastFill = null;
     this.lastStroke = null;
@@ -196,9 +196,9 @@ export class Renderer {
     const drawRadius = view.drawRadius;
 
     // Everything the cap test needs, computed once per frame.
-    const centre = m.centreLocal([0, 0]);
-    const cX = centre[0];
-    const cY = centre[1];
+    const center = m.centerLocal([0, 0]);
+    const cX = center[0];
+    const cY = center[1];
     const cW = Math.sqrt(1 + cX * cX + cY * cY);
     const capCache = new Map();
 
@@ -216,7 +216,7 @@ export class Renderer {
         thr = capThreshold(Math.min(drawRadius, 0.999999), d.cap.radius);
         capCache.set(d.cap.radius, thr);
       }
-      // cosh(d/2)^2 between the view centre and this drawable's bounding cap -- the same quantity
+      // cosh(d/2)^2 between the view center and this drawable's bounding cap -- the same quantity
       // the visibility test needs, so compute it once and use it twice.
       const cap = d.cap;
       const A = cap.w * cW - cap.x * cX - cap.y * cY;
@@ -235,7 +235,7 @@ export class Renderer {
       //
       // The STROKE has to be counted, not just the geometry. A shape 0.3 px across drawn with a
       // 2 px stroke still paints a 2 px mark, so a gate on the fill's size alone erases marks that
-      // are plainly visible. Measured before this was added: at a panned view, 0.17% of colour
+      // are plainly visible. Measured before this was added: at a panned view, 0.17% of color
       // channels changed, some by a full 255, while a control comparing two identical renders
       // differed by exactly nothing -- so those were real losses, not rasterizer noise.
       //
@@ -316,7 +316,7 @@ export class Renderer {
       }
       ctx.closePath();
       // Assigning a canvas style property is not free in Chrome even when the value is unchanged --
-      // it re-parses the CSS colour string. Styles are interned at compile time and the data is
+      // it re-parses the CSS color string. Styles are interned at compile time and the data is
       // depth-sorted, so consecutive drawables very often share one, and skipping the redundant
       // assignment is measurable on scenes with tens of thousands of shapes.
       if (this.lastFill !== style.fill) {
@@ -387,7 +387,7 @@ export class Renderer {
     for (let i = 0; i < n; i++) if (d.flags[i] & FLAG_MARKER) { hasMarker = true; break; }
     if (hasMarker) {
       this.lastFill = null;
-      // The 2011 code read the marker radius out of the FILL COLOUR field, giving ctx.arc a string
+      // The 2011 code read the marker radius out of the FILL COLOR field, giving ctx.arc a string
       // radius, hence NaN, hence no markers at all. None of the four shipped datasets uses marker
       // flags, so it was unobservable there -- but it is fixed here rather than reproduced.
       ctx.fillStyle = style.markerFill;

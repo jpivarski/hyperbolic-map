@@ -34,7 +34,7 @@ export function coshHalfDistanceSquared(x1, y1, w1, x2, y2, w2) {
   return a * a + b * b;
 }
 
-// A point is inside screen radius `tau` of the view centre iff cosh(d/2) < 1/sqrt(1 - tau^2).
+// A point is inside screen radius `tau` of the view center iff cosh(d/2) < 1/sqrt(1 - tau^2).
 // This returns the SQUARED threshold, so callers can compare against
 // coshHalfDistanceSquared without a sqrt.
 export function screenRadiusToThresholdSquared(tau) {
@@ -52,7 +52,7 @@ export class Cap {
     this.radius = radius;
   }
 
-  // Take the first point as the centre and the furthest distance as the radius. Not the minimal
+  // Take the first point as the center and the furthest distance as the radius. Not the minimal
   // enclosing cap, but correctness does not depend on minimality -- only on enclosure.
   static enclosing(xs, ys, start, count) {
     if (count <= 0) return new Cap(0, 0, 0);
@@ -68,9 +68,9 @@ export class Cap {
   }
 }
 
-// Can any point of `cap` be visible within screen radius `tau` of the view centre `(cx, cy, cw)`?
+// Can any point of `cap` be visible within screen radius `tau` of the view center `(cx, cy, cw)`?
 //
-// Reject iff d(capCentre, viewCentre) > rho + capRadius, where rho = 2 artanh(tau). Precompute
+// Reject iff d(capCenter, viewCenter) > rho + capRadius, where rho = 2 artanh(tau). Precompute
 // cosh((rho + capRadius)/2) per cap-radius value; here it is passed in as `coshHalfSum`.
 export function capMayBeVisible(cap, cx, cy, cw, coshHalfSum) {
   const a = cap.w * cw - cap.x * cx - cap.y * cy;

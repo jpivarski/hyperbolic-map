@@ -2297,3 +2297,74 @@ times out, and `runAllChecks()` certainly does): ground truth 9.29e-14; translat
 out to 5,107 hyperbolic units; ownership 6980/6980 and 0 seam pixels; 0 stray pixels beyond the rim;
 address round-trip 9/9; boundedness max|V| 1.0000; picking 14463/14463; smoothness 45/45; hundred-step
 scroll 9/9 tilings within budget.
+
+
+## 2026-08-08-h — Release prep 4/6: American English, including the public API
+
+Issue #4, fifth box. **950 replacements across 60 files.** Not a blind `sed`: a script first
+extracted every distinct case-sensitive token in the tree matching a wide British-spelling pattern,
+and the replacement table is that inventory, hand-mapped entry by entry. That is what keeps
+`analysis`, `realistic` and `checkerboard` — all already American — out of it; a stem rule
+`realis -> realiz` would have produced `realiztic`.
+
+### The public API changed, and it had to change here
+
+Jim's call. Options were already American (`center`, `background`, `colorSymmetry`) while everything
+underneath was British, so the surface was inconsistent with itself. The freeze is the next commit,
+so this was the last chance to make the frozen API the clean one. No aliases and no compatibility
+shims: the package is unpublished, so the old spellings simply cease to exist rather than lingering
+as a second way to say the same thing.
+
+| was | is |
+|---|---|
+| `dataProvider({centre, …})` | `{center, …}` |
+| `tiling.neighbours(address)` | `tiling.neighbors(address)` |
+| `tiling.neighbourGens(address)` | `tiling.neighborGens(address)` |
+| `tiling.neighbourCentresLocal` | `tiling.neighborCentersLocal` |
+| `tiling.metrics.centreSpacing` | `tiling.metrics.centerSpacing` |
+| `tiling.stabiliserOrder` | `tiling.stabilizerOrder` |
+| `colorSymmetry.stabiliser` | `colorSymmetry.stabilizer` |
+| `Isom.centreLocal(out)` | `Isom.centerLocal(out)` |
+| `Anchor.viewCentreLocal(m, out)` | `Anchor.viewCenterLocal(m, out)` |
+| `Anchor.neighbourhood(m, r, n)` | `Anchor.neighborhood(m, r, n)` |
+| tile field `centreRelativeDisk` | `centerRelativeDisk` |
+| `normaliseOptionsForTesting` | `normalizeOptionsForTesting` |
+
+The custom-tiling protocol in README.md moved with them, since `neighbours` and `centreSpacing` are
+things an implementer has to spell.
+
+### The one deliberate exception
+
+**`Arc.anticlockwise` stays British.** It is the name the HTML specification gives the sixth argument
+of `CanvasRenderingContext2D.arc()`, which this field is passed straight into; spelling it the
+American way would make the call site read `ctx.arc(..., arc.counterclockwise)` and hide the
+correspondence. A comment on the class now says so, so the next spelling sweep does not "fix" it.
+
+`inkscape:pagecheckerboard` in two committed SVGs is Inkscape's own attribute and was likewise left.
+
+### Scope
+
+`notes/log.md` was NOT swept. It is the append-only record and rewriting past entries to change their
+spelling is exactly what the house rule forbids; the entries above this one still say "colour" and
+should. Every other note, and `AGENTS.md`, `README.md`, `docs/MATH.md`, `tools/README.md`, the demo
+pages, the Python tools and the two audits, were swept — those describe the code as it is now.
+
+### Verified
+
+* `npm run check`; `npm test` **179/179**; `npm run build`.
+* `dev/audit_atlas_math.py` — **31 passed, 0 failed**. `dev/audit_atlas_numeric.py` — **7 passed, 0
+  failed**. Re-run because the sweep touched `src/core/` and `src/data/atlas/`, as AGENTS.md requires.
+* The two Python tools reproduce their previous output **exactly** (byte-identical SVG apart from the
+  recorded input path; identical JSON), so renaming inside them is behavior-preserving.
+* Browser: `escher.html` renders, console empty, and reports `stabilizerOrder: 4`,
+  `metrics.centerSpacing: 1.5285709194809989`, `neighbors()` returning 8, `colorCount: 12`.
+  `dungeon-man.html` renders, console empty. Diagnostics checks 1, 2 and 9 — the most sensitive —
+  return byte-for-byte the same numbers as before the sweep (ground truth 9.29e-14, invariance 45/45,
+  smoothness 45/45 with an identical per-tiling breakdown).
+
+### Noticed, not fixed here
+
+`tools/README.md` claims the `escher-atlas.json` round trip is "bit-for-bit identical". It is not, and
+was not before this change either: `--coords local` comes back with a worst coordinate delta of 4e-11
+(the tool itself prints "round-trip precision: worst 4.3e-12"). Pre-existing and unrelated to
+spelling; it belongs to the documentation-correctness box later in issue #4.

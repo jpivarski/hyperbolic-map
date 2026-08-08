@@ -34,7 +34,7 @@ export function uni(r, lo, hi) {
 // Second implementations of quantities the library also computes, written straight from the defining
 // formula rather than from the library's code. Their whole value is that they were derived
 // separately: a test that compares the library against a rearrangement of itself proves nothing.
-// Keep them naive. Do not "optimise" them to look like src/.
+// Keep them naive. Do not "optimize" them to look like src/.
 
 // Hyperbolic distance in the Poincare disk. Cross-validated during the audit against the hyperboloid
 // inner product and the half-plane formula (agreement 8.2e-13).
@@ -72,7 +72,7 @@ export function diskToHalfPlaneDirect(zx, zy) {
   return [(nr * dr + ni * di) / dd, (ni * dr - nr * di) / dd];
 }
 
-// Walk a tiling's addresses n steps and GUARANTEE the walk travelled, by measuring the geometry.
+// Walk a tiling's addresses n steps and GUARANTEE the walk traveled, by measuring the geometry.
 //
 // COUNTING STEPS IS NOT MEASURING DISTANCE, and the two traps below are why every test that wants to be
 // "far out" has to come through here.
@@ -83,18 +83,18 @@ export function diskToHalfPlaneDirect(zx, zy) {
 //
 // The second is subtler and defeats a plain no-backtracking rule, because a {p,q} generator can have
 // FINITE ORDER. {8,3} m=4's generator 0 is a 2*pi/3 rotation about an octagon vertex: g^3 = -I. It is a
-// perfectly good edge-neighbour step -- three octagons meet at each vertex and pairwise share edges --
+// perfectly good edge-neighbor step -- three octagons meet at each vertex and pairwise share edges --
 // but five of them name a tile 1.53 units away and five thousand are still 1.53 units away. A walk can
 // go in circles forever while its step count grows.
 //
-// So this walk is greedy-outward: at each step it takes the neighbour that most increases the distance
-// travelled, and it verifies that the distance strictly grew. Ties broken by the seeded PRNG so
+// So this walk is greedy-outward: at each step it takes the neighbor that most increases the distance
+// traveled, and it verifies that the distance strictly grew. Ties broken by the seeded PRNG so
 // different seeds give different rays.
 export function advanceAddress(tiling, n, seed = 12345) {
   return advanceAddressWithDistance(tiling, n, seed).address;
 }
 
-// The same walk, also returning the hyperbolic distance actually travelled.
+// The same walk, also returning the hyperbolic distance actually traveled.
 export function advanceAddressWithDistance(tiling, n, seed = 12345) {
   let s = seed >>> 0;
   const rand = () => {
@@ -119,7 +119,7 @@ export function advanceAddressWithDistance(tiling, n, seed = 12345) {
   let progress = logAbsA();
 
   for (let i = 0; i < n; i++) {
-    const nbrs = tiling.neighbours(address);
+    const nbrs = tiling.neighbors(address);
     let best = null;
     const offset = Math.floor(rand() * nbrs.length);
     for (let k = 0; k < nbrs.length; k++) {
@@ -193,7 +193,7 @@ function logAbsExact(R, a) {
 //
 //     cosh d(O, F.O) = -B(O_hat, F O_hat) = B(v_O, F v_O) / B(v_O, v_O)
 //
-// with v_O the tile-centre vector and B the Coxeter form. Deliberately NOT the route
+// with v_O the tile-center vector and B the Coxeter form. Deliberately NOT the route
 // `globalFrameForTesting` takes (intertwiner -> SU(1,1) -> distanceMoved), so the two remain
 // independent witnesses; the cross-check test below compares them where both are valid. The doubled
 // Gram matrix the library stores is 2B, and the factor of two cancels in the ratio.

@@ -1,7 +1,7 @@
 // The clock hands. NOT part of the library.
 //
 // Transcribed from the inline data in the 2012 `clock.html`, converted to the v2 drawable schema.
-// The three labelled segments run outward along a single radial line: "hour" near the centre,
+// The three labeled segments run outward along a single radial line: "hour" near the center,
 // "minute" further out, "second" much further out again -- which works because there is
 // exponentially more room the further out you go.
 
@@ -19,7 +19,7 @@ export const CLOCK_HANDS = [
     lineWidth: 3.0,
   },
   {
-    // The little circle at the centre.
+    // The little circle at the center.
     type: "path",
     points: [
       [0.05, -0.03314517, "L"], [0.0452134, -0.05452093, "L"], [0.03358215, -0.07018942, "L"],

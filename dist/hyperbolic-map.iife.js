@@ -184,7 +184,7 @@ class Isom {
   // ---- readouts ----
 
   // Screen bearing of the half-plane's "north" (its ideal point, which this convention places at
-  // the top of the disk). Geodesics through the disk centre are straight diameters, so this is
+  // the top of the disk). Geodesics through the disk center are straight diameters, so this is
   // just the argument of the image of that boundary point. Verified equal to the 2011
   // `halfPlaneOrientation` to 7e-13 -- a simplification, not a bug fix.
   north() {
@@ -209,8 +209,8 @@ class Isom {
     return out;
   }
 
-  // The view centre in local coordinates: the point that this isometry sends to the origin.
-  centreLocal(out) {
+  // The view center in local coordinates: the point that this isometry sends to the origin.
+  centerLocal(out) {
     const inv = this.inverse();
     inv.applyToDisk(0, 0, out);
     const r2 = out[0] * out[0] + out[1] * out[1];
@@ -336,7 +336,7 @@ function halfPlaneToLocal(px, py, out) {
   const sinhHalf = t / Math.sqrt((1 - t) * (1 + t));
 
   // Direction: the map is z -> i(z - i)/(z + i), so the phase is that of i(z - i)(conj(z) - i)... but
-  // it is clearer, and better conditioned, to form the disk image directly and normalise it.
+  // it is clearer, and better conditioned, to form the disk image directly and normalize it.
   //   (z - i)/(z + i), then multiply by i
   const nr = px;
   const ni = py - 1;
@@ -416,7 +416,7 @@ function coshHalfDistanceSquared(x1, y1, w1, x2, y2, w2) {
   return a * a + b * b;
 }
 
-// A point is inside screen radius `tau` of the view centre iff cosh(d/2) < 1/sqrt(1 - tau^2).
+// A point is inside screen radius `tau` of the view center iff cosh(d/2) < 1/sqrt(1 - tau^2).
 // This returns the SQUARED threshold, so callers can compare against
 // coshHalfDistanceSquared without a sqrt.
 function screenRadiusToThresholdSquared(tau) {
@@ -434,7 +434,7 @@ class Cap {
     this.radius = radius;
   }
 
-  // Take the first point as the centre and the furthest distance as the radius. Not the minimal
+  // Take the first point as the center and the furthest distance as the radius. Not the minimal
   // enclosing cap, but correctness does not depend on minimality -- only on enclosure.
   static enclosing(xs, ys, start, count) {
     if (count <= 0) return new Cap(0, 0, 0);
@@ -450,9 +450,9 @@ class Cap {
   }
 }
 
-// Can any point of `cap` be visible within screen radius `tau` of the view centre `(cx, cy, cw)`?
+// Can any point of `cap` be visible within screen radius `tau` of the view center `(cx, cy, cw)`?
 //
-// Reject iff d(capCentre, viewCentre) > rho + capRadius, where rho = 2 artanh(tau). Precompute
+// Reject iff d(capCenter, viewCenter) > rho + capRadius, where rho = 2 artanh(tau). Precompute
 // cosh((rho + capRadius)/2) per cap-radius value; here it is passed in as `coshHalfSum`.
 function capMayBeVisible(cap, cx, cy, cw, coshHalfSum) {
   const a = cap.w * cw - cap.x * cx - cap.y * cy;
@@ -514,7 +514,7 @@ class ViewState {
     this.gesture = null;
   }
 
-  // Re-express the view in a NEIGHBOURING tile's frame. `shift` is the generator carrying the new
+  // Re-express the view in a NEIGHBORING tile's frame. `shift` is the generator carrying the new
   // frame's coordinates into the old one's, so the matrices gain it on the right and everything stored
   // in the frame's DOMAIN has to be pulled back through its inverse.
   //
@@ -606,8 +606,8 @@ class ViewState {
 
     if (this.rotationMode === ROTATION_COMPASS) {
       // Hold the compass target at the bearing it had when the gesture started. This necessarily
-      // gives up pinning the grabbed point: a rotation about the screen centre moves it. That
-      // trade-off is inherent to compass mode and matches the 2011 behaviour.
+      // gives up pinning the grabbed point: a rotation about the screen center moves it. That
+      // trade-off is inherent to compass mode and matches the 2011 behavior.
       const correction = g.bearing - this.northOf(moved);
       this.liveMatrix = Isom.rotation(correction).mul(moved);
     } else {
@@ -1016,10 +1016,15 @@ class Surface {
 // "degenerate" branch is not an approximation -- it is the correct answer there.
 //
 // Sweep direction: the whole in-disk portion of a geodesic subtends 2*atan(1/r) < pi at the arc's
-// centre, so any sub-segment is the MINOR arc. Normalising the angle difference into (-pi, pi] and
+// center, so any sub-segment is the MINOR arc. Normalizing the angle difference into (-pi, pi] and
 // sweeping that way is therefore always right.
 
 // Result object, reused by the caller to avoid allocating per edge.
+//
+// `anticlockwise` is the one British spelling in this library, and it is deliberate: that is the
+// name the HTML specification gives the sixth argument of `CanvasRenderingContext2D.arc()`, which
+// this field is passed straight into. Spelling it the American way here would make the call site
+// read `ctx.arc(..., arc.counterclockwise)` and hide the correspondence.
 class Arc {
   constructor() {
     this.straight = true;
@@ -1039,7 +1044,7 @@ const DEGENERATE = 1e-10;
 // An edge is drawn as a straight chord only when it is visually straight: `sagittaTolerance`, in disk
 // units, is the largest bulge that may be flattened away. A fixed chord-LENGTH threshold would be
 // zoom-independent and therefore visibly wrong when zoomed in, since the same chord bulges further
-// across the screen the closer it is to the centre. Pass sagittaTolerance = 0 to always use an arc.
+// across the screen the closer it is to the center. Pass sagittaTolerance = 0 to always use an arc.
 function geodesicArc(x1, y1, x2, y2, out, sagittaTolerance) {
   const denom = x1 * y2 - x2 * y1;
   const dist2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
@@ -1080,7 +1085,7 @@ function geodesicArc(x1, y1, x2, y2, out, sagittaTolerance) {
   //
   //   canvas angle       = -theta
   //   signed short sweep = d = wrap(theta2 - theta1) in (-pi, pi]
-  //   d > 0 means increasing theta (counter-clockwise in the maths frame), which is DECREASING
+  //   d > 0 means increasing theta (counter-clockwise in the math frame), which is DECREASING
   //   canvas angle, which is what canvas calls anticlockwise = true.
   //
   // With delta = theta1 - theta2 = -d, that is `anticlockwise = delta < 0`.
@@ -1139,8 +1144,8 @@ const DEFAULT_STYLE = {
 // and it makes it impossible to spot runs of same-styled shapes.
 //
 // The table is module-scope so that the atlas, which compiles each tile separately, shares one set
-// across every tile. It is capped: a pathological generator emitting a unique colour per shape would
-// otherwise grow it without bound, and falling back to unshared objects is merely the old behaviour.
+// across every tile. It is capped: a pathological generator emitting a unique color per shape would
+// otherwise grow it without bound, and falling back to unshared objects is merely the old behavior.
 const styleTable = new Map();
 const STYLE_TABLE_LIMIT = 4096;
 
@@ -1443,7 +1448,7 @@ class Renderer {
 
   // The per-drawable style cache is only valid while nothing else writes to the context, so every
   // path that does must clear it. Cheaper to be blunt about this than to reason case by case: a
-  // stale cache means a shape silently painted in the previous shape's colour.
+  // stale cache means a shape silently painted in the previous shape's color.
   forgetCanvasState() {
     this.lastFill = null;
     this.lastStroke = null;
@@ -1466,9 +1471,9 @@ class Renderer {
     const drawRadius = view.drawRadius;
 
     // Everything the cap test needs, computed once per frame.
-    const centre = m.centreLocal([0, 0]);
-    const cX = centre[0];
-    const cY = centre[1];
+    const center = m.centerLocal([0, 0]);
+    const cX = center[0];
+    const cY = center[1];
     const cW = Math.sqrt(1 + cX * cX + cY * cY);
     const capCache = new Map();
 
@@ -1486,7 +1491,7 @@ class Renderer {
         thr = capThreshold(Math.min(drawRadius, 0.999999), d.cap.radius);
         capCache.set(d.cap.radius, thr);
       }
-      // cosh(d/2)^2 between the view centre and this drawable's bounding cap -- the same quantity
+      // cosh(d/2)^2 between the view center and this drawable's bounding cap -- the same quantity
       // the visibility test needs, so compute it once and use it twice.
       const cap = d.cap;
       const A = cap.w * cW - cap.x * cX - cap.y * cY;
@@ -1505,7 +1510,7 @@ class Renderer {
       //
       // The STROKE has to be counted, not just the geometry. A shape 0.3 px across drawn with a
       // 2 px stroke still paints a 2 px mark, so a gate on the fill's size alone erases marks that
-      // are plainly visible. Measured before this was added: at a panned view, 0.17% of colour
+      // are plainly visible. Measured before this was added: at a panned view, 0.17% of color
       // channels changed, some by a full 255, while a control comparing two identical renders
       // differed by exactly nothing -- so those were real losses, not rasterizer noise.
       //
@@ -1586,7 +1591,7 @@ class Renderer {
       }
       ctx.closePath();
       // Assigning a canvas style property is not free in Chrome even when the value is unchanged --
-      // it re-parses the CSS colour string. Styles are interned at compile time and the data is
+      // it re-parses the CSS color string. Styles are interned at compile time and the data is
       // depth-sorted, so consecutive drawables very often share one, and skipping the redundant
       // assignment is measurable on scenes with tens of thousands of shapes.
       if (this.lastFill !== style.fill) {
@@ -1657,7 +1662,7 @@ class Renderer {
     for (let i = 0; i < n; i++) if (d.flags[i] & FLAG_MARKER) { hasMarker = true; break; }
     if (hasMarker) {
       this.lastFill = null;
-      // The 2011 code read the marker radius out of the FILL COLOUR field, giving ctx.arc a string
+      // The 2011 code read the marker radius out of the FILL COLOR field, giving ctx.arc a string
       // radius, hence NaN, hence no markers at all. None of the four shipped datasets uses marker
       // flags, so it was unobservable there -- but it is fixed here rather than reproduced.
       ctx.fillStyle = style.markerFill;
@@ -1756,7 +1761,7 @@ class Renderer {
 // radius, so dragging past the rim silently froze the pan instead of clamping it -- and then
 // resumed from where it froze. Together these are what made the bug feel erratic.
 //
-// Defence in depth here, because any single mechanism can be defeated:
+// Defense in depth here, because any single mechanism can be defeated:
 //   1. setPointerCapture on pointerdown, so moves and the release are delivered even off-canvas;
 //   2. end the gesture on pointerup, pointercancel AND lostpointercapture;
 //   3. in pointermove, if a mouse reports buttons === 0 the button is already up (this catches a
@@ -1958,7 +1963,7 @@ class PointerInput {
       this.gestureEnded();
     } else if (this.pointers.size === 1 && this.mode === MODE_PINCH) {
       // Lifting one of two fingers resumes a one-finger pan from the survivor, matching the 2011
-      // behaviour.
+      // behavior.
       this.view.commit();
       const p = [...this.pointers.values()][0];
       if (p.x * p.x + p.y * p.y < this.options.interactRadius ** 2 && this.options.allowPan) {
@@ -1997,7 +2002,7 @@ class PointerInput {
     if (x * x + y * y >= this.options.drawRadius ** 2) return;
     if (e.preventDefault) e.preventDefault();
 
-    // Normalise across deltaMode: 0 = pixels, 1 = lines, 2 = pages.
+    // Normalize across deltaMode: 0 = pixels, 1 = lines, 2 = pages.
     let delta = e.deltaY;
     if (e.deltaMode === 1) delta *= 16;
     else if (e.deltaMode === 2) delta *= 100;
@@ -2046,7 +2051,7 @@ class PointerInput {
 // shared `passes(view)` shape is why HyperbolicViewport.render() is a single loop over pass
 // producers rather than a branch on which mode it is in.
 //
-// A source supplies compiled drawables for the current view. Two flavours:
+// A source supplies compiled drawables for the current view. Two flavors:
 //
 //   StaticSource    a fixed array, compiled once.
 //   CallbackSource  an async function of the view, with caching, in-flight de-duplication and
@@ -2074,7 +2079,7 @@ class CallbackSource {
   constructor(fn, options = {}) {
     this.fn = fn;
     this.styleSheet = options.styleSheet;
-    // Do not ask again until the view centre has moved by this fraction of the visible radius, or
+    // Do not ask again until the view center has moved by this fraction of the visible radius, or
     // the zoom has changed by this fraction. Without a gate, a per-frame source would issue a
     // request every frame of a drag.
     this.moveFraction = options.moveFraction !== undefined ? options.moveFraction : 0.25;
@@ -2099,7 +2104,7 @@ class CallbackSource {
   // and never again however far the user scrolled. Content simply never arrived.
   //
   // What actually matters is whether the previously-requested region has slid off the screen. So:
-  // project the previous request's centre under the CURRENT view and see how far it has drifted from
+  // project the previous request's center under the CURRENT view and see how far it has drifted from
   // the middle, as a fraction of the disk radius. That is bounded, scale-free, and directly
   // meaningful, and it behaves sensibly at every zoom.
   needsRequest(view, now) {
@@ -2127,9 +2132,9 @@ class CallbackSource {
   }
 
   request(view, now) {
-    const centre = view.matrix.centreLocal([0, 0]);
-    const cw = Math.sqrt(1 + centre[0] ** 2 + centre[1] ** 2);
-    this.lastRequest = { cx: centre[0], cy: centre[1], cw: cw, zoom: view.zoom };
+    const center = view.matrix.centerLocal([0, 0]);
+    const cw = Math.sqrt(1 + center[0] ** 2 + center[1] ** 2);
+    this.lastRequest = { cx: center[0], cy: center[1], cw: cw, zoom: view.zoom };
     this.lastRequestTime = now;
 
     // Supersede any request still outstanding.
@@ -2144,7 +2149,7 @@ class CallbackSource {
     this.controller = controller;
 
     const req = {
-      centre: [centre[0], centre[1]],
+      center: [center[0], center[1]],
       zoom: view.zoom,
       drawRadius: view.drawRadius,
       // How much of the disk can actually be on screen at this zoom. At zoom 3 on a square canvas
@@ -2286,10 +2291,10 @@ class SourceSet {
 // tile instead, and the matrix is multiplied by one O(1) generator. Measured: 1,256 tile crossings of
 // {8,3} leave max|V_c| at 1.105. Without it, 500 crossings would need entries of order 1e165.
 //
-// Note the camera tile does NOT have to be the tile containing the view centre. It only has to be
+// Note the camera tile does NOT have to be the tile containing the view center. It only has to be
 // NEAR it, so that V_c stays O(1) and the walk starts nearby. Tile identity comes from the walk's
-// addresses, not from which tile the camera picked, so a greedy nearest-centre rule is sufficient and
-// works uniformly for tilings whose cells are not Voronoi cells of their centres (the binary one).
+// addresses, not from which tile the camera picked, so a greedy nearest-center rule is sufficient and
+// works uniformly for tilings whose cells are not Voronoi cells of their centers (the binary one).
 
 // The camera holds only its ADDRESS. The camera-relative view matrix lives in the ViewState, which
 // already owns committed-versus-live bookkeeping, and is passed in. Duplicating it here would mean two
@@ -2309,8 +2314,8 @@ class Anchor {
     return this.tiling.addressEquals(this.address, this.tiling.originAddress());
   }
 
-  // The view centre expressed in camera-tile-local coordinates: V_c^-1(0). All small numbers.
-  viewCentreLocal(matrix, out) {
+  // The view center expressed in camera-tile-local coordinates: V_c^-1(0). All small numbers.
+  viewCenterLocal(matrix, out) {
     const inv = matrix.inverse();
     inv.applyToDisk(0, 0, this._buf);
     const zx = this._buf[0];
@@ -2324,10 +2329,10 @@ class Anchor {
     return out;
   }
 
-  // Move the camera to whichever neighbour's centre is nearest the view centre, repeatedly.
+  // Move the camera to whichever neighbor's center is nearest the view center, repeatedly.
   //
   // Every quantity here is in camera-local coordinates, so nothing knows or cares how far the camera
-  // has travelled. Bounded iteration because a single frame can only move the view a little; the
+  // has traveled. Bounded iteration because a single frame can only move the view a little; the
   // limit exists so a pathological setCamera cannot spin.
   // Returns the accumulated RIGHT factor: the caller must replace its matrix with matrix.mul(shift),
   // and must apply the same shift to any other representation of the same view (the ViewState keeps a
@@ -2344,33 +2349,33 @@ class Anchor {
     let shift = Isom.identity();
     let current = matrix;
     let steps = 0;
-    // Monotonicity guard. Each step must bring the view centre strictly closer to the camera tile's
-    // centre; that is what makes the descent terminate. Enforcing it here rather than trusting each
+    // Monotonicity guard. Each step must bring the view center strictly closer to the camera tile's
+    // center; that is what makes the descent terminate. Enforcing it here rather than trusting each
     // tiling's rule means a tiling with a subtly non-monotone `stepToward` degrades to "stop early"
     // instead of spinning to the iteration cap -- which is what a 2-cycle looks like: 4,096 steps on a
     // single camera move.
     let previous = Infinity;
     for (; steps < maxSteps; steps++) {
-      this.viewCentreLocal(current, c);
+      this.viewCenterLocal(current, c);
       if (!(c[2] < previous)) break;
       previous = c[2];
       // Ask the tiling which way to go. Each tiling answers with an EXACT, monotone rule -- the most
       // violated half-plane for a regular tiling, the box test for a binary cell -- so the descent
-      // cannot cycle. It must be the TILING's rule and not a generic nearest-centre comparison with a
+      // cannot cycle. It must be the TILING's rule and not a generic nearest-center comparison with a
       // tolerance: that suits Voronoi cells but not binary ones, and mixing it with a containment check
       // makes the two rules fight -- measured, 500 small camera moves then cost 143,407 re-anchor steps
       // against about 30.
       //
-      // The answer is an INDEX INTO the neighbour list, which is why the list's order is part of the
+      // The answer is an INDEX INTO the neighbor list, which is why the list's order is part of the
       // Tiling contract. Naming a generator instead cannot work for the binary tiling, whose parent
       // step has two parities: an odd-longitude cell offers only PARENT_ODD, so a request for
       // PARENT_EVEN finds nothing and the camera can never move up at all.
-      const nbrs = this.tiling.neighbours(this.address);
+      const nbrs = this.tiling.neighbors(this.address);
       const dir = this.tiling.stepToward(c[0], c[1]);
       if (dir < 0 || dir >= nbrs.length) break;
       const chosen = nbrs[dir];
       // stepFrame, not generator: on a {p,q} tiling the step carries the C_m correction that lands
-      // in the neighbour's CANONICAL frame, so V_c is always the view in the anchor's canonical
+      // in the neighbor's CANONICAL frame, so V_c is always the view in the anchor's canonical
       // frame rather than in whichever frame the route happened to produce.
       const g = this.tiling.stepFrame(this.address, chosen.gen);
       shift = shift.mul(g).normalize();
@@ -2397,7 +2402,7 @@ class Anchor {
       const w = Math.sqrt(1 + px * px + py * py);
       if (!(w < previous)) break;
       previous = w;
-      const nbrs = this.tiling.neighbours(address);
+      const nbrs = this.tiling.neighbors(address);
       const dir = this.tiling.stepToward(px, py);
       if (dir < 0 || dir >= nbrs.length) break;
       const g = this.tiling.stepFrame(address, nbrs[dir].gen);
@@ -2418,25 +2423,25 @@ class Anchor {
   // Breadth-first from the camera tile, starting at the identity and multiplying by one constant
   // generator per step. Two radii: a tile is INCLUDED when its circumscribed disk meets the visible
   // disk, and the walk CONTINUES through a slightly larger radius so a tile touching only at a corner
-  // is still reachable through a neighbour that was itself included.
+  // is still reachable through a neighbor that was itself included.
   //
   // Returns [{ address, rel }] with `rel` mapping tile-local coordinates into camera-local ones.
-  neighbourhood(matrix, visibleRadius, maxTiles = 256) {
+  neighborhood(matrix, visibleRadius, maxTiles = 256) {
     this.lastTruncated = false;
     const tiling = this.tiling;
     const rho = 2 * Math.atanh(Math.min(visibleRadius, 0.9995));
     const chi = tiling.metrics.circumradius;
-    const spacing = tiling.metrics.centreSpacing;
+    const spacing = tiling.metrics.centerSpacing;
     const includeCosh = Math.cosh((rho + chi) / 2);
     const walkCosh = Math.cosh((rho + chi + spacing) / 2);
 
-    const c = this.viewCentreLocal(matrix, [0, 0, 0]);
+    const c = this.viewCenterLocal(matrix, [0, 0, 0]);
     const cx = c[0];
     const cy = c[1];
     const cw = c[2];
 
     const buf = this._buf;
-    // cosh(d/2) from the view centre to a tile centre, both in camera-local coordinates.
+    // cosh(d/2) from the view center to a tile center, both in camera-local coordinates.
     const coshHalfTo = (rel) => {
       rel.applyToDisk(0, 0, buf);
       const k = 1 / Math.sqrt(Math.max(1e-300, 1 - buf[0] * buf[0] - buf[1] * buf[1]));
@@ -2452,7 +2457,7 @@ class Anchor {
     // construction from (lat, lon), a regular one because its id is an exact integer name for the tile
     // -- so the key IS the identity and a Set is the whole answer.
     //
-    // Note what is NOT here: no geometric comparison, no rounding of centres into buckets, no "these
+    // Note what is NOT here: no geometric comparison, no rounding of centers into buckets, no "these
     // two are within a quarter of a tile spacing so call them the same". Deciding identity by proximity
     // has a distance ceiling wherever it is done, because two distinct tiles eventually sit closer
     // together than the error in the numbers describing them. The exact id has no threshold in it.
@@ -2473,7 +2478,7 @@ class Anchor {
     // nearest-first choice meaningful rather than nominal.
     const gatherLimit = Math.max(maxTiles + 8, maxTiles * 2);
     // A hard bound on dequeues, separate from the bound on results: every admitted tile pushes its
-    // neighbours, so a dedup failure would otherwise grow the queue geometrically while `out` never
+    // neighbors, so a dedup failure would otherwise grow the queue geometrically while `out` never
     // fills. Degrading to fewer tiles is acceptable; not returning is not.
     let examined = 0;
     const maxExamined = 24 * maxTiles + 512;
@@ -2491,8 +2496,8 @@ class Anchor {
         out.push(node);
         dist.push(ch);
       }
-      // Look before naming. `tiling.generator(g)` moves the tile CENTRE exactly where the real step
-      // does -- they differ only by a rotation about that centre -- so a candidate costs 4 float
+      // Look before naming. `tiling.generator(g)` moves the tile CENTER exactly where the real step
+      // does -- they differ only by a rotation about that center -- so a candidate costs 4 float
       // multiplies to test, and only the survivors are turned into addresses. Naming is the expensive
       // half: on a regular tiling an address is an exact integer object costing ~117 ring multiplies to
       // build. Which tiles are RETURNED is unaffected, since a rejected candidate would be dropped by
@@ -2502,7 +2507,7 @@ class Anchor {
       // there the walk stops on the TILE BUDGET (`gatherLimit`) long before anything falls outside
       // `walkCosh`, so no candidate is ever rejected. It pays when the visible radius is what binds --
       // a small `maxTiles`, or zoomed in far enough that few tiles are on screen.
-      const gens = tiling.neighbourGens(node.address);
+      const gens = tiling.neighborGens(node.address);
       for (let i = 0; i < gens.length; i++) {
         const g = gens[i];
         const probe = node.rel.mul(tiling.generator(g));
@@ -2514,7 +2519,7 @@ class Anchor {
       }
     }
 
-    // Always honour the budget, and note that the condition is on the RESULT and not on the queue.
+    // Always honor the budget, and note that the condition is on the RESULT and not on the queue.
     // Truncating only when candidates remain would let a walk that gathered past maxTiles and then ran
     // out return MORE tiles than asked for -- a silent overrun for a caller sizing its cache to
     // maxTiles.
@@ -2528,7 +2533,7 @@ class Anchor {
   }
 
   // Largest absolute matrix entry of a camera-relative view. Exposed because it is the single number
-  // that shows this design working: it must stay O(1) no matter how far the camera has travelled.
+  // that shows this design working: it must stay O(1) no matter how far the camera has traveled.
   static maxEntry(m) {
     return Math.max(Math.abs(m.ar), Math.abs(m.ai), Math.abs(m.br), Math.abs(m.bi));
   }
@@ -2548,7 +2553,7 @@ class Anchor {
 // See notes/tilings.md and docs/MATH.md section 6.
 //
 // The check is deliberately on the RAW drawables in tile-local coordinates: a rotation about the tile
-// centre is an ordinary Euclidean rotation there, so this is exact and needs no geometry.
+// center is an ordinary Euclidean rotation there, so this is exact and needs no geometry.
 
 // A style key: two drawables can only be images of one another if they look the same.
 function styleKey(d) {
@@ -2571,7 +2576,7 @@ function pointsOf(d) {
 }
 
 // The largest distance by which any point of the artwork fails to land on the artwork after rotating by
-// 2*pi/m about the tile centre. Zero means exactly invariant.
+// 2*pi/m about the tile center. Zero means exactly invariant.
 //
 // Matching is per-drawable and style-aware: a rotated shape must map onto a shape of the SAME color and
 // kind. Matching only the union of points would let a green fish land on a blue one and call the picture
@@ -2648,7 +2653,7 @@ function tileSymmetryResidual(drawables, m) {
 // An INFINITE residual is a different finding from a large one, and saying "worst mismatch Infinity"
 // on its own sends people looking for a coordinate that blew up. It means the search found no
 // candidate at all: some shape has no counterpart of the same style and the same number of points
-// anywhere near where the rotation sends it. In practice that is a COLOURING that is less symmetric
+// anywhere near where the rotation sends it. In practice that is a COLORING that is less symmetric
 // than the outlines -- four fish rotate onto each other but are painted four different colors, so a
 // green one is asked to land on a blue one -- or a shape hand-drawn a second time with a different
 // number of nodes instead of being rotated.
@@ -2660,8 +2665,8 @@ function tileSymmetryMessage(residual, m, tilingName, offender) {
       `point count lies where the rotation sends them`;
   return (
     `hyperbolic-map: this tile's artwork is not invariant under rotation by 360/${m} degrees about the ` +
-    `tile centre -- ${finding}.\n` +
-    `  ${tilingName} has tile stabiliser C_${m}. This is a LINT, not an error: tile frames are canonical, ` +
+    `tile center -- ${finding}.\n` +
+    `  ${tilingName} has tile stabilizer C_${m}. This is a LINT, not an error: tile frames are canonical, ` +
     `so asymmetric art\n` +
     `  is stable as you scroll, and you only asked to be told because this art is meant to be ` +
     `C_${m}-symmetric.\n` +
@@ -2691,7 +2696,7 @@ class TileSymmetryError extends Error {
 //   * Data far from the origin loses precision when expressed in one global patch. At hyperbolic
 //     distance 20 a disk coordinate is 1 - 3.6e-9, so there are only ~7 significant digits left in
 //     the quantity that matters. Splitting the data into tiles means every coordinate is small and
-//     measured from its own tile's centre.
+//     measured from its own tile's center.
 //
 //     Crucially, the tile's frame is never expressed relative to the WORLD either. Everything here is
 //     relative to the camera's own tile -- see anchor.js -- because a global frame has entries of
@@ -2766,7 +2771,7 @@ class Atlas {
     this._c0 = [0, 0];
     this._c1 = [0, 0];
     this.tileLocalRadius = Math.sinh((tiling.metrics.circumradius || 1) / 2);
-    // Compiled art, memoised on the IDENTITY of the object the callback returned.
+    // Compiled art, memoized on the IDENTITY of the object the callback returned.
     //
     // A repeating atlas hands back one of a few shared objects for every tile -- the Escher atlas has
     // twelve, one per element of its color symmetry -- so compiling per tile would redo identical work.
@@ -2780,7 +2785,7 @@ class Atlas {
 
   // The symmetry lint. See symmetry.js for what it measures and when it is worth switching on.
   //
-  // Only meaningful for tilings with a non-trivial stabiliser: the binary tiling has none, so C_1
+  // Only meaningful for tilings with a non-trivial stabilizer: the binary tiling has none, so C_1
   // symmetry is vacuous and this is skipped entirely.
   verifyTileSymmetry(data) {
     if (this.checkTileSymmetry === "off") return;
@@ -2792,7 +2797,7 @@ class Atlas {
       if (this._symmetryFailure) throw new TileSymmetryError(this._symmetryFailure);
       return;
     }
-    const m = this.tiling.stabiliserOrder;
+    const m = this.tiling.stabilizerOrder;
     if (!(m > 1)) {
       this._symmetryChecked = true;
       return;
@@ -2800,7 +2805,7 @@ class Atlas {
     const drawables = data && data.drawables;
     if (!drawables || !drawables.length) return; // an empty tile says nothing; wait for a real one
     if (data.coordinates && data.coordinates !== "local") {
-      // The check is only exact in tile-local coordinates, where the stabiliser is a plain Euclidean
+      // The check is only exact in tile-local coordinates, where the stabilizer is a plain Euclidean
       // rotation. Say so rather than reporting a number that means nothing.
       this._symmetryChecked = true;
       this.tileSymmetry = { skipped: `coordinates "${data.coordinates}" are not tile-local`, ok: true };
@@ -2854,13 +2859,13 @@ class Atlas {
       // The tile's element of a declared COLOR SYMMETRY: the permutation this tile applies to the
       // caller's colors, and the same thing as a dense index. Null and 0 when none was declared.
       // Unlike `classIndex` this survives a non-abelian group and does not have to kill the tile
-      // stabiliser, which is what lets a repeating atlas draw Escher's four-color Circle Limit III
+      // stabilizer, which is what lets a repeating atlas draw Escher's four-color Circle Limit III
       // rather than one color per tile. See RegularTiling.colorPermutation.
       colorPermutation: this.tiling.colorPermutation ? this.tiling.colorPermutation(address) : null,
       colorIndex: this.tiling.colorIndex ? this.tiling.colorIndex(address) : 0,
       colorCount: this.tiling.colorCount || 1,
       relativeFrame: rel.clone(),
-      centreRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
+      centerRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
     };
 
     // A SYNCHRONOUS callback must be served in THIS frame.
@@ -2961,8 +2966,8 @@ class Atlas {
     // `view.matrix` is the CAMERA-RELATIVE view when an atlas is present; the viewport re-anchors
     // before every render so this stays O(1).
     const Vc = view.matrix;
-    let tiles = this.anchor.neighbourhood(Vc, view.effectiveRadius, this.maxTiles);
-    // PAINTER'S ORDER, if the tiling defines one. Applied to a COPY and only after the neighbourhood
+    let tiles = this.anchor.neighborhood(Vc, view.effectiveRadius, this.maxTiles);
+    // PAINTER'S ORDER, if the tiling defines one. Applied to a COPY and only after the neighborhood
     // has been chosen: the walk admits tiles nearest-first and `maxTiles` truncates the tail, so
     // reordering before that would change WHICH tiles are drawn, not just the order they are drawn in.
     // Matters only when art overlaps, i.e. when not clipping; see binaryDrawOrder.
@@ -3198,11 +3203,11 @@ const DEFAULT_OPTIONS = {
 };
 
 // Exported for tests: option validation is pure, so it can be checked without a DOM.
-function normaliseOptionsForTesting(userOptions) {
-  return normaliseOptions(userOptions);
+function normalizeOptionsForTesting(userOptions) {
+  return normalizeOptions(userOptions);
 }
 
-function normaliseOptions(userOptions) {
+function normalizeOptions(userOptions) {
   const opts = Object.assign({}, DEFAULT_OPTIONS);
   const unknown = [];
   for (const key of Object.keys(userOptions || {})) {
@@ -3247,7 +3252,7 @@ function normaliseOptions(userOptions) {
 
 class HyperbolicViewport {
   constructor(userOptions) {
-    const opts = normaliseOptions(userOptions);
+    const opts = normalizeOptions(userOptions);
     this.options = opts;
 
     this.styleSheet = Object.assign({ default: Object.assign({}, DEFAULT_STYLE) }, opts.styles || {});
@@ -3361,7 +3366,7 @@ class HyperbolicViewport {
     });
   }
 
-  // Keep the camera anchored to a tile near the view centre.
+  // Keep the camera anchored to a tile near the view center.
   //
   // This is what bounds the view matrix. `reanchor` returns a RIGHT factor, applied to BOTH the
   // committed and the live matrix: `updatePan` builds the live matrix by left-multiplying the
@@ -3413,17 +3418,17 @@ class HyperbolicViewport {
     });
     const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
     this.stats.frameMs = t1 - t0;
-    // How far the view centre has travelled from the data origin, in hyperbolic units. Exposed
+    // How far the view center has traveled from the data origin, in hyperbolic units. Exposed
     // because in SINGLE-PATCH mode it is the one number that predicts precision trouble: a float64
     // SU(1,1) matrix has entries of order cosh(d/2), so by d ~ 37 the entries reach 1e8, |a|^2 reaches
     // 1e16, and one ULP of that exceeds the spacing between adjacent tiles.
     //
     // In ATLAS mode that ceiling does not apply, because no global quantity is ever formed: the
-    // distance travelled is carried by the tile ADDRESS and the matrix stays camera-relative. See
+    // distance traveled is carried by the tile ADDRESS and the matrix stays camera-relative. See
     // docs/MATH.md section 6.
     if (this.atlas) {
       // In atlas mode the view matrix is camera-relative, so its "distance" is a local quantity of
-      // order the visible radius -- not the distance travelled, which is now unbounded and is carried
+      // order the visible radius -- not the distance traveled, which is now unbounded and is carried
       // by the ADDRESS instead. `maxViewEntry` is the number that demonstrates the design: it must
       // stay O(1) however far the camera goes.
       this.stats.anchorAddress = this.atlas.tiling.addressToString(this.atlas.anchor.address);
@@ -3441,7 +3446,7 @@ class HyperbolicViewport {
   // Three rules, in one place, because they are one idea: some methods are meaningful in single-patch
   // mode, some only in atlas mode, and the global-coordinate ones stop being meaningful part-way
   // through an atlas session. A fourth guard -- `atlas` cannot be combined with `data` -- is in
-  // normaliseOptions(), because it can be decided before anything is built.
+  // normalizeOptions(), because it can be decided before anything is built.
   //
   // Each one refuses rather than returning a number that is quietly wrong, and each names the method
   // to use instead.
@@ -3492,7 +3497,7 @@ class HyperbolicViewport {
   getView() {
     this.assertGlobalCoordinatesUsable("getView");
     return {
-      center: this.view.liveMatrix.centreLocal([0, 0]),
+      center: this.view.liveMatrix.centerLocal([0, 0]),
       zoom: this.view.liveZoom,
       rotation: this.view.liveMatrix.screenRotation(),
       bearing: this.view.north(),
@@ -3504,7 +3509,7 @@ class HyperbolicViewport {
   //
   // These are the atlas-aware accessors. They are NEW NAMES on purpose: `getMatrix`/`setMatrix`/
   // `panTo`/`getView` keep exactly the meaning they always had (global coordinates), so no existing
-  // caller silently changes behaviour. Instead those four throw once the camera has left the origin
+  // caller silently changes behavior. Instead those four throw once the camera has left the origin
   // tile, where a global coordinate can no longer be represented -- a loud failure rather than a
   // plausible wrong number.
 
@@ -3515,7 +3520,7 @@ class HyperbolicViewport {
       matrix: this.view.liveMatrix.clone(),
       zoom: this.view.liveZoom,
       // Screen quantities, so they mean the same thing in either mode -- and they are the only parts of
-      // getView() that survive in atlas mode, where a global centre does not exist.
+      // getView() that survive in atlas mode, where a global center does not exist.
       rotation: this.view.liveMatrix.screenRotation(),
       bearing: this.view.north(),
       interacting: !!this.view.gesture,
@@ -3535,7 +3540,7 @@ class HyperbolicViewport {
     this.invalidate();
   }
 
-  // Put a given TILE-LOCAL point of a given tile at the centre of the view. The atlas-mode equivalent
+  // Put a given TILE-LOCAL point of a given tile at the center of the view. The atlas-mode equivalent
   // of panTo, and the only form that stays meaningful arbitrarily far out.
   panToTile(address, local = [0, 0]) {
     this.requireAtlas("panToTile", "panTo()");
@@ -3546,7 +3551,7 @@ class HyperbolicViewport {
     this.invalidate();
   }
 
-  // The view isometry that puts (x, y) at the centre WITHOUT turning the map.
+  // The view isometry that puts (x, y) at the center WITHOUT turning the map.
   //
   // Panning must not rotate. Building the pure translation alone would silently reset the screen
   // rotation to zero, which is invisible on a page that never rotates and jarring on one that does:
@@ -3588,7 +3593,7 @@ class HyperbolicViewport {
     this.invalidate();
   }
 
-  // Put the given local point at the centre of the view. GLOBAL local coordinates -- see
+  // Put the given local point at the center of the view. GLOBAL local coordinates -- see
   // assertGlobalCoordinatesUsable; panToTile() is the atlas-mode form.
   panTo(x, y) {
     this.assertGlobalCoordinatesUsable("panTo");
@@ -3700,7 +3705,7 @@ class HyperbolicViewport {
 //
 // WHY EXACT. A {p,q} tile's identity is a group element, and comparing group elements through their
 // float matrices is what breaks at hyperbolic distance ~37: the entries grow like cosh(d/2), one ULP
-// of |a|^2 exceeds the spacing between adjacent tile centres, and the walk starts to disagree with
+// of |a|^2 exceeds the spacing between adjacent tile centers, and the walk starts to disagree with
 // itself about which tiles it has already seen (measured; see notes/open-questions.md). Integers do
 // not have a distance ceiling, so identity is decided here and only rendering is left to floats.
 //
@@ -3982,7 +3987,7 @@ class ExactRing {
 // GEOMETRY, matching the library's conventions exactly (RegularTiling puts vertices at angles
 // pi/p + 2*pi*k/p, so edge MIDPOINTS land on 2*pi*k/p and edge 0's midpoint is on the +x axis):
 //
-//     mirror a = the x-axis                  (through the centre O and the edge-0 midpoint M)
+//     mirror a = the x-axis                  (through the center O and the edge-0 midpoint M)
 //     mirror b = the line at angle pi/p      (through O and vertex V0)
 //     mirror c = the edge-0 geodesic         (through M and V0)
 //
@@ -4117,9 +4122,9 @@ function serializeExactMatrix(R, A, p, q, m) {
 
 // THE PUBLIC TILE ID, so its shape is fixed forever. Same prefix, then three entries.
 //
-// The id is the serialized TILE CENTRE v = F.v_O, not the whole frame F. Three ring elements instead
+// The id is the serialized TILE CENTER v = F.v_O, not the whole frame F. Three ring elements instead
 // of nine is a third of the memory and a third of the work, and nothing is lost: P fixes v_O, so every
-// frame in a tile's coset gives the SAME vector, and distinct tiles have distinct centres. The id is
+// frame in a tile's coset gives the SAME vector, and distinct tiles have distinct centers. The id is
 // therefore canonical automatically -- it does not depend on the coset tie-break at all, which is why
 // the round-trip tests below check the canonical FRAME separately rather than inferring it from the id.
 function serializeExactVector(R, v, p, q, m) {
@@ -4151,7 +4156,7 @@ function buildExactCoxeter(p, q) {
   const vM = [lambdaP, two, lambdaQ];
   const vV = [R.sub(four, R.mul(lambdaQ, lambdaQ)), R.mul(two, lambdaP), R.mul(lambdaP, lambdaQ)];
 
-  // rho = Sb.Sa is the rotation by +2*pi/p about the tile centre (counter-clockwise in the disk).
+  // rho = Sb.Sa is the rotation by +2*pi/p about the tile center (counter-clockwise in the disk).
   // Verified in calibration rather than trusted here.
   const rho = exactMatMul(R, Sb, Sa);
 
@@ -4230,7 +4235,7 @@ function exactBilinear(R, G, u, v) {
 // Nothing in here runs per frame. It runs once per tiling, at construction.
 
 // A float map from the exact hyperboloid model to the Poincare disk, pinned to the library's frame:
-// the tile centre at the origin, the edge-0 midpoint on the +x axis, vertex 0 at angle +pi/p.
+// the tile center at the origin, the edge-0 midpoint on the +x axis, vertex 0 at angle +pi/p.
 function buildIntertwiner(cx) {
   const { R, G, vO, vM, vV } = cx;
   const B = [0, 1, 2].map((i) => [0, 1, 2].map((j) => R.toNumber(G[i][j]) / 2));
@@ -4351,7 +4356,7 @@ function matchGenerators(cx, generators, p, m, tol) {
 }
 
 // Which sign of rotation the exact P corresponds to. P is rho^(p/m), a rotation by 2*pi/m about the
-// tile centre; whether that reads as Isom.rotation(+2pi/m) or (-2pi/m) depends on conventions this
+// tile center; whether that reads as Isom.rotation(+2pi/m) or (-2pi/m) depends on conventions this
 // file refuses to guess. Returns +1 or -1.
 function calibrateSpin(inter, P, m, Isom, tol) {
   const eps = tol || 1e-9;
@@ -4446,7 +4451,7 @@ function exactToIsom(inter, M, Isom, movePointToPoint) {
   // walk steps reach |beta| = 0.9999998 and the next one is NaN.
   //
   // Nothing on the render path calls this -- the walk composes floats incrementally with periodic
-  // renormalisation, which is exactly why it does not have this problem. But a caller converting a
+  // renormalization, which is exactly why it does not have this problem. But a caller converting a
   // faraway tile's frame in one go deserves an error rather than a silently poisoned matrix.
   if (!Number.isFinite(out.ar) || !Number.isFinite(out.ai) ||
       !Number.isFinite(out.br) || !Number.isFinite(out.bi)) {
@@ -4461,14 +4466,14 @@ function exactToIsom(inter, M, Isom, movePointToPoint) {
 // ===== src/data/atlas/tiling.js =====
 // Tilings of the hyperbolic plane: GLOBAL names, LOCAL geometry.
 //
-// A tiling supplies, for each tile: a canonical ADDRESS, the list of its neighbours' addresses with
+// A tiling supplies, for each tile: a canonical ADDRESS, the list of its neighbors' addresses with
 // the index of the generator that reaches each, and a table of CONSTANT generator matrices. Those two
 // halves answer different questions and are built out of different arithmetic, which is the central
 // design decision here:
 //
 //   IDENTITY is exact and global. A tile's address names the tile itself, the same name by every
 //   route and at every distance, so tile art may depend on it. It is an integer object -- the tile's
-//   centre in the Coxeter reflection representation of [p,q], over Z[2cos(pi/N)] with BigInt
+//   center in the Coxeter reflection representation of [p,q], over Z[2cos(pi/N)] with BigInt
 //   coefficients -- because a name has to be decided by equality, and float equality of far-apart
 //   frames is not a usable notion of "the same tile".
 //
@@ -4480,17 +4485,17 @@ function exactToIsom(inter, M, Isom, movePointToPoint) {
 //   own JSON coordinates to the screen is O(1) whatever the camera's absolute position.
 //
 // The two meet in `stepFrame`: the float step that accompanies an edge is the one that lands in the
-// neighbour's canonical frame.
+// neighbor's canonical frame.
 //
 // Proved in dev/audit_atlas_math.py (31/31), recorded in notes/math-audit.md. Load-bearing results:
 //
 //   * appending a generator multiplies the frame on the RIGHT, F_{c.g} = F_c . G_g, so the relative
-//     frame of a neighbour IS that generator and a walk telescopes to a plain product (claims 3, 3b, 4);
-//   * every binary neighbour step is a position-independent constant -- all lat and lon cancel
+//     frame of a neighbor IS that generator and a walk telescopes to a plain product (claims 3, 3b, 4);
+//   * every binary neighbor step is a position-independent constant -- all lat and lon cancel
 //     symbolically -- while the GENERAL relative frame is not, so it must never be used (claims 5, 5b);
 //   * an edge half-turn squares to -I, not +I, so g^-1 = -g is the SAME isometry and every matrix
 //     comparison here must be up to sign (claims 9, 9b);
-//   * the tile membership test is "nearest centre wins", whose boundary is the perpendicular bisector
+//   * the tile membership test is "nearest center wins", whose boundary is the perpendicular bisector
 //     and passes through the edge midpoint at exactly the inradius (claims 11, 11c).
 //
 // All metric relations were verified BY CONSTRUCTION -- build the polygon and measure -- rather than
@@ -4498,7 +4503,7 @@ function exactToIsom(inter, M, Isom, movePointToPoint) {
 
 // How much of the discovered tile graph a RegularTiling keeps. See `storeNode` for why there is a
 // budget at all. The floor is comfortably larger than any one frame's working set (a 200-tile
-// neighbourhood with its fringe), so ordinary panning never evicts anything it is about to want; the
+// neighborhood with its fringe), so ordinary panning never evicts anything it is about to want; the
 // character budget is what bounds memory once ids grow long far from the origin.
 const NODE_FLOOR = 4096;
 const ID_CHAR_BUDGET = 4e6;
@@ -4535,7 +4540,7 @@ function regularMetrics(p, q) {
     inradius: psi,
     halfEdge: phi,
     edgeLength: 2 * phi,
-    centreSpacing: 2 * psi,
+    centerSpacing: 2 * psi,
   };
 }
 
@@ -4576,10 +4581,10 @@ function regularTileClass(p, q, m, generators, inverseIndex, exact, exactGenerat
   if (candidate > 1) {
     const R = exact.R;
     const norm = step.map((s) => ((s % candidate) + candidate) % candidate);
-    // Tiles are recognised by their exact id -- the serialized centre M.v_O -- so "two routes reached
-    // one tile" is decided by integer equality and not by how close two centres came. The centre is
-    // fixed by the stabiliser, so the RAW product serves as the id directly and none of this has to
-    // canonicalise anything: one matmul and one mat-vec per edge.
+    // Tiles are recognized by their exact id -- the serialized center M.v_O -- so "two routes reached
+    // one tile" is decided by integer equality and not by how close two centers came. The center is
+    // fixed by the stabilizer, so the RAW product serves as the id directly and none of this has to
+    // canonicalize anything: one matmul and one mat-vec per edge.
     const seen = new Map();
     const queue = [{ M: exactIdentity(R), c: 0 }];
     let consistent = true;
@@ -4612,7 +4617,7 @@ function regularTileClass(p, q, m, generators, inverseIndex, exact, exactGenerat
 // ---- color symmetry: a homomorphism from the walk group into a permutation group -------------
 //
 // A tile CLASS (above) is the special case of this that the library can discover on its own: a
-// homomorphism onto Z/n that kills the stabiliser, so it descends to tiles and is one integer per
+// homomorphism onto Z/n that kills the stabilizer, so it descends to tiles and is one integer per
 // tile. A color symmetry is the general case, and it is the caller's to declare, because nothing
 // about {p,q} chooses it -- it is a property of the picture.
 //
@@ -4625,7 +4630,7 @@ function regularTileClass(p, q, m, generators, inverseIndex, exact, exactGenerat
 // everywhere cannot express that, and a tile class cannot either -- {8,3} m=4 admits only Z/3, while
 // the group needed has 12 elements and is not abelian.
 //
-// THE PART A TILE CLASS DOES NOT NEED. phi does NOT kill the stabiliser: phi(P) is the swap of the two
+// THE PART A TILE CLASS DOES NOT NEED. phi does NOT kill the stabilizer: phi(P) is the swap of the two
 // colors an octagon shows. That is not a problem, it is the point -- and it is why this could not have
 // worked before tile frames became canonical. Choosing the other coset representative F.P rotates the
 // art by 2*pi/m AND sends phi(F) to phi(F).phi(P), and the two cancel exactly, so the picture drawn is
@@ -4700,10 +4705,10 @@ function regularColorSymmetry(spec, p, q, m, generators, inverseIndex, piTranspo
       );
     }
   }
-  const stab = spec.stabiliser || spec.stabilizer;
+  const stab = spec.stabilizer || spec.stabilizer;
   if (!permIsValid(stab, n)) {
     throw new Error(
-      `hyperbolic-map: colorSymmetry.stabiliser is not a permutation of ${n} colors: ${JSON.stringify(stab)}`,
+      `hyperbolic-map: colorSymmetry.stabilizer is not a permutation of ${n} colors: ${JSON.stringify(stab)}`,
     );
   }
 
@@ -4719,8 +4724,8 @@ function regularColorSymmetry(spec, p, q, m, generators, inverseIndex, piTranspo
   for (let k = 1; k < m; k++) stabPowPerm.push(permCompose(stabPowPerm[k - 1], stab));
   if (!permEquals(permCompose(stabPowPerm[m - 1], stab), identity)) {
     throw new Error(
-      `hyperbolic-map: colorSymmetry.stabiliser must have order dividing ${m} -- it is the image of the ` +
-        `2*pi/${m} rotation about a tile centre, and P^${m} is the identity. Got ${JSON.stringify(stab)}.`,
+      `hyperbolic-map: colorSymmetry.stabilizer must have order dividing ${m} -- it is the image of the ` +
+        `2*pi/${m} rotation about a tile center, and P^${m} is the identity. Got ${JSON.stringify(stab)}.`,
     );
   }
   // phi respects the inverse pairing of the generators.
@@ -4750,7 +4755,7 @@ function regularColorSymmetry(spec, p, q, m, generators, inverseIndex, piTranspo
   }
 
   // Enumerate the generated group and build its Cayley table. The BFS closes under every generator
-  // image and the stabiliser image, which is exactly the set of labels any walk can produce.
+  // image and the stabilizer image, which is exactly the set of labels any walk can produce.
   const index = new Map([[identity.join(","), 0]]);
   const elements = [identity];
   const seeds = gens.concat([stab]);
@@ -4822,7 +4827,7 @@ function regularColorSymmetry(spec, p, q, m, generators, inverseIndex, piTranspo
 
 class RegularTiling {
   // `frameSymmetry` (m, a divisor of p) is the rotational symmetry the tile art is promised to have.
-  // It selects the walk group so that the tile stabiliser is C_m, which is what makes "the same data
+  // It selects the walk group so that the tile stabilizer is C_m, which is what makes "the same data
   // in every tile" produce a consistent pattern. See notes/tilings.md and
   // notes/escher-circle-limit-iii.md -- for Circle Limit III this must be 4, not 8, and using the
   // default half-turn generators there would silently shred the pattern.
@@ -4834,12 +4839,12 @@ class RegularTiling {
     // Only m = p and m = p/2 are usable, and dividing p is NOT enough.
     //
     // m = p takes its steps with half-turns about edge midpoints: p generators, one per edge, so every
-    // neighbour is one step away. m < p takes them with rotations about VERTICES, two generators per
+    // neighbor is one step away. m < p takes them with rotations about VERTICES, two generators per
     // vertex (the two senses), at the m vertices whose index is a multiple of p/m -- so 2m generators
     // reaching 2m of the p edges. Covering the plane needs 2m >= p, and since m divides p and m < p
     // forces m <= p/2, the only m < p that works is exactly p/2.
     //
-    // Anything smaller silently produces a tiling that cannot reach most of its own neighbours. It does
+    // Anything smaller silently produces a tiling that cannot reach most of its own neighbors. It does
     // not throw and it does not look obviously wrong at a glance: measured on {8,3} with m = 2, the
     // walk reaches edges 0, 1, 4 and 5 only, a 0.75-radius view returns 5 tiles where it should return
     // 17, and the rest of the disk renders as background. `containsLocal` agrees with it -- the Voronoi
@@ -4850,7 +4855,7 @@ class RegularTiling {
         `hyperbolic-map: frameSymmetry ${this.m} cannot tile {${p},${q}}: only ${p}` +
           (p % 2 === 0 ? ` and ${p / 2}` : "") +
           ` work. m = p steps by edge half-turns and m = p/2 by vertex rotations; a smaller m reaches ` +
-          `only ${2 * this.m} of the ${p} neighbours and leaves the rest of the plane unreachable.`,
+          `only ${2 * this.m} of the ${p} neighbors and leaves the rest of the plane unreachable.`,
       );
     }
 
@@ -4879,10 +4884,10 @@ class RegularTiling {
         this.generators.push(s.mul(g0).mul(Isom.rotation((-2 * Math.PI * k) / p)));
       }
     } else {
-      // The half-turn is generally outside the subgroup with stabiliser C_m, so use rotations about
+      // The half-turn is generally outside the subgroup with stabilizer C_m, so use rotations about
       // the vertices instead. Every m-th vertex is a "class A" vertex; rotating about one by
       // +/- 2*pi/q reaches the two tiles across the edges incident there, which covers all p
-      // neighbours.
+      // neighbors.
       const order = this.q;
       this.generators = [];
       for (let k = 0; k < p; k += p / this.m) {
@@ -4897,7 +4902,7 @@ class RegularTiling {
       }
     }
 
-    // THE TILE STABILISER, C_m: the rotations about this tile's own centre that lie in the walk group.
+    // THE TILE STABILIZER, C_m: the rotations about this tile's own center that lie in the walk group.
     //
     // This is the single most important thing to know before writing tile art, so it is a first-class
     // part of the contract rather than an internal detail. A tile's frame is only defined UP TO this
@@ -4908,13 +4913,13 @@ class RegularTiling {
     //
     // Verified by walking the tile graph and collecting frame_seen^-1 . frame_new at every collision:
     // every discrepancy observed is a rotation by a multiple of 2*pi/m. See test/tiling.test.mjs.
-    this.stabiliserOrder = this.m;
+    this.stabilizerOrder = this.m;
     this.selfRotation = Isom.rotation((2 * Math.PI) / this.m);
 
     // Which generator undoes each generator. The set is closed under inverse UP TO SIGN in both
     // cases: for m = p every generator is its own inverse; for m < p the +/- senses about each vertex
     // pair up. Verified in the constructor rather than assumed, because a wrong entry here would send
-    // `reverseGenerator` to the wrong neighbour and a walk could never retrace its own steps.
+    // `reverseGenerator` to the wrong neighbor and a walk could never retrace its own steps.
     this.inverseIndex = this.generators.map((g, i) => {
       const gi = g.inverse();
       for (let j = 0; j < this.generators.length; j++) {
@@ -4923,8 +4928,8 @@ class RegularTiling {
       throw new Error(`hyperbolic-map: {${p},${q}} generator ${i} has no inverse in the set`);
     });
 
-    // Neighbour tile CENTRES in this tile's own local coordinates, for the membership test. Constant.
-    this.neighbourCentresLocal = this.generators.map((g) => {
+    // Neighbor tile CENTERS in this tile's own local coordinates, for the membership test. Constant.
+    this.neighborCentersLocal = this.generators.map((g) => {
       const z = g.applyToDisk(0, 0, [0, 0]);
       const k = 1 / Math.sqrt(1 - z[0] * z[0] - z[1] * z[1]);
       const x = z[0] * k;
@@ -4941,13 +4946,13 @@ class RegularTiling {
     // ---- EXACT IDENTITY AND ORIENTATION ----
     //
     // A tile-with-frame is an element of the walk group, and two routes to one tile differ by an
-    // element of the stabiliser C_m. So a TILE is a coset F.C_m, and its canonical representative --
+    // element of the stabilizer C_m. So a TILE is a coset F.C_m, and its canonical representative --
     // the lexicographically least matrix in that coset -- is simultaneously its unique id and its
     // canonical orientation. One object solves identity and orientation together.
     //
     // Computed in the Coxeter reflection representation over Z[mu] with BigInt entries. Integers are
     // what make this work at any distance: a float frame at hyperbolic distance ~37 has entries whose
-    // one-ulp spacing exceeds the gap between adjacent tile centres, so no float test can decide
+    // one-ulp spacing exceeds the gap between adjacent tile centers, so no float test can decide
     // whether two frames name one tile out there. Integers have no such ceiling.
     //
     // WHAT IT COSTS, measured on the Escher atlas ({8,3} m=4, 200 tiles, 560 px):
@@ -4960,8 +4965,8 @@ class RegularTiling {
     //     the frame where a pan first crosses into unexplored ground costs ~130 ms. Panning back over
     //     ground already walked costs nothing.
     //
-    // The 117 divides as 27 for F_parent . G_g, 9 for the id vector, and 27(m-1) to canonicalise -- so
-    // canonicalisation dominates and grows with m. Lex-min over the m images of v_M instead of over
+    // The 117 divides as 27 for F_parent . G_g, 9 for the id vector, and 27(m-1) to canonicalize -- so
+    // canonicalization dominates and grows with m. Lex-min over the m images of v_M instead of over
     // matrices would make that 9m + 27, worth doing if {12,3} ever matters; it renames every tile, so
     // it is not worth doing casually.
     this.exact = buildExactCoxeter(p, q);
@@ -4976,7 +4981,7 @@ class RegularTiling {
     for (let k = 1; k < this.m; k++) {
       this.exactPPow.push(exactMatMul(this.exact.R, this.exactPPow[k - 1], this.exactP));
     }
-    // Float rotations by 2*pi*k/m about a tile's own centre, precomputed: the walk multiplies by one
+    // Float rotations by 2*pi*k/m about a tile's own center, precomputed: the walk multiplies by one
     // of these on every step and must never build them per frame.
     this.rotP = [];
     for (let k = 0; k < this.m; k++) {
@@ -5022,7 +5027,7 @@ class RegularTiling {
     }
 
     // The tile-class homomorphism. See tileClass() for what it is for and why it is sound. It comes
-    // after the exact machinery because verifying it means recognising when two routes have reached one
+    // after the exact machinery because verifying it means recognizing when two routes have reached one
     // tile, and that is decided by the exact id.
     const cls = regularTileClass(p, q, this.m, this.generators, this.inverseIndex, this.exact,
       this.exactGenerators);
@@ -5071,11 +5076,11 @@ class RegularTiling {
     return 0;
   }
 
-  // The tile id of ANY frame for a tile: the serialized centre M.v_O.
+  // The tile id of ANY frame for a tile: the serialized center M.v_O.
   //
-  // P fixes v_O, so every frame in the coset gives the same vector and the id needs no canonicalisation
+  // P fixes v_O, so every frame in the coset gives the same vector and the id needs no canonicalization
   // at all -- which is why it can be computed before deciding whether the tile is new, and why the
-  // tile-class walk can use raw products. Distinct tiles have distinct centres, so it is injective.
+  // tile-class walk can use raw products. Distinct tiles have distinct centers, so it is injective.
   idExact(M) {
     const R = this.exact.R;
     return serializeExactVector(R, exactMatVec(R, M, this.exact.vO), this.p, this.q, this.m);
@@ -5087,7 +5092,7 @@ class RegularTiling {
   // SET, so the minimum over them is identical. That is the entire proof that a tile's frame does not
   // depend on the route -- no automaton, no normal form, no parent heuristic.
   //
-  // Canonicalising over C_m and NOT the full C_p matters: a canonical frame must stay inside the set of
+  // Canonicalizing over C_m and NOT the full C_p matters: a canonical frame must stay inside the set of
   // frames the walk can actually produce. Over C_p, roughly half of {8,3} m=4's tiles would be turned
   // by an odd multiple of 45 degrees, which is not a symmetry of the C_4 walk group, and the Escher
   // pattern would shatter into a misaligned variant.
@@ -5099,7 +5104,7 @@ class RegularTiling {
     let best = M;
     // IDENTITY-FIRST TIE-BREAK. Only the origin tile's coset contains I, and letting I win its own
     // coset makes the origin tile's canonical frame exactly the identity. Any fixed rule would be
-    // equally canonical, but this one is worth the two comparisons: without it the origin canonicalises
+    // equally canonical, but this one is worth the two comparisons: without it the origin canonicalizes
     // to whichever P^k sorts first -- P^2, a half-turn, for {8,3} m=4 -- and the entire picture is then
     // turned by a constant relative to the unanchored global frame, so `globalFrameForTesting` and the
     // walk disagree about where the origin tile is pointing.
@@ -5128,14 +5133,14 @@ class RegularTiling {
   //
   // WHY BOUNDED. An id is one string per tile ever visited and its length grows linearly with distance
   // (measured on {8,3} m=4: about 12 characters per tile crossed), so retaining every node makes the
-  // memory of a long pan grow like the SQUARE of the distance travelled -- 93 MB at 1,000 tiles out,
+  // memory of a long pan grow like the SQUARE of the distance traveled -- 93 MB at 1,000 tiles out,
   // 734 MB at 4,000. That is a property of naming tiles globally at all, not of this encoding: there
   // are exponentially many tiles within distance d, so any correct global name needs Omega(d) bits.
   //
   // Eviction is safe because nothing anywhere depends on node object identity -- `addressEquals`
-  // compares ids, and re-deriving an evicted node costs one canonicalisation. Evicting also CLEARS the
+  // compares ids, and re-deriving an evicted node costs one canonicalization. Evicting also CLEARS the
   // dropped node's edges, so a dropped node cannot keep the rest of its subtree alive through a live
-  // neighbour's edge cache.
+  // neighbor's edge cache.
   //
   // The budget is on retained id characters rather than node count, because that is the thing that
   // actually grows; the floor on count is what keeps a frame's working set resident so that steady-state
@@ -5178,7 +5183,7 @@ class RegularTiling {
     return this.rootNode;
   }
 
-  // The id IS the key, and reading it is a field access: canonicalisation happened once, when the node
+  // The id IS the key, and reading it is a field access: canonicalization happened once, when the node
   // was created, and never happens again for that tile.
   addressKey(address) {
     return address.id;
@@ -5192,7 +5197,7 @@ class RegularTiling {
     return a === b || a.id === b.id;
   }
 
-  // Step to a neighbour. Nodes are interned, so the second route to a tile returns the same object.
+  // Step to a neighbor. Nodes are interned, so the second route to a tile returns the same object.
   //
   // The edge also records the float step to use: not the bare generator, but the generator followed
   // by the rotation that lands in the CHILD'S canonical frame. Folding the correction into the step
@@ -5233,16 +5238,16 @@ class RegularTiling {
     return address.edges.get(gen).step;
   }
 
-  // Which generators lead out of this tile, WITHOUT building any of the neighbours.
+  // Which generators lead out of this tile, WITHOUT building any of the neighbors.
   //
-  // This exists so the walk can decide whether it wants a neighbour before paying for it. Naming a
-  // tile costs exact integer arithmetic -- one matmul, m-1 more to canonicalise, and a mat-vec for the
+  // This exists so the walk can decide whether it wants a neighbor before paying for it. Naming a
+  // tile costs exact integer arithmetic -- one matmul, m-1 more to canonicalize, and a mat-vec for the
   // id -- and the walk discards most of what it looks at: it explores about eight candidates per tile
   // and keeps a couple of hundred in total. Measured on the Escher atlas before this existed, a frame
   // that crossed a tile boundary named ~800 new tiles, spent 210,000 ring multiplies and took 154 ms
-  // against a 17 ms median. The centre of a neighbour can be found from the plain generator, with no
+  // against a 17 ms median. The center of a neighbor can be found from the plain generator, with no
   // exact work at all, which is enough to reject it.
-  neighbourGens() {
+  neighborGens() {
     if (!this._gensAll) {
       this._gensAll = [];
       for (let g = 0; g < this.generators.length; g++) this._gensAll.push(g);
@@ -5250,7 +5255,7 @@ class RegularTiling {
     return this._gensAll;
   }
 
-  neighbours(address) {
+  neighbors(address) {
     const out = [];
     for (let g = 0; g < this.generators.length; g++) {
       out.push({ address: this.extendAddress(address, g), gen: g });
@@ -5274,7 +5279,7 @@ class RegularTiling {
   //     F_p . Gx[g] . P^k . Gx[h]  =  F_p . Gx[g] . Gx[pi_k(h)] . P^k
   //
   // which lands back on the parent exactly when pi_k(h) is the inverse of g. Applying the plain
-  // inverse index instead lands on a DIFFERENT neighbour of the child -- a real tile, so nothing
+  // inverse index instead lands on a DIFFERENT neighbor of the child -- a real tile, so nothing
   // throws; the walk just quietly fails to come home. (`inverseGenerator` still means what it always
   // meant: the index whose isometry is the inverse. It is the frame that moved, not the name.)
   reverseGenerator(address, gen) {
@@ -5289,7 +5294,7 @@ class RegularTiling {
   // ---- tile classes: a cheap, meaningful grouping of tiles ----
   //
   // A class is a coloring of the tiling by a group HOMOMORPHISM phi: Gamma -> Z/n that kills the
-  // stabiliser C_m, so it descends to tiles. Art may key on the tile's own id, so a class is not the
+  // stabilizer C_m, so it descends to tiles. Art may key on the tile's own id, so a class is not the
   // only per-tile variation available any more -- what it still is, is the STRUCTURED one: adjacent
   // tiles never share a class, so it reads as a proper coloring of the tiling rather than as noise,
   // and it costs one integer addition per walk step instead of a string lookup.
@@ -5329,9 +5334,9 @@ class RegularTiling {
   // ---- geometry, all in tile-local coordinates ----
 
   // Is this tile-local point inside this tile? A regular tiling's tiles are exactly the Voronoi cells
-  // of their centres, so the test is "closer to my centre than to any neighbour's".
+  // of their centers, so the test is "closer to my center than to any neighbor's".
   //
-  // cosh(d/2) to my own centre (the local origin) is just w, and to a neighbour centre N it is
+  // cosh(d/2) to my own center (the local origin) is just w, and to a neighbor center N it is
   // sqrt(A^2 + B^2) with A = w*nw - x*nx - y*ny and B = x*ny - y*nx. Audit claim 11 proves the
   // boundary of this test passes through the edge midpoint at exactly the inradius.
   //
@@ -5342,8 +5347,8 @@ class RegularTiling {
   containsLocal(x, y, tol = 0) {
     const w = Math.sqrt(1 + x * x + y * y);
     const own = w * w;
-    for (let i = 0; i < this.neighbourCentresLocal.length; i++) {
-      const [nx, ny, nw] = this.neighbourCentresLocal[i];
+    for (let i = 0; i < this.neighborCentersLocal.length; i++) {
+      const [nx, ny, nw] = this.neighborCentersLocal[i];
       const A = w * nw - x * nx - y * ny;
       const B = x * ny - y * nx;
       if (A * A + B * B < own - tol) return false;
@@ -5351,20 +5356,20 @@ class RegularTiling {
     return true;
   }
 
-  // Which neighbour to move to, to get closer to containing this tile-local point? Returns an INDEX
-  // INTO `neighbours(address)`, or -1 if the point is already inside.
+  // Which neighbor to move to, to get closer to containing this tile-local point? Returns an INDEX
+  // INTO `neighbors(address)`, or -1 if the point is already inside.
   //
-  // An index into the neighbour list, not a generator index. Those coincide here but not for the binary
+  // An index into the neighbor list, not a generator index. Those coincide here but not for the binary
   // tiling, whose parent step comes in two parities -- and naming a generator there produced a real bug:
   // `stepToward` said PARENT_EVEN, an odd-longitude cell offered only PARENT_ODD, the lookup failed, and
   // the camera could never move UP. It then chased downward forever: max|V| reached 2.6e24 and the
   // latitude ran to several hundred digits.
   //
-  // A regular tiling's tiles are the Voronoi cells of their centres, so:
+  // A regular tiling's tiles are the Voronoi cells of their centers, so:
   //
   //   * stop when the point is INSIDE -- the exact predicate, no tolerance, so a point sitting on a
   //     bisector counts as inside and cannot make the camera oscillate between two tiles;
-  //   * otherwise step to the NEAREST neighbour centre. Not inside means some neighbour's centre is
+  //   * otherwise step to the NEAREST neighbor center. Not inside means some neighbor's center is
   //     strictly nearer, so the distance to the containing tile strictly decreases every step. That is
   //     what makes the descent monotone, hence terminating.
   //
@@ -5376,14 +5381,14 @@ class RegularTiling {
     // bisector is genuinely ambiguous: each of the two tiles computes the other as a hair nearer, and the
     // camera ping-pongs. Measured on {7,3}: one camera move in forty hit the iteration cap at 4,096
     // steps while every other took one. Treating "within 1e-11 of the boundary" as inside removes the
-    // ambiguity, and the error it admits -- the camera tile being a neighbour of the containing one for
+    // ambiguity, and the error it admits -- the camera tile being a neighbor of the containing one for
     // points a hair from the edge -- is harmless, since the camera tile only has to be NEAR.
     if (this.containsLocal(x, y, 1e-11 * (1 + x * x + y * y))) return -1;
     const w = Math.sqrt(1 + x * x + y * y);
     let best = w * w;
     let pick = -1;
-    for (let i = 0; i < this.neighbourCentresLocal.length; i++) {
-      const [nx, ny, nw] = this.neighbourCentresLocal[i];
+    for (let i = 0; i < this.neighborCentersLocal.length; i++) {
+      const [nx, ny, nw] = this.neighborCentersLocal[i];
       const A = w * nw - x * nx - y * ny;
       const B = x * ny - y * nx;
       const d = A * A + B * B;
@@ -5422,7 +5427,7 @@ class RegularTiling {
 //
 // Every cell is congruent, of hyperbolic area exactly 1/2. Cells are NOT regular polygons and NOT
 // convex: two sides are geodesics (x = const) and two are horocycles (y = const). The tiling is not
-// edge-to-edge -- each cell has FIVE neighbours (one parent, two children, two lateral), because a
+// edge-to-edge -- each cell has FIVE neighbors (one parent, two children, two lateral), because a
 // cell's bottom edge is the union of its two children's top edges.
 //
 // It is also only weakly aperiodic: monohedral but NOT tile-transitive, its symmetry group being
@@ -5460,7 +5465,7 @@ function isomFromScaleShift(S, T) {
   return new Isom((rs + inv) / 2, (T * inv) / 2, (T * inv) / 2, (rs - inv) / 2).normalize();
 }
 
-// The six CONSTANT neighbour steps, each mapping NEIGHBOUR-local coordinates into CURRENT-cell-local
+// The six CONSTANT neighbor steps, each mapping NEIGHBOR-local coordinates into CURRENT-cell-local
 // coordinates. Every latitude and longitude cancels; audit claim 5 proves it symbolically and claims
 // 5c-5e confirm the parity rule by showing child-then-parent round trips are exactly the identity.
 const R2 = Math.SQRT2;
@@ -5484,7 +5489,7 @@ BINARY_INVERSE[BIN_PARENT_ODD] = BIN_CHILD1;
 
 // Painter's order for unclipped art, as a three-character code.
 //
-// Without `clip`, neighbouring cells' art overlaps on purpose -- the dungeon's floor plates span the
+// Without `clip`, neighboring cells' art overlaps on purpose -- the dungeon's floor plates span the
 // corner where four cells meet and its doors cross cell boundaries -- so WHICH cell paints last decides
 // what you see at every seam. The atlas's own walk order is nearest-first from the camera, which is
 // fine for culling but is camera-dependent: pan a little and two overlapping cells can swap, so seams
@@ -5533,11 +5538,11 @@ class BinaryTiling {
     this.drawOrder = drawOrder;
     this.compareForDrawing = drawOrder === null ? null : binaryDrawOrder(drawOrder);
 
-    // Centre spacing: the distance between a cell's centre and its lateral neighbour's, used to size
+    // Center spacing: the distance between a cell's center and its lateral neighbor's, used to size
     // the walk radius. Measured from the generator rather than asserted.
     const g = BINARY_GENERATORS[BIN_RIGHT];
     this.metrics = {
-      centreSpacing: 2 * Math.asinh(Math.hypot(g.br, g.bi)),
+      centerSpacing: 2 * Math.asinh(Math.hypot(g.br, g.bi)),
       // A cell's own extent, playing the role of a circumradius: the farthest corner of the local box.
       circumradius: (() => {
         let worst = 0;
@@ -5550,13 +5555,13 @@ class BinaryTiling {
         return worst;
       })(),
     };
-    // The stabiliser is TRIVIAL: a binary cell's frame is z -> S z + T in the half-plane, and no
+    // The stabilizer is TRIVIAL: a binary cell's frame is z -> S z + T in the half-plane, and no
     // non-identity element of the walk group fixes a cell. So a cell's frame is unique, its address is
     // unique, and tile art here is under NO symmetry constraint -- any asymmetric art is fine, and art
     // may differ from cell to cell. This is why the binary tiling scrolls smoothly with artwork that
     // would tear a {p,q} tiling apart, and it is the reason the dungeon demo can put a different room in
     // every cell.
-    this.stabiliserOrder = 1;
+    this.stabilizerOrder = 1;
     this.selfRotation = Isom.identity();
     // No homomorphism needed: (lat, lon) is canonical, so a caller may key art on the ADDRESS itself and
     // give every cell something different. `classModulus` exists only to keep the tile object uniform.
@@ -5589,7 +5594,7 @@ class BinaryTiling {
   }
 
   addressToString(address) {
-    // Memoised on the address object. BigInt toString is not free, and a deep descent makes the
+    // Memoized on the address object. BigInt toString is not free, and a deep descent makes the
     // longitude very long indeed.
     if (address.str === undefined || address.str === null) {
       address.str = `${address.lat},${address.lon}`;
@@ -5605,15 +5610,15 @@ class BinaryTiling {
     return a.lat === b.lat && a.lon === b.lon;
   }
 
-  // Which generators lead out of this cell, WITHOUT building any of the neighbours. See the note on
-  // RegularTiling.neighbourGens. The parent step is the one that varies: a cell offers PARENT_EVEN or
+  // Which generators lead out of this cell, WITHOUT building any of the neighbors. See the note on
+  // RegularTiling.neighborGens. The parent step is the one that varies: a cell offers PARENT_EVEN or
   // PARENT_ODD according to its own longitude parity, never both.
-  neighbourGens(address) {
+  neighborGens(address) {
     const even = (address.lon & 1n) === 0n;
     return [BIN_RIGHT, BIN_LEFT, BIN_CHILD0, BIN_CHILD1, even ? BIN_PARENT_EVEN : BIN_PARENT_ODD];
   }
 
-  // The neighbour reached by one generator. Same arithmetic as `neighbours`, one entry at a time, so a
+  // The neighbor reached by one generator. Same arithmetic as `neighbors`, one entry at a time, so a
   // caller that has already decided which way it is going does not build the other four.
   //
   // A cell has only ONE parent, and which of PARENT_EVEN / PARENT_ODD names it depends on the cell's
@@ -5646,7 +5651,7 @@ class BinaryTiling {
   }
 
   // The ORDER of this list is part of the contract: `stepToward` returns an index into it.
-  neighbours(address) {
+  neighbors(address) {
     const { lat, lon } = address;
     // Floor division for negative longitudes: BigInt / truncates toward zero, so -1n/2n is 0n where
     // the parent of cell -1 must be cell -1. Off-by-one here would break the western hemisphere only,
@@ -5670,17 +5675,17 @@ class BinaryTiling {
     return BINARY_INVERSE[i];
   }
 
-  // No stabiliser, so no frame correction, so stepping back really is the inverse generator. Present
+  // No stabilizer, so no frame correction, so stepping back really is the inverse generator. Present
   // so a caller can walk back on either tiling without asking which one it has.
   //
   // The one wrinkle is the parent step's two parities: PARENT_EVEN and PARENT_ODD are inverse to
   // CHILD0 and CHILD1 respectively, and a cell offers only the one that matches its own longitude, so
-  // callers must still look the returned index up in `neighbours` rather than assume it is present.
+  // callers must still look the returned index up in `neighbors` rather than assume it is present.
   reverseGenerator(address, gen) {
     return BINARY_INVERSE[gen];
   }
 
-  // The stabiliser is trivial here, so a cell's frame is unique and the walk step is just the
+  // The stabilizer is trivial here, so a cell's frame is unique and the walk step is just the
   // generator -- no canonical correction exists to fold in. Present so the walk can call the same
   // method on either tiling.
   stepFrame(address, gen) {
@@ -5694,7 +5699,7 @@ class BinaryTiling {
   // ---- geometry ----
 
   // The cell is exactly its local half-plane box, so membership is two comparisons after one stable
-  // conversion. Not a Voronoi test: binary cells are not the Voronoi cells of their centres, which is
+  // conversion. Not a Voronoi test: binary cells are not the Voronoi cells of their centers, which is
   // why this cannot share the regular tiling's implementation.
   containsLocal(x, y, tol = 0) {
     const hp = localToHalfPlane(x, y, [0, 0]);
@@ -5707,13 +5712,13 @@ class BinaryTiling {
     );
   }
 
-  // Which neighbour to move to, to get closer to containing this tile-local point? Returns an INDEX
-  // INTO `neighbours(address)` -- see the note on RegularTiling.stepToward for why an index and not a
+  // Which neighbor to move to, to get closer to containing this tile-local point? Returns an INDEX
+  // INTO `neighbors(address)` -- see the note on RegularTiling.stepToward for why an index and not a
   // generator -- or -1 if the point is inside.
   //
   // The binary cell is a BOX in its own half-plane, so this reads the box test directly and is exact.
-  // It cannot be done with the regular tiling's nearest-centre rule, because binary cells are NOT the
-  // Voronoi cells of their centres -- and mixing the two rules made the descent CYCLE: measured, 500
+  // It cannot be done with the regular tiling's nearest-center rule, because binary cells are NOT the
+  // Voronoi cells of their centers -- and mixing the two rules made the descent CYCLE: measured, 500
   // small camera moves cost 143,407 re-anchor steps (hitting the iteration cap every time) where a
   // regular tiling needed 28.
   //
@@ -5726,7 +5731,7 @@ class BinaryTiling {
     const hx = hp[0];
     const hy = hp[1];
     if (!(hy > 0) || !Number.isFinite(hx)) return -1;
-    // Indices into the list `neighbours()` builds: 0 right, 1 left, 2 child0, 3 child1, 4 parent.
+    // Indices into the list `neighbors()` builds: 0 right, 1 left, 2 child0, 3 child1, 4 parent.
     if (hx < -BINARY_LOCAL_HALF_WIDTH) return 1;
     if (hx > BINARY_LOCAL_HALF_WIDTH) return 0;
     if (hy < BINARY_LOCAL_Y_LOW) return hx < 0 ? 2 : 3;

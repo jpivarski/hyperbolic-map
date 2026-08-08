@@ -44,7 +44,7 @@ test("REGRESSION: an async provider is re-asked when the view scrolls", async ()
   await tick();
   assert.equal(calls, 1, "should ask once at the start");
 
-  // A modest pan: the previously requested centre slides well across the screen.
+  // A modest pan: the previously requested center slides well across the screen.
   const moved = Isom.translationToLocal(0.8, 0.4).inverse();
   source.get(viewFor(moved), 1000);
   await tick();
@@ -58,7 +58,7 @@ test("the gate is measured on screen, so it behaves at every zoom", async () => 
   await tick();
   const after = calls;
 
-  // A pan far too small to matter: the old centre barely moves on screen.
+  // A pan far too small to matter: the old center barely moves on screen.
   const tiny = Isom.translationToLocal(0.001, 0.0).inverse();
   source.get(viewFor(tiny), 1000);
   await tick();
@@ -238,11 +238,11 @@ test("panTo/panToTile preserve the screen rotation", () => {
         Math.abs(wrap(m.screenRotation() - theta)) < 1e-12,
         `pan to (${x}, ${y}) at rotation ${theta} gave ${m.screenRotation()}`,
       );
-      // 2. ...and it still actually pans: the requested point lands at the centre.
+      // 2. ...and it still actually pans: the requested point lands at the center.
       const at = m.applyToLocal(x, y, undefined, [0, 0]);
       assert.ok(
         Math.hypot(at[0], at[1]) < 1e-12,
-        `pan to (${x}, ${y}) left it at ${at} instead of the centre`,
+        `pan to (${x}, ${y}) left it at ${at} instead of the center`,
       );
     }
   }

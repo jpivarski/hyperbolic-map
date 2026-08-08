@@ -61,7 +61,7 @@ Consequences:
   equivalently the SU(1,1) spinor lift. The genuine Weierstrass vector is `(2xw, 2yw, 1+2(x²+y²))`.
 - Distance is `cosh(d/2) = |w₁w₂ − ζ̄₁ζ₂|` with `ζ = x + iy` — the modulus of the SU(1,1)-invariant
   Hermitian form. See the warning about the modulus below.
-- Cost of the half-angle parametrisation: geodesics are **linear** in the true Weierstrass vector but
+- Cost of the half-angle parametrization: geodesics are **linear** in the true Weierstrass vector but
   **quadratic** in `(x, y, w)`.
 
 ## Ledger
@@ -88,7 +88,7 @@ Every math-bearing symbol in the original code, and every formula in this librar
 | `updateZoom` | **correct** | `zoomNow == base^logScale · zoom` holds after clamping to 5.9e-16; no clamp violations in 200,000 cases |
 | `updateTransformation` (pinch) | **BUG** — arithmetic means instead of hyperbolic midpoints | up to 25.7 px per-finger and 20.1 px midpoint drift on realistic gestures (620 px canvas). An exact solve exists — see below |
 | `draw` geodesic arcs | **correct** | circle through both points with `c = 1` is orthogonal to the unit circle; passes through both points to 1.2e-10 |
-| `draw` minor-arc choice | **correct** | the whole in-disk geodesic subtends `2·arctan(1/r) < π` at the arc centre, so any sub-segment is the minor arc. 0 violations in 183,351 pairs. The `deltaphi` normalisation, the anticlockwise flag and the `φ = −atan2` y-flip are all consistent |
+| `draw` minor-arc choice | **correct** | the whole in-disk geodesic subtends `2·arctan(1/r) < π` at the arc center, so any sub-segment is the minor arc. 0 violations in 183,351 pairs. The `deltaphi` normalization, the anticlockwise flag and the `φ = −atan2` y-flip are all consistent |
 | `draw` `r2 = 0.25(a²+b²) − 1` | **correct** — never negative, no `NaN` | `min(a²+b²−4) = 1.2e-2` over 300,000 interior pairs |
 | `draw` text up-vector rotation | **correct** | `−atan2(up−at) + π/2` is right under the canvas y-flip, error 0 |
 | `draw` straight-line fallback | **correct** | `denom = 0` ⟺ the two points are collinear with the origin ⟺ the geodesic *is* a diameter |
@@ -127,7 +127,7 @@ Every math-bearing symbol in the original code, and every formula in this librar
 | formula | status | evidence |
 |---|---|---|
 | fused SU(1,1) projection kernel `z = (aζ + bw)/conj(āw + b̄ζ)` | verified | equals `internalToScreen` to 3.9e-13; ~14 multiplies and no allocation vs ~40 plus a `sqrt` plus 2 allocations, evaluated *twice per edge*, in the original |
-| far-field precision | verified | at `(0, 11711.92)` recentred on itself the original polynomial is **310 px wrong** (it lands on the disk boundary); the fused kernel is exact. Also 38.75 px at `(−2.4, 5000)`, 0.038 px at `(0, 1000)` |
+| far-field precision | verified | at `(0, 11711.92)` recentered on itself the original polynomial is **310 px wrong** (it lands on the disk boundary); the fused kernel is exact. Also 38.75 px at `(−2.4, 5000)`, 0.038 px at `(0, 1000)` |
 | `movePointToPoint`: `β = (c + k c̄)/(1 − |k|²)`, `c = z_F − z_P`, `k = z_F z_P` | verified | carries `z_P` to `z_F` to 4.1e-14 |
 | `normalize()` by polar re-factoring | verified | `|a| = sqrt(1+|b|²)` to 6.5e-16. **Do not divide by `sqrt(det)`**: at `d = 20`, `|a|²` and `|b|²` are both ≈5e8 and their difference has already lost 8 digits, so that only restores `det = 1 ± 1e-8` |
 | `cosh(d/2) = |w₁w₂ − ζ̄₁ζ₂|` (**modulus**) | verified | 5.5e-13 relative. Write `A = w₁w₂ − x₁x₂ − y₁y₂`, `B = x₁y₂ − x₂y₁`; then `cosh(d/2) = sqrt(A²+B²)`. **The real part alone is WRONG** — I planned to use it and called it "exact in three multiplies"; measured error up to 19.6. `A` alone is a *lower bound*, hence conservative (over-includes, never wrongly rejects), but not exact. Compare squares: 6 multiplies, no `sqrt` |
@@ -137,12 +137,12 @@ Every math-bearing symbol in the original code, and every formula in this librar
 | `north(M) = arg((a·i + b)/(b̄·i + ā))` | verified | equals `halfPlaneOrientation` to 7.3e-13, so replacing 30 lines with one `atan2` is a **simplification, not a fix** |
 | stable `halfPlane → hyperShadow` | verified | `t = |z−i|/|z+i|`, `sinh(d/2) = t/sqrt((1−t)(1+t))`. Exact to machine precision at every scale, including where the original returns 0 |
 | stable `hyperShadow → halfPlane` | verified | for `y > 0` use `den = (4x²w² + 1)/(2r² + 1 + 2yw)` (all terms positive, algebraically identical); for `y ≤ 0` the original form is already all-positive. Finite and correct to ~1e-15 out to `y = 10⁸` both directions |
-| `{p,q}` metric relations | verified **by construction** for `{8,3} {4,5} {5,4} {7,3} {3,7} {6,4} {9,4} {12,3}` | build the polygon and measure. `cosh χ = cot(π/p)cot(π/q)` (circumradius), `cosh ψ = cos(π/q)/sin(π/p)` (**inradius**), `cosh φ = cos(π/p)/sin(π/q)` (**half-edge**), interior angle `2π/q`, centre-to-centre `2ψ`, and `cosh χ = cosh ψ · cosh φ`. **I originally had the inradius inverted** — `cos(π/p)/sin(π/q)` is the half-edge. The two swap under `p ↔ q`, which is why it is an easy slip and why it survived (they coincide for self-dual `{p,p}`) |
-| edge half-turn generators `g_k = S^k g₀ S^{−k}`, `g₀ = (i cosh ψ, −i sinh ψ)` | verified for `p = 3,4,5,7,8,9,12` | in SU(1,1); `g_k² = −I` (an involution, so the edge back to the parent has the same index in the child); hits all `p` neighbour centres. Works for **odd** `p` too — the edge-midpoint half-turn is always in `[p,q]⁺` (it is the "2" of the `(2,p,q)` triangle group). Only pure *translations* need even `p` |
-| binary tiling frame | verified | `C·A·C⁻¹` is in SU(1,1) form with **zero** deviation, where `A: z ↦ s·z + t`, `s = 2^(lat+0.5)`, `t = (lon+0.5)·2^lat`. Maps the local origin to the cell centre (2.2e-16) and the local box to the cell (4.4e-16 × tile size, over 200,000 cells with `lat ∈ [−40,40]`, `|lon| ≤ 10⁶`) |
+| `{p,q}` metric relations | verified **by construction** for `{8,3} {4,5} {5,4} {7,3} {3,7} {6,4} {9,4} {12,3}` | build the polygon and measure. `cosh χ = cot(π/p)cot(π/q)` (circumradius), `cosh ψ = cos(π/q)/sin(π/p)` (**inradius**), `cosh φ = cos(π/p)/sin(π/q)` (**half-edge**), interior angle `2π/q`, center-to-center `2ψ`, and `cosh χ = cosh ψ · cosh φ`. **I originally had the inradius inverted** — `cos(π/p)/sin(π/q)` is the half-edge. The two swap under `p ↔ q`, which is why it is an easy slip and why it survived (they coincide for self-dual `{p,p}`) |
+| edge half-turn generators `g_k = S^k g₀ S^{−k}`, `g₀ = (i cosh ψ, −i sinh ψ)` | verified for `p = 3,4,5,7,8,9,12` | in SU(1,1); `g_k² = −I` (an involution, so the edge back to the parent has the same index in the child); hits all `p` neighbor centers. Works for **odd** `p` too — the edge-midpoint half-turn is always in `[p,q]⁺` (it is the "2" of the `(2,p,q)` triangle group). Only pure *translations* need even `p` |
+| binary tiling frame | verified | `C·A·C⁻¹` is in SU(1,1) form with **zero** deviation, where `A: z ↦ s·z + t`, `s = 2^(lat+0.5)`, `t = (lon+0.5)·2^lat`. Maps the local origin to the cell center (2.2e-16) and the local box to the cell (4.4e-16 × tile size, over 200,000 cells with `lat ∈ [−40,40]`, `|lon| ≤ 10⁶`) |
 | binary tile local box | verified | **every** cell is the same box in tile-local half-plane coordinates: `x ∈ ±1/(2√2) = ±0.353553391`, `y ∈ [2^{−1/2}, 2^{1/2}]`. The half-width is `0.5/√2`, **not** `0.5`, because `s` scales both axes while the cell's x-width is only `2^lat`. This `(lat,lon)`-independence is what makes "the same prototype in every cell" work |
 | horocyclic clip arcs | verified | `y = const` maps to a circle internally tangent to the unit circle at `+i`, to 1.5e-10 |
-| `{8,3}` `433` structure | verified | the tile stabiliser is **C₄, not C₈** (enumerated words fixing the central octagon realise exactly `{0,2,4,6}·2π/8`); all 8 edge-neighbours are reachable by `R₃(V,±1)` about the 4 class-A vertices |
+| `{8,3}` `433` structure | verified | the tile stabilizer is **C₄, not C₈** (enumerated words fixing the central octagon realize exactly `{0,2,4,6}·2π/8`); all 8 edge-neighbors are reachable by `R₃(V,±1)` about the 4 class-A vertices |
 | exact pinch solve | verified | both fingers pinned to 1.8e-12 px. The problem is **exactly determined**: unknowns are zoom (1) + isometry (3) = 4, constraints are 2 fingers × 2 coordinates = 4. Root-find `s` on `d(g₁/s, g₂/s) = d(D₁, D₂)`, then match the hyperbolic midpoint and one bearing. The solved scale is within 10 % of the naive Euclidean ratio (median 1.000), so the gesture still feels the same |
 
 ## Deliberate approximations
@@ -177,7 +177,7 @@ traps will recur.
 
 1. A float64 reference whose own error (`atanh` near 1, at `d ≈ 10`) exceeded the test threshold, so a
    correct claim failed at 1.1e-12. Fixed with all-`decimal` arithmetic *and* an algebraic proof.
-2. Modelling `finger1Real` as a *data* point when the original stores a **view-frame** point. This made
+2. Modeling `finger1Real` as a *data* point when the original stores a **view-frame** point. This made
    a correct drag solver look badly broken (1.84 error). Read the call site, not just the function.
 3. Two factor-of-`zoom` errors in the pinch pixel model. The required screen target for a grabbed data
    point is `g/s`, not `g` and not `g·zoom/s`.
@@ -211,9 +211,9 @@ far cheaper to catch before its assumptions have spread. Re-runnable as
 | 1c | det multiplicative, so `\|a\|²−\|b\|² = 1` is preserved | correct |
 | 2 | `M.mul(N)` means "apply N first" — the convention re-anchoring depends on | correct |
 | 3 | re-anchor: `V.(F_c.G_g) == (V.F_c).G_g` | correct |
-| 3b | a neighbour's relative frame IS the generator: `F_c^-1.(F_c.G_g) == G_g` | correct |
+| 3b | a neighbor's relative frame IS the generator: `F_c^-1.(F_c.G_g) == G_g` | correct |
 | 4 | telescoping: `F_c^-1.(F_c.G_g.G_h) == G_g.G_h`, no `F_c` survives | correct |
-| 5 | all six binary neighbour steps are position-independent constants | correct |
+| 5 | all six binary neighbor steps are position-independent constants | correct |
 | 5b | the GENERAL relative frame still carries absolute longitudes | **so it is forbidden** |
 | 5c–5e | child0·parent(even), child1·parent(odd), lateral+1·lateral−1 are each the identity | correct — this is what proves the parity rule |
 | 6 | Cayley: `a = (S+1+iT)/(2√S)`, `b = (T+i(S−1))/(2√S)` | correct |
@@ -227,14 +227,14 @@ far cheaper to catch before its assumptions have spread. Re-runnable as
 | 9c | `Rot(θ)` has `a = e^{iθ/2}`, so `Rot(2π) = −I` | correct |
 | 10 | reduction rule `r^q = ±I` | correct |
 | 10b | the rotated conjugate `g_k = S g_0 S^-1` also squares to −I | correct |
-| 11 | the bisector of two centres 2ψ apart meets the bearing at exactly the inradius ψ | correct: at the midpoint `A = cosh(t)`, `B = 0`, `w = cosh(t)`, so `A²+B²−w² = 0` |
+| 11 | the bisector of two centers 2ψ apart meets the bearing at exactly the inradius ψ | correct: at the midpoint `A = cosh(t)`, `B = 0`, `w = cosh(t)`, so `A²+B²−w² = 0` |
 | 11b | **FINDING** — the `A > nw^2` containment test is NOT that bisector | see below |
 | 11c | that boundary is the perpendicular bisector and meets the bearing at the inradius | correct, 2.0e-15 over 5 tilings × 400 bearings |
 | 12 | `cosh(d/2) = \|w₁w₂ − ζ̄₁ζ₂\|` is isometry-invariant, so valid on RELATIVE coordinates | correct, 2.3e-14 over 20,000 samples |
 | 13 | `x = const` in the tile-local half-plane maps to a circle orthogonal to the unit circle (`c = 1`) | correct — so it is a geodesic, and the current straight-chord clip is wrong |
 | 13b | sagitta `r − √(r² − (L/2)²)` | correct |
 | 14 | `cosh χ = cosh ψ · cosh φ` over 8 tilings | correct, 0.0 |
-| 15 | every factor on the patch-local → screen path is bounded independently of distance travelled | correct — see the factor-by-factor bounds below |
+| 15 | every factor on the patch-local → screen path is bounded independently of distance traveled | correct — see the factor-by-factor bounds below |
 
 ## The one finding
 
@@ -243,8 +243,8 @@ history), tested
 
     outside  <=>  w·nw − x·nx − y·ny  >  nw²
 
-against the neighbour centre `(nx, ny, nw)`. That is **not** the perpendicular bisector of the two tile
-centres. At the edge midpoint — which must lie exactly on the boundary — its value is
+against the neighbor center `(nx, ny, nw)`. That is **not** the perpendicular bisector of the two tile
+centers. At the edge midpoint — which must lie exactly on the boundary — its value is
 `−4sinh⁴t − 4sinh²t + cosh t − 1`, i.e. **−0.6332 at the {8,3} inradius**, not zero. It therefore
 admits a region larger than the tile.
 
@@ -256,8 +256,8 @@ Consequences, and the reason this is a finding rather than a bug report:
   outside its own octagon.
 * It must **not** be reused for `containsLocal`, which re-anchoring and the per-pixel ownership
   diagnostic both depend on. The correct test is the one proved in claims 11/11c: a point is in the
-  tile iff `w² ≤ A² + B²` against every neighbour centre, where
-  `A = w·nw − x·nx − y·ny` and `B = x·ny − y·nx`. Equivalently and more simply: *the tile whose centre
+  tile iff `w² ≤ A² + B²` against every neighbor center, where
+  `A = w·nw − x·nx − y·ny` and `B = x·ny − y·nx`. Equivalently and more simply: *the tile whose center
   is nearest*, which is exactly what `reanchor()` computes — so the two agree by construction.
 
 ## Bounds behind claim 15
@@ -266,7 +266,7 @@ Consequences, and the reason this is a finding rather than a bug report:
 |---|---|
 | `V_c`, the camera-relative view | `cosh(ρ_screen/2)`; re-anchoring holds it there. Measured 1.10 over 1,256 tile crossings of {8,3} |
 | each generator `G_g` | a construction-time constant. Measured 1.00–1.06 (binary), 1.04–1.41 across {8,3} m=4, {8,3}, {7,3}, {5,4}, {4,5}, {6,4}, {3,7} |
-| the relative frame (product of `L` generators) | `max\|G\|^L` with `L = ceil(ρ/centreSpacing)+1` — bounded by the VISIBLE radius, not by distance travelled. Measured `L = 3` for a 2-unit visible radius on every {p,q} above except {3,7}, where it is 5 |
+| the relative frame (product of `L` generators) | `max\|G\|^L` with `L = ceil(ρ/centerSpacing)+1` — bounded by the VISIBLE radius, not by distance traveled. Measured `L = 3` for a 2-unit visible radius on every {p,q} above except {3,7}, where it is 5 |
 | the local point `(x, y, w)` | from the tile's own JSON; small by construction, that being the point of the atlas |
 | the projection denominator | `\|D\| ≥ 1/\|M\|` for `M` in SU(1,1); with `\|M\| = O(1)` it cannot approach zero |
 
@@ -281,15 +281,15 @@ repeats: the first run reported **13 failures and every one was spurious**.
 1. `simplify(Matrix) == 0` is always `False` — comparing a matrix to a scalar. That alone accounted
    for 11 of the 13.
 2. Hyperbolic identities survive plain `simplify()`: `sqrt(2cosh(x)+2)` is a perfect square sympy will
-   not recognise. Fixed by working in the half-angle `ψ = 2t` so every argument is an integer multiple
+   not recognize. Fixed by working in the half-angle `ψ = 2t` so every argument is an integer multiple
    of `t`.
 3. Claim 12 compared `G·P` directly, but a point-as-isometry has `a = w` **real**, and `G·P` generally
    does not — it is not that point's canonical representative. The transported point has to be
-   re-canonicalised. Symptom: the claim failed by a factor of 2,500.
+   re-canonicalized. Symptom: the claim failed by a factor of 2,500.
 
 And a fourth, in the reporting rather than the checking: the flag distinguishing "proved symbolically"
 from "verified numerically" was keyed off a variable that was always `None`, so numeric fallbacks were
-silently presented as proofs. In an audit harness. Fixed; claims 11c and 12 are now labelled.
+silently presented as proofs. In an audit harness. Fixed; claims 11c and 12 are now labeled.
 
 ## Layer 2 — numerical, far from the origin (2026-08-06)
 

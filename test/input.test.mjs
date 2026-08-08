@@ -1,4 +1,4 @@
-// Input tests, with the stuck-drag scenarios front and centre.
+// Input tests, with the stuck-drag scenarios front and center.
 //
 // The reported bug: "when dragging with a mouse, it can sometimes get stuck so that it's still
 // moving the map when the mouse is up." Two 2011 defects combine to produce that:
@@ -41,7 +41,7 @@ function setup(optionOverrides) {
     Object.assign({}, OPTIONS, optionOverrides),
     {},
   );
-  // client coordinates: centre is (200, 200); the disk radius is 200 px at zoom 1
+  // client coordinates: center is (200, 200); the disk radius is 200 px at zoom 1
   return { el, win, doc, view, input };
 }
 
@@ -154,7 +154,7 @@ test("dragging past the rim clamps instead of freezing", () => {
 
   el.dispatch("pointermove", pointerEvent({ clientX: 800, clientY: 200 })); // same ray, way outside
   const beyond = matrixOf(view);
-  // Not assertUnchanged's 1e-15: the clamp recomputes through a normalise, so the two agree to
+  // Not assertUnchanged's 1e-15: the clamp recomputes through a normalize, so the two agree to
   // 1.8e-15 rather than to the last bit. Still eleven orders below the 1e-9 change in the next step.
   for (let i = 0; i < 4; i++) {
     assert.ok(
@@ -179,7 +179,7 @@ test("dragging past the rim clamps instead of freezing", () => {
 
 test("a press in the annulus rotates rather than pans", () => {
   const { el, input } = setup();
-  // |z| = 0.95 at 190 px from centre
+  // |z| = 0.95 at 190 px from center
   el.dispatch("pointerdown", pointerEvent({ clientX: 390, clientY: 200 }));
   assert.equal(input.mode, MODE_ROTATE);
 });
@@ -210,7 +210,7 @@ test("allowZoom: false disables the wheel (the 2011 option did not)", () => {
   assert.ok(on.view.liveZoom > z0, "wheel up should zoom in");
 });
 
-test("wheel deltaMode is normalised", () => {
+test("wheel deltaMode is normalized", () => {
   const pixels = setup();
   pixels.el.dispatch("wheel", pointerEvent({ clientX: 200, clientY: 200, deltaY: -120, deltaMode: 0 }));
   const lines = setup();

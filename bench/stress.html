@@ -11,7 +11,7 @@
 
 <script src="../dist/hyperbolic-map.iife.js"></script>
 <script>
-// Stress harness for drawing correctness. The organising idea is PATH INDEPENDENCE: the picture must
+// Stress harness for drawing correctness. The organizing idea is PATH INDEPENDENCE: the picture must
 // depend only on the current view, never on how the view was reached. Any difference between a view
 // reached by scrolling and the same view constructed fresh is a state bug -- exactly the "polygons
 // disappear after interaction" class.
@@ -46,7 +46,7 @@ window.signature = function () {
       const gx = Math.min(N - 1, Math.floor((x / w) * N));
       const i = (y * w + x) * 4;
       const g = gy * N + gx;
-      // Composite against mid-grey so transparent and opaque are distinguishable.
+      // Composite against mid-gray so transparent and opaque are distinguishable.
       const a = d[i + 3] / 255;
       acc[g * 3] += d[i] * a + 128 * (1 - a);
       acc[g * 3 + 1] += d[i + 1] * a + 128 * (1 - a);

@@ -14,7 +14,7 @@
 import { exactMatMul, exactMatPow, exactDet3 } from "./exactcoxeter.js";
 
 // A float map from the exact hyperboloid model to the Poincare disk, pinned to the library's frame:
-// the tile centre at the origin, the edge-0 midpoint on the +x axis, vertex 0 at angle +pi/p.
+// the tile center at the origin, the edge-0 midpoint on the +x axis, vertex 0 at angle +pi/p.
 export function buildIntertwiner(cx) {
   const { R, G, vO, vM, vV } = cx;
   const B = [0, 1, 2].map((i) => [0, 1, 2].map((j) => R.toNumber(G[i][j]) / 2));
@@ -135,7 +135,7 @@ export function matchGenerators(cx, generators, p, m, tol) {
 }
 
 // Which sign of rotation the exact P corresponds to. P is rho^(p/m), a rotation by 2*pi/m about the
-// tile centre; whether that reads as Isom.rotation(+2pi/m) or (-2pi/m) depends on conventions this
+// tile center; whether that reads as Isom.rotation(+2pi/m) or (-2pi/m) depends on conventions this
 // file refuses to guess. Returns +1 or -1.
 export function calibrateSpin(inter, P, m, Isom, tol) {
   const eps = tol || 1e-9;
@@ -230,7 +230,7 @@ export function exactToIsom(inter, M, Isom, movePointToPoint) {
   // walk steps reach |beta| = 0.9999998 and the next one is NaN.
   //
   // Nothing on the render path calls this -- the walk composes floats incrementally with periodic
-  // renormalisation, which is exactly why it does not have this problem. But a caller converting a
+  // renormalization, which is exactly why it does not have this problem. But a caller converting a
   // faraway tile's frame in one go deserves an error rather than a silently poisoned matrix.
   if (!Number.isFinite(out.ar) || !Number.isFinite(out.ai) ||
       !Number.isFinite(out.br) || !Number.isFinite(out.bi)) {

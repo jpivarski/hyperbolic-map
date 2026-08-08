@@ -37,7 +37,7 @@ test("the intertwiner lands on the library's frame: edge 0 on +x, vertex 0 at +p
     const zV = inter.toDisk(cx.vV);
     const zO = inter.toDisk(cx.vO);
 
-    assert.ok(near(zO, [0, 0], 1e-12), `{${p},${q}}: tile centre is not at the disk origin`);
+    assert.ok(near(zO, [0, 0], 1e-12), `{${p},${q}}: tile center is not at the disk origin`);
     // edge-0 midpoint: at the inradius, on the +x axis
     assert.ok(Math.abs(Math.hypot(...zM) - Math.tanh(met.inradius / 2)) < 1e-9, `{${p},${q}}: |zM|`);
     assert.ok(Math.abs(Math.atan2(zM[1], zM[0])) < 1e-9, `{${p},${q}}: edge-0 midpoint is off the +x axis`);
@@ -59,8 +59,8 @@ test("rho turns counter-clockwise by exactly +2pi/p", () => {
   }
 });
 
-test("the edge-0 half-turn moves the tile centre to the edge-0 neighbour", () => {
-  // Sa.Sc is the half-turn about the edge-0 midpoint, so it must send the centre a full centre
+test("the edge-0 half-turn moves the tile center to the edge-0 neighbor", () => {
+  // Sa.Sc is the half-turn about the edge-0 midpoint, so it must send the center a full center
   // spacing along the +x axis -- that is what makes it a walk step and not merely a symmetry.
   for (const spec of SPECS) {
     const { p, q } = spec;
@@ -158,7 +158,7 @@ test("exactToIsom round-trips: exact matrix -> float isometry -> same action", (
     let worst = 0;
     let nearest = 1; // smallest (1 - |beta|) reached, i.e. how ill-conditioned it got
     // Six steps, not twelve: this conversion is only defined inside float range, and {12,3} has a
-    // large centre spacing so twelve random steps land past it. The out-of-range case is asserted
+    // large center spacing so twelve random steps land past it. The out-of-range case is asserted
     // separately below.
     for (let step = 0; step < 6; step++) {
       s = (s * 1103515245 + 12345) % 2147483648;
@@ -175,7 +175,7 @@ test("exactToIsom round-trips: exact matrix -> float isometry -> same action", (
     // The tolerance tracks the CONDITIONING rather than being a flat number. A disk coordinate at
     // |beta| = 1 - d carries about eps/d of resolution, so the achievable accuracy degrades as the
     // walk approaches the boundary -- {9,4} reaches 5.3e-9 after six steps and that is correct
-    // behaviour, not a defect. A flat tolerance here would either fail on the far tilings or be so
+    // behavior, not a defect. A flat tolerance here would either fail on the far tilings or be so
     // loose that it stopped testing the near ones.
     const tol = Math.max(1e-12, 2e-13 / Math.max(nearest, 1e-9));
     assert.ok(worst < tol,

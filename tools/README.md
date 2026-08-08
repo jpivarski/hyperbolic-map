@@ -65,8 +65,8 @@ affine is recorded in the metadata, so `svg_to_drawables.py` reads the inverse r
 
 ### `--guidelines "SPEC"`
 
-Adds light grey tile borders **beneath** the art, as one `<g class="hyperbolic-map-widget-guidelines">`
-that `svg_to_drawables.py` recognises and ignores. Omit it and no guidelines are added.
+Adds light gray tile borders **beneath** the art, as one `<g class="hyperbolic-map-widget-guidelines">`
+that `svg_to_drawables.py` recognizes and ignores. Omit it and no guidelines are added.
 
 Everything in the group is sampled along the **true hyperbolic curve** — 48 segments per tile edge, 16
 per letter stroke — because tile edges bow in every one of the three coordinate systems. Drawing an
@@ -77,23 +77,23 @@ page; the sampled borders are within 0.003 px.
 [`RegularTiling`](../README.md#regular-tiling). You get:
 
 - the base tile's border, in `#bbbbbb`;
-- one ring of neighbours, in `#dddddd`;
-- a large letter **R** in each neighbour, showing **the orientation that neighbour is placed in**.
-  There is no R in the centre tile, where it is implied upright and unflipped. This is the thing worth
-  looking at: the walk group's generators rotate each neighbour, and if your art is not invariant under
+- one ring of neighbors, in `#dddddd`;
+- a large letter **R** in each neighbor, showing **the orientation that neighbor is placed in**.
+  There is no R in the center tile, where it is implied upright and unflipped. This is the thing worth
+  looking at: the walk group's generators rotate each neighbor, and if your art is not invariant under
   rotation by `2π/frameSymmetry` the pattern will tear along exactly these seams — see
-  [THE STABILISER RULE](../notes/tilings.md#the-stabiliser-rule-2026-08-06).
+  [THE STABILIZER RULE](../notes/tilings.md#the-stabilizer-rule-2026-08-06).
 
-> The neighbours drawn are the ones the tiling's own generators reach. For `frameSymmetry = p` that is
+> The neighbors drawn are the ones the tiling's own generators reach. For `frameSymmetry = p` that is
 > all `p` of them; for `frameSymmetry < p` there are `2 × frameSymmetry` generators, so when
-> `2 × frameSymmetry < p` fewer than `p` neighbours appear. The count is printed.
+> `2 × frameSymmetry < p` fewer than `p` neighbors appear. The count is printed.
 
-**`"BinaryTiling()"`** — the base cell and its neighbours, with no letter R. Two of the four sides are
+**`"BinaryTiling()"`** — the base cell and its neighbors, with no letter R. Two of the four sides are
 horocycles and two are geodesics, meeting at right angles.
 
-> Six neighbours are drawn, not five. A cell has one parent, but *which* parent step applies depends on
+> Six neighbors are drawn, not five. A cell has one parent, but *which* parent step applies depends on
 > whether the cell is a left or a right child, and a prototype cell has no longitude — so both parent
-> variants are shown, and only one of them is a real neighbour of any given cell.
+> variants are shown, and only one of them is a real neighbor of any given cell.
 
 **In addition**, for any non-empty `--guidelines`: `--coords disk` also draws the unit boundary circle,
 and `--coords halfplane` also draws the horizontal axis, spanning only as wide as the other guidelines.
@@ -105,7 +105,7 @@ Inkscape's XML editor or Objects panel.
 
 ```
 wrote art.svg: 233 drawables in disk coordinates, 1080 x 1080 units
-guidelines: RegularTiling(8, 3, 4), 8 neighbouring tiles
+guidelines: RegularTiling(8, 3, 4), 8 neighboring tiles
 round-trip precision: worst 1.2e-12 local units of 0.4346 (drawable 225, point 0)
 ```
 
@@ -139,8 +139,8 @@ Ignored: the guidelines group, `<defs>` and other definition containers, anythin
 with a warning rather than silently.
 
 `fill`/`stroke` come from both the presentation attributes and the `style="…"` property list, with
-`style` winning as CSS requires. Colours pass through untouched, since the renderer hands them to a
-canvas context — so any CSS colour works. `fill-opacity`/`stroke-opacity` are folded into `rgba(…)`.
+`style` winning as CSS requires. Colors pass through untouched, since the renderer hands them to a
+canvas context — so any CSS color works. `fill-opacity`/`stroke-opacity` are folded into `rgba(…)`.
 
 **Curves are reduced to their endpoints**, with a warning. The drawable format has no curve segments.
 
@@ -253,7 +253,7 @@ its coordinates mean.
 `resolve_json_path` is duplicated **verbatim** in both scripts, between the two `KEEP IN SYNC` comment
 banners. The scripts have to be individually self-contained — the point is that a JavaScript developer
 with no Python environment can run either one directly — so there is no module to share, and the only
-defence against the copies drifting is that they stay character-for-character identical:
+defense against the copies drifting is that they stay character-for-character identical:
 
 ```bash
 python3 - <<'EOF'

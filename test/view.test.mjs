@@ -148,7 +148,7 @@ test("commit/cancel keep the committed state and the live state separate", () =>
   assert.equal(view.gesture, null);
 });
 
-test("commit renormalises, so repeated gestures cannot drift off the manifold", () => {
+test("commit renormalizes, so repeated gestures cannot drift off the manifold", () => {
   // A hyperbolic random walk escapes linearly, so 1000 unconstrained pans reach hyperbolic
   // distance ~670 -- far beyond anything a user could do, but a good stress test of the
   // representation. The point of this test is that the OFF-MANIFOLD error stays at machine

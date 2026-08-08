@@ -60,7 +60,7 @@ def act(M, z):
 # Proving "this expression is identically zero" needs more care than `simplify(e) == 0`, and getting
 # that wrong cost a first run with 13 spurious failures: comparing a sympy Matrix to the scalar 0 is
 # always False, and hyperbolic identities routinely survive plain simplify() (the sqrt of a perfect
-# square like 2cosh(x)+2 is not recognised without a half-angle substitution). So: recurse into
+# square like 2cosh(x)+2 is not recognized without a half-angle substitution). So: recurse into
 # matrices, try progressively stronger rewrites, and fall back to high-precision numeric sampling --
 # recording which route succeeded, so a numerically-checked claim is never reported as proved.
 # Set whenever a claim falls back to numeric sampling, and reported per claim, so a numerically
@@ -147,7 +147,7 @@ V, Fc, Gg = generic("V"), generic("F"), generic("G")
 # V_c := V . F_c   and   F_{c.g} = F_c . G_g   =>   V_{c.g} = V_c . G_g
 check(3, "re-anchor:  V . (F_c . G_g)  ==  (V . F_c) . G_g",
       zero(sp.expand(V * (Fc * Gg) - (V * Fc) * Gg)))
-check("3b", "relative frame of a neighbour is the generator itself:  F_c^-1 . (F_c . G_g) == G_g",
+check("3b", "relative frame of a neighbor is the generator itself:  F_c^-1 . (F_c . G_g) == G_g",
       zero(sp.expand(sp.simplify(Fc.inv() * (Fc * Gg)) - Gg)))
 
 Gh = generic("H")
@@ -155,7 +155,7 @@ check(4, "telescoping:  F_c^-1 . (F_c . G_g . G_h)  ==  G_g . G_h  (no F_c survi
       zero(sp.expand(sp.simplify(Fc.inv() * (Fc * Gg * Gh)) - Gg * Gh)))
 
 # ---------------------------------------------------------------------------------------------
-print("\n5-6  the binary tiling: constant neighbour steps, and the Cayley conjugation")
+print("\n5-6  the binary tiling: constant neighbor steps, and the Cayley conjugation")
 
 # Half-plane frame of cell (lat, lon):  z -> s z + t.
 def st(la, lo):
@@ -163,7 +163,7 @@ def st(la, lo):
 
 
 def relative(la_n, lo_n, la_c, lo_c):
-    """Relative frame camera->neighbour as (S, T) for z -> S z + T."""
+    """Relative frame camera->neighbor as (S, T) for z -> S z + T."""
     s_n, t_n = st(la_n, lo_n)
     s_c, t_c = st(la_c, lo_c)
     return sp.simplify(s_n / s_c), sp.nsimplify(sp.simplify(sp.powsimp(sp.expand((t_n - t_c) / s_c), force=True)))
@@ -193,7 +193,7 @@ for name, args in STEPS.items():
     allconst = allconst and ok
     if not ok:
         print(f"           {name}: S={Sx} T={Tx} free={free}")
-check(5, "all six binary neighbour steps are position-INDEPENDENT constants", allconst)
+check(5, "all six binary neighbor steps are position-INDEPENDENT constants", allconst)
 
 # The general relative frame, by contrast, must NOT be used: it still carries the longitudes.
 dlat = sp.Symbol("dlat", integer=True)
@@ -281,35 +281,35 @@ check("10b", "the rotated conjugate g_k = S g_0 S^-1 also squares to -I",
 # ---------------------------------------------------------------------------------------------
 print("\n11   containsLocal: the tile membership test")
 
-# A tile is the set of points closer to its own centre than to any neighbour centre. The neighbour
-# centre sits at hyperbolic distance 2*psi along the bearing alpha, so in local coordinates it is
+# A tile is the set of points closer to its own center than to any neighbor center. The neighbor
+# center sits at hyperbolic distance 2*psi along the bearing alpha, so in local coordinates it is
 # (sinh psi cos alpha, sinh psi sin alpha) with companion cosh psi.
 alpha = sp.Symbol("alpha", real=True)
 t_h = sp.Symbol("t_h", positive=True)   # psi = 2*t_h, so every hyperbolic argument is an integer multiple
 
-# A tile is the set of points closer to its own centre than to any neighbour centre, so the test is
-# just "cosh(d/2) to my centre <= cosh(d/2) to yours". With the origin as my centre,
+# A tile is the set of points closer to its own center than to any neighbor center, so the test is
+# just "cosh(d/2) to my center <= cosh(d/2) to yours". With the origin as my center,
 # cosh(d(P,O)/2) = |w*1 - conj(zeta)*0| = w, so the test reads  w^2 <= A^2 + B^2  where A and B are the
-# real and imaginary parts of  w*nw - conj(zeta)*nzeta  for the neighbour centre N. That much holds by
+# real and imaginary parts of  w*nw - conj(zeta)*nzeta  for the neighbor center N. That much holds by
 # construction. The CONTENT of the claim is that this locus passes through the edge midpoint -- that
-# the bisector of two centres 2*psi apart meets the bearing at exactly the inradius psi.
+# the bisector of two centers 2*psi apart meets the bearing at exactly the inradius psi.
 #
 # Placing both points on the +x bearing loses no generality: the whole configuration is rotationally
 # covariant, and rotations preserve the form (claim 12). Doing it this way keeps every argument an
 # integer multiple of t_h, which is what lets sympy finish -- expressed with sqrt(1+x^2+y^2) instead,
-# it stalls on sqrt(2 cosh(psi) + 2), a perfect square it will not recognise.
+# it stalls on sqrt(2 cosh(psi) + 2), a perfect square it will not recognize.
 psi_h = 2 * t_h                                    # the inradius
-nx_, ny_, nw_ = sp.sinh(psi_h), sp.Integer(0), sp.cosh(psi_h)   # neighbour centre, distance 2*psi
+nx_, ny_, nw_ = sp.sinh(psi_h), sp.Integer(0), sp.cosh(psi_h)   # neighbor center, distance 2*psi
 mx_, my_, mw_ = sp.sinh(t_h), sp.Integer(0), sp.cosh(t_h)       # edge midpoint,    distance psi
 
 A_mid = sp.expand(sp.simplify(mw_ * nw_ - mx_ * nx_ - my_ * ny_), trig=True)
 B_mid = sp.expand(sp.simplify(mx_ * ny_ - my_ * nx_), trig=True)
-check(11, "the bisector of two centres 2*psi apart meets the bearing at exactly the inradius psi",
+check(11, "the bisector of two centers 2*psi apart meets the bearing at exactly the inradius psi",
       zero(sp.simplify(A_mid ** 2 + B_mid ** 2 - mw_ ** 2)),
       f"at the edge midpoint  A = {sp.simplify(A_mid)},  B = {B_mid},  w = {mw_}  ->  A^2+B^2-w^2 = 0")
 
-# The near-miss test -- used by the 2012 Escher tile cutter, since removed -- with the same neighbour
-# centre, is
+# The near-miss test -- used by the 2012 Escher tile cutter, since removed -- with the same neighbor
+# center, is
 #     outside  <=>  w*nw - x*nx - y*ny  >  nw^2
 # Its boundary is a different locus: it is not zero at the edge midpoint, so it is not the bisector.
 legacy_at_mid = sp.simplify(sp.expand(A_mid - nw_ ** 2, trig=True))
@@ -365,7 +365,7 @@ for pv, qv in [(8, 3), (7, 3), (5, 4), (4, 5), (6, 4)]:
             else:
                 hi = md
         root = 0.5 * (lo + hi)
-        # At the root the point must be equidistant from the two centres.
+        # At the root the point must be equidistant from the two centers.
         xv, yv = math.sinh(root / 2) * math.cos(al), math.sinh(root / 2) * math.sin(al)
         wv = math.sqrt(1 + xv * xv + yv * yv)
         dO = 2 * math.acosh(max(1.0, form_c(wv, complex(xv, yv), 1.0, 0j)))
@@ -382,7 +382,7 @@ print("\n12   the invariant distance form on RELATIVE coordinates")
 # The form must be invariant under a common isometry, or evaluating it on camera-relative coordinates
 # would not mean the same thing as on world coordinates.
 #
-# The transported point must be RE-CANONICALISED. G*P is a perfectly good SU(1,1) element, but a
+# The transported point must be RE-CANONICALIZED. G*P is a perfectly good SU(1,1) element, but a
 # point-as-isometry has a = w real and positive, and G*P generally does not -- so it is not that
 # point's canonical representative. Comparing the raw products instead made the first version of this
 # claim fail by a factor of 2500, which was the harness, not the mathematics.
@@ -456,8 +456,8 @@ FACTORS = [
      "a compile-time constant, measured: 1.00-1.06 (binary), 1.04-1.41 over {8,3} m=4, {8,3}, "
      "{7,3}, {5,4}, {4,5}, {6,4}, {3,7}. Independent of position."),
     ("the relative frame, a product of L generators",
-     "<= max|G|^L with L = ceil(rho/centreSpacing)+1, bounded by the VISIBLE radius rather than by "
-     "distance travelled. Measured L = 3 for a 2-unit visible radius on every {p,q} above except "
+     "<= max|G|^L with L = ceil(rho/centerSpacing)+1, bounded by the VISIBLE radius rather than by "
+     "distance traveled. Measured L = 3 for a 2-unit visible radius on every {p,q} above except "
      "{3,7}, where it is 5."),
     ("the local point (x, y, w)",
      "supplied by the tile's own JSON; small by construction, that being the point of the atlas."),
@@ -466,7 +466,7 @@ FACTORS = [
 ]
 for name, bound in FACTORS:
     print(f"           {name}\n             -> {bound}")
-check(15, "every factor on the patch-local -> screen path is bounded independently of distance travelled",
+check(15, "every factor on the patch-local -> screen path is bounded independently of distance traveled",
       True, "no cosh/exp/atanh of a global distance appears; the tiling's own metric constants are "
             "evaluated once at construction, not per frame")
 print("\n" + "=" * 78)

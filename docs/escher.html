@@ -38,7 +38,7 @@ try {
   });
 
   // fill in the file -> which of the four colors it plays. The fish roles are fixed art data; the four
-  // overlap pieces are pieces of NEIGHBOURS' fish, so their roles are asked of the tiling rather than
+  // overlap pieces are pieces of NEIGHBORS' fish, so their roles are asked of the tiling rather than
   // written down, and cannot go stale if the homomorphism changes.
   const ROLE = Object.assign({}, FISH_ROLE, overlapRoles(tiling));
 

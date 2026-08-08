@@ -43,7 +43,7 @@ export function imageLayer(spec) {
   // while the dungeon itself stays perfectly smooth across the same boundary. Feeding that straight
   // to ctx.rotate makes the shell snap while the world it is supposedly carrying does not.
   //
-  // So the jump is cancelled: when the anchor changes, absorb the difference into an offset and keep
+  // So the jump is canceled: when the anchor changes, absorb the difference into an offset and keep
   // drawing at the angle we were already at. Between re-anchors this is exactly `view.rotation`, so a
   // rim drag turns the shell by precisely the angle swept.
   //

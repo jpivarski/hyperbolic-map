@@ -74,7 +74,7 @@ function driver(vp) {
 // How much of the disk has CONTENT on it, measured as the fraction of sampled pixels that are not the
 // page background.
 //
-// An earlier version measured colour DIVERSITY -- one minus the modal colour's share -- which is
+// An earlier version measured color DIVERSITY -- one minus the modal color's share -- which is
 // degenerate exactly where it matters. On {12,3}, whose dodecagons are large, a single tile can cover
 // the whole sampled region, so a perfectly good frame scores 0 and the "content vanished" check both
 // reported 0 and failed to fire (the threshold is relative to a baseline that was also 0). Counting
@@ -320,7 +320,7 @@ export async function advanceCompoundScroll(n) {
     if (maxV > 20) S.findings.push(`step ${S.at} (${st.kind}): max|V| = ${maxV.toFixed(3)}`);
     if (nonFinite) S.findings.push(`step ${S.at} (${st.kind}): ${nonFinite} non-finite relative frames`);
     if (stray > 0) S.findings.push(`step ${S.at} (${st.kind}): ${stray} pixels outside the disk`);
-    // An absolute floor now that ink measures content rather than colour diversity: these motifs cover
+    // An absolute floor now that ink measures content rather than color diversity: these motifs cover
     // the tiling, so a frame with under a quarter of the sampled area painted has lost something.
     if (ink < 0.25) {
       S.findings.push(`step ${S.at} (${st.kind}): disk nearly empty (ink ${ink.toFixed(4)}, baseline ${S.baseInk.toFixed(4)})`);
@@ -341,7 +341,7 @@ export async function advanceCompoundScroll(n) {
 // Compared on the composed MATRICES rather than on pixels, and that is a deliberate choice. Comparing
 // canvases here cannot work: the gestured viewport's canvas has been drawn hundreds of times and Chrome
 // has promoted it to the GPU, while a freshly built one starts on the software rasterizer, and the two
-// antialias differently. Measured, that difference is ~12,900 colour channels of pure rasterizer state
+// antialias differently. Measured, that difference is ~12,900 color channels of pure rasterizer state
 // -- it says nothing about the library. (The byte-identical comparisons in diagnostic-checks.js work
 // because BOTH sides are freshly built there.)
 //

@@ -176,7 +176,7 @@ export class Isom {
   // ---- readouts ----
 
   // Screen bearing of the half-plane's "north" (its ideal point, which this convention places at
-  // the top of the disk). Geodesics through the disk centre are straight diameters, so this is
+  // the top of the disk). Geodesics through the disk center are straight diameters, so this is
   // just the argument of the image of that boundary point. Verified equal to the 2011
   // `halfPlaneOrientation` to 7e-13 -- a simplification, not a bug fix.
   north() {
@@ -201,8 +201,8 @@ export class Isom {
     return out;
   }
 
-  // The view centre in local coordinates: the point that this isometry sends to the origin.
-  centreLocal(out) {
+  // The view center in local coordinates: the point that this isometry sends to the origin.
+  centerLocal(out) {
     const inv = this.inverse();
     inv.applyToDisk(0, 0, out);
     const r2 = out[0] * out[0] + out[1] * out[1];

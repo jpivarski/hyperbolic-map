@@ -29,7 +29,7 @@ anything mathematical.
   Nothing in this repository depends on it: the last code that did was removed in the PR #2 cleanup.
 - **The demos are not regenerated from sources.** The scripts that built `docs/*.json` from the 2011
   databases and from the Escher raster were removed in the PR #2 cleanup; the committed JSON under
-  `docs/` is the artefact. Do not try to rebuild it -- edit it, or write a new generator.
+  `docs/` is the artifact. Do not try to rebuild it -- edit it, or write a new generator.
 - **Before quoting any performance number, check CPU and GPU load** immediately before and after the
   measurement, and record both alongside the result. This machine is often busy with unrelated work.
   If it is busy, say so and defer the measurement rather than reporting a misleading figure.
@@ -56,5 +56,5 @@ anything mathematical.
 | [`tilings.md`](notes/tilings.md) | `{p,q}` and binary tiling formulas, generators, tile keys |
 | [`escher-circle-limit-iii.md`](notes/escher-circle-limit-iii.md) | the `{8,3}`/`433` derivation and the art fit |
 | [`data-extraction.md`](notes/data-extraction.md) | the BabuDB format and the v2 JSON schema |
-| [`performance.md`](notes/performance.md) | baselines, hotspots, and what each optimisation bought |
+| [`performance.md`](notes/performance.md) | baselines, hotspots, and what each optimization bought |
 | [`open-questions.md`](notes/open-questions.md) | unresolved and unproven items |
