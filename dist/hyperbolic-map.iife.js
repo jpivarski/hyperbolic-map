@@ -1,4 +1,4 @@
-/* hyperbolic-map 0.1.0 - https://github.com/jpivarski/hyperbolic-map
+/* hyperbolic-map 0.1.1 - https://github.com/jpivarski/hyperbolic-map
  * Built by dev/build.mjs (concatenation in dependency order; no bundler).
  * Generated file - do not edit. Edit src/ and run `npm run build`.
  */
@@ -12,7 +12,7 @@
 // `package.json` at run time, and the browser bundle is plain concatenation with nothing to
 // substitute. The copy in `package.json` is what npm publishes, so there are necessarily two, and
 // `dev/check-bundle.mjs` fails the build if they ever disagree.
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 // ===== src/core/isom.js =====
 // Orientation-preserving isometries of the hyperbolic plane, as SU(1,1) matrices.
