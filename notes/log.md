@@ -3078,3 +3078,53 @@ locally, including the ones that are supposed to fail:
    authentication only, and the trusted publisher keeps working because it uses OIDC.
 5. Bump both `package.json` and `src/version.js` to 0.1.1 (a mismatch is a build failure by design),
    rebuild so the banner in `dist/` matches, and cut a `v0.1.1` release to exercise the workflow.
+
+## 2026-08-08-t — Release prep 15: the declarations verified through a real install
+
+2026-08-08-r left one thing open: checking `src/index.d.ts` in-tree does not test the `exports`
+wiring, because `dev/typecheck/`'s `paths` mapping resolves the declaration file directly and would
+go on resolving it if `package.json` were wrong. Closed now.
+
+`npm pack`, then `npm install ./hyperbolic-map-0.1.0.tgz` into a scratch project outside the repo,
+then compile a consumer against the **installed** package. The tarball unpacks to exactly `dist`,
+`src`, `LICENSE`, `README.md`, `package.json` — nothing else — and Node resolves `hyperbolic-map` to
+it and names a tile with it.
+
+TypeScript resolves the types under **all four** resolution modes, clean under `strict`:
+
+| moduleResolution | reads | result |
+|---|---|---|
+| `bundler` (Vite, most React/Svelte setups) | `exports["."].types` | clean |
+| `nodenext` | `exports["."].types` | clean |
+| `node16` | `exports["."].types` | clean |
+| `node10` (older setups) | the top-level `types` | clean |
+
+That is why both spellings are present; each mode above exercises one of them.
+
+Proved to be doing something rather than merely resolving: with the expect-error removed, a
+misspelled option in the consumer produces
+
+```
+error TS2561: Object literal may only specify known properties, but 'maxZom' does not exist
+in type 'ViewportOptions'. Did you mean to write 'maxZoom'?
+```
+
+and the *same* diagnostic appears for a plain `.js` consumer under `// @ts-check` with `checkJs` —
+which is the React/Svelte-without-TypeScript path, and the one Jim's "minimal friction" ask was
+really about.
+
+### Browser, unchanged as expected
+
+Nothing in the last three commits touches runtime code, and `git diff dist/` confirms the bundle is
+byte-identical, but checked anyway: `docs/escher.html` renders (704x704, 381 distinct sampled
+colors) with an **empty console**, reports `HyperbolicMap.VERSION === "0.1.0"` and 56 names on the
+global, and rejects `{ maxTiels: 5 }` from the page's own console.
+
+### Final state
+
+`npm run check` 20 modules; `npm test` **191/191**; `npm run smoke` ok; `npm run typecheck` clean;
+`npm run build` then `git diff --exit-code dist/ docs/lib/` clean; `npm pack --dry-run` 26 files /
+222.5 kB. Working tree clean, nothing pushed.
+
+Everything on issue #4 that can be done from this directory is done. What is left is Jim's, and it
+is listed at the end of 2026-08-08-s.
