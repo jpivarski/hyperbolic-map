@@ -2993,3 +2993,88 @@ The declarations are checked in-tree, which does not test the `exports` wiring �
 resolves even if `exports` is wrong. Installing the packed tarball into a scratch directory and
 compiling against it under both `bundler` and `nodenext` resolution is the test that does, and it is
 in the verification pass below rather than in CI, since it needs a full `npm pack` and install.
+
+## 2026-08-08-s — Release prep 14: publish from a GitHub release, and run the checks on every push
+
+There was no `.github/` at all, and the 191 tests had never run anywhere but Jim's laptop. Two
+workflows, no secrets.
+
+### `publish.yml` — trusted publishing over OIDC
+
+Triggered by `release: published`. `permissions: id-token: write` mints an OIDC token that npm
+exchanges for a short-lived credential, so there is **no npm token** anywhere: nothing to leak, and
+nothing to rotate.
+
+Constraints that are easy to get wrong, all of them checked against npm's documentation rather than
+assumed:
+
+* **The filename is load-bearing.** npm's trusted-publisher config stores the workflow *filename*
+  (not the path, not the `name:`) and matches case-sensitively. Renaming `publish.yml` breaks
+  releases until it is re-registered. Said so in the file, and in `AGENTS.md`.
+* Needs **npm >= 11.5.1** and **Node >= 22.14.0**, and GitHub-*hosted* runners only — OIDC from a
+  self-hosted runner is refused. Node 24; npm is upgraded only when the bundled one is too old,
+  rather than pulling `npm@latest` on every run.
+* **`repository.url` must match** the configured repository, which is why 2026-08-08-q left it
+  alone.
+* **No `environment:`.** If one is ever registered on npm's side, this workflow must declare an
+  identically-named environment or every publish fails. Both blank keeps them consistent.
+* `--provenance` is passed **explicitly**. npm documents it as automatic for a public package from a
+  public repo over OIDC, but it has been reported not to fire on its own; passing it makes
+  "published with no attestation" a failed build rather than a silent outcome.
+
+Three gates run before `npm publish`, because an npm version number is immutable and cannot be
+reused after unpublishing, so a broken release has to fail *first*:
+
+1. **the release tag must equal `package.json`'s version** (`v` prefix optional). `npm run check`
+   already ties `package.json` to `src/version.js`; this ties in the tag, so a release tagged
+   `v0.1.2` cannot publish `0.1.1`.
+2. the full suite: check, test, build, typecheck, smoke.
+3. **`git diff --exit-code dist/ docs/lib/`** after rebuilding. `dist/` is a committed artifact and
+   `npm publish` ships it, so this is what stops a stale bundle reaching npm.
+
+### `ci.yml` — and an honest note about the engines floor
+
+Node 22 and 24 run the full suite. **Not 18**, and the reason is worth writing down: the test script
+is `node --test "test/**/*.test.mjs"`, and the runner's glob support arrived in Node 22, so on 18 the
+suite fails for tooling reasons that say nothing about the library. Putting 18 in the matrix would
+have produced a red build and taught nothing.
+
+So `engines: {"node": ">=18"}` was an **untested claim**. Rather than drop it or ignore it, there is
+now a separate `engines` job on Node 18 running `dev/smoke.mjs`, which uses no test framework at all
+— a floor check that depends on the floor's own tooling is not a floor check. It asserts the ES
+module loads, that importing it touches no DOM global (which is what makes the package safe to
+import from a Next.js or SvelteKit server render), that the geometry kernel and the far-field
+recentring case are right, that a 40-step {8,3} walk names a tile and the binary tiling's BigInt
+addressing works, and that the bundle evaluates in a bare realm and agrees with the module.
+
+No `npm install` or `npm ci` step anywhere: there is no lockfile and no dependencies, and adding one
+would fail. `npm run typecheck` fetches tsc with `npx -y` where it is needed, and runs once rather
+than per Node version.
+
+### Verified
+
+Both files parse as YAML with the expected triggers, permissions and jobs, and both `actions/*@v7`
+tags resolve (`checkout` 3d3c42e5aac5, `setup-node` 820762786026). Every `run:` step was executed
+locally, including the ones that are supposed to fail:
+
+* the npm-version comparison across 10.9.0 / 11.5.0 / **11.5.1** / 11.16.0 / 12.0.0 — correct on
+  both sides of the boundary and at it;
+* the tag gate accepting `v0.1.0` and `0.1.0` and refusing `v0.1.1` and `v1.0.0`;
+* the stale-bundle gate, by appending a line to `dist/hyperbolic-map.iife.js` and watching it fire,
+  then reverting and watching it pass.
+
+`npm run smoke` passes on Node 26 locally; Node 18 is exercised by CI on the first push.
+
+### Left for Jim, in order
+
+1. Merge, so the workflows exist on `main` — the `release` trigger reads them from the default branch.
+2. `npm publish --access public` by hand for 0.1.0, authenticating the 2FA prompt with his **passkey**
+   at the `npmjs.com/login/<uuid>` URL npm prints. No authenticator app is needed; npm no longer
+   offers TOTP enrollment to new accounts. The first publish cannot use OIDC, because npm's
+   trusted-publisher settings live on a package page that does not exist yet.
+3. Register the trusted publisher: user `jpivarski`, repo `hyperbolic-map`, workflow `publish.yml`,
+   environment blank, action `npm publish`.
+4. Optionally set Publishing access to "require 2FA and disallow tokens" — that affects token
+   authentication only, and the trusted publisher keeps working because it uses OIDC.
+5. Bump both `package.json` and `src/version.js` to 0.1.1 (a mismatch is a build failure by design),
+   rebuild so the banner in `dist/` matches, and cut a `v0.1.1` release to exercise the workflow.
