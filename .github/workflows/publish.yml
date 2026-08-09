@@ -1,0 +1,79 @@
+# Publish to npm when a GitHub release is published.
+#
+# THIS FILE CANNOT BE RENAMED. npm's trusted-publisher configuration stores the workflow FILENAME
+# (not the path, not the `name:` below), matches on it case-sensitively, and refuses the publish if
+# it does not match. Renaming this file breaks releases until it is re-registered at
+# https://www.npmjs.com/package/hyperbolic-map/access.
+#
+# There are no secrets here, which is the point. `id-token: write` mints an OIDC token that npm
+# exchanges for a short-lived credential, so there is no long-lived npm token to leak or rotate.
+#
+# Registered on npmjs.com as: user `jpivarski`, repository `hyperbolic-map`, workflow `publish.yml`,
+# environment blank, allowed action `npm publish`. If an environment is ever added there, this
+# workflow must declare an identically-named `environment:` or every publish fails.
+#
+# The first publish of a package cannot use this: npm's trusted-publisher settings live on the
+# package page, which does not exist until the package does. 0.1.0 went up by hand.
+
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    # GitHub-hosted only. npm does not accept OIDC from self-hosted runners.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          # Trusted publishing needs Node >= 22.14.0. package.json's `engines` is about consumers.
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      # Upgrade only when the bundled npm is too old, rather than pulling npm@latest every run.
+      - name: Ensure npm supports trusted publishing
+        run: |
+          need=11.5.1
+          have=$(npm --version)
+          if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; then
+            echo "npm $have is older than $need; upgrading"
+            npm install -g npm@latest
+          fi
+          npm --version
+
+      # Three things must agree on the version: the release tag, package.json, and src/version.js.
+      # `npm run check` ties the last two together on every build; this ties in the tag, so a
+      # release tagged v0.1.2 cannot publish 0.1.1.
+      - name: The release tag must match the version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          tag="${TAG#v}"
+          pkg=$(node -p "require('./package.json').version")
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::release tag '$tag' but package.json says '$pkg'"
+            exit 1
+          fi
+          echo "publishing $pkg"
+
+      # Everything CI runs, before anything is published. An npm version number is immutable and
+      # cannot be reused after unpublishing, so a broken release must fail BEFORE `npm publish`.
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - name: The committed bundle must match a fresh build
+        run: git diff --exit-code dist/ docs/lib/
+      - run: npm run typecheck
+      - run: npm run smoke
+
+      # `--provenance` explicitly. npm documents it as automatic for a public package published
+      # from a public repo over OIDC, but it has been reported not to fire on its own, and passing
+      # it turns "published without attestation" from a silent outcome into a failed build.
+      - run: npm publish --provenance --access public

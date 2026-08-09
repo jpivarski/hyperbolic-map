@@ -5,7 +5,7 @@
 //   * Data far from the origin loses precision when expressed in one global patch. At hyperbolic
 //     distance 20 a disk coordinate is 1 - 3.6e-9, so there are only ~7 significant digits left in
 //     the quantity that matters. Splitting the data into tiles means every coordinate is small and
-//     measured from its own tile's centre.
+//     measured from its own tile's center.
 //
 //     Crucially, the tile's frame is never expressed relative to the WORLD either. Everything here is
 //     relative to the camera's own tile -- see anchor.js -- because a global frame has entries of
@@ -30,6 +30,23 @@ export const CLIP_NEVER = "never";
 
 const atlasArc = new Arc();
 
+// Every key the constructor destructures below. Kept beside it, and asserted against it by
+// test/anchor.test.mjs, so that adding an option there without adding it here turns the new option
+// into an error rather than into a default.
+const ATLAS_OPTIONS = new Set([
+  "tiling",
+  "tileData",
+  "clip",
+  "cacheSize",
+  "maxTiles",
+  "styleSheet",
+  "onTileLoad",
+  "onTileError",
+  "checkTileSymmetry",
+  "tileSymmetryTolerance",
+  "lodPx",
+]);
+
 export class Atlas {
   constructor(options = {}) {
     const {
@@ -53,6 +70,13 @@ export class Atlas {
       // art, if it supplied any. See passes().
       lodPx = 11,
     } = options;
+    // Typos are an error here for the same reason they are for the viewport's own options: a
+    // destructure silently ignores what it does not recognize, so `maxTiels: 5` would leave the
+    // default in place and the only symptom would be "why is this not working".
+    const unknown = Object.keys(options).filter((k) => !ATLAS_OPTIONS.has(k));
+    if (unknown.length) {
+      throw new Error(`hyperbolic-map: unknown atlas option(s): ${unknown.join(", ")}`);
+    }
     if (!tiling) throw new Error("hyperbolic-map: atlas needs a tiling");
     if (typeof tileData !== "function") throw new Error("hyperbolic-map: atlas needs a tileData callback");
 
@@ -86,7 +110,7 @@ export class Atlas {
     this._c0 = [0, 0];
     this._c1 = [0, 0];
     this.tileLocalRadius = Math.sinh((tiling.metrics.circumradius || 1) / 2);
-    // Compiled art, memoised on the IDENTITY of the object the callback returned.
+    // Compiled art, memoized on the IDENTITY of the object the callback returned.
     //
     // A repeating atlas hands back one of a few shared objects for every tile -- the Escher atlas has
     // twelve, one per element of its color symmetry -- so compiling per tile would redo identical work.
@@ -100,7 +124,7 @@ export class Atlas {
 
   // The symmetry lint. See symmetry.js for what it measures and when it is worth switching on.
   //
-  // Only meaningful for tilings with a non-trivial stabiliser: the binary tiling has none, so C_1
+  // Only meaningful for tilings with a non-trivial stabilizer: the binary tiling has none, so C_1
   // symmetry is vacuous and this is skipped entirely.
   verifyTileSymmetry(data) {
     if (this.checkTileSymmetry === "off") return;
@@ -112,7 +136,7 @@ export class Atlas {
       if (this._symmetryFailure) throw new TileSymmetryError(this._symmetryFailure);
       return;
     }
-    const m = this.tiling.stabiliserOrder;
+    const m = this.tiling.stabilizerOrder;
     if (!(m > 1)) {
       this._symmetryChecked = true;
       return;
@@ -120,7 +144,7 @@ export class Atlas {
     const drawables = data && data.drawables;
     if (!drawables || !drawables.length) return; // an empty tile says nothing; wait for a real one
     if (data.coordinates && data.coordinates !== "local") {
-      // The check is only exact in tile-local coordinates, where the stabiliser is a plain Euclidean
+      // The check is only exact in tile-local coordinates, where the stabilizer is a plain Euclidean
       // rotation. Say so rather than reporting a number that means nothing.
       this._symmetryChecked = true;
       this.tileSymmetry = { skipped: `coordinates "${data.coordinates}" are not tile-local`, ok: true };
@@ -174,13 +198,13 @@ export class Atlas {
       // The tile's element of a declared COLOR SYMMETRY: the permutation this tile applies to the
       // caller's colors, and the same thing as a dense index. Null and 0 when none was declared.
       // Unlike `classIndex` this survives a non-abelian group and does not have to kill the tile
-      // stabiliser, which is what lets a repeating atlas draw Escher's four-color Circle Limit III
+      // stabilizer, which is what lets a repeating atlas draw Escher's four-color Circle Limit III
       // rather than one color per tile. See RegularTiling.colorPermutation.
       colorPermutation: this.tiling.colorPermutation ? this.tiling.colorPermutation(address) : null,
       colorIndex: this.tiling.colorIndex ? this.tiling.colorIndex(address) : 0,
       colorCount: this.tiling.colorCount || 1,
       relativeFrame: rel.clone(),
-      centreRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
+      centerRelativeDisk: rel.applyToDisk(0, 0, [0, 0]),
     };
 
     // A SYNCHRONOUS callback must be served in THIS frame.
@@ -281,8 +305,8 @@ export class Atlas {
     // `view.matrix` is the CAMERA-RELATIVE view when an atlas is present; the viewport re-anchors
     // before every render so this stays O(1).
     const Vc = view.matrix;
-    let tiles = this.anchor.neighbourhood(Vc, view.effectiveRadius, this.maxTiles);
-    // PAINTER'S ORDER, if the tiling defines one. Applied to a COPY and only after the neighbourhood
+    let tiles = this.anchor.neighborhood(Vc, view.effectiveRadius, this.maxTiles);
+    // PAINTER'S ORDER, if the tiling defines one. Applied to a COPY and only after the neighborhood
     // has been chosen: the walk admits tiles nearest-first and `maxTiles` truncates the tail, so
     // reordering before that would change WHICH tiles are drawn, not just the order they are drawn in.
     // Matters only when art overlaps, i.e. when not clipping; see binaryDrawOrder.

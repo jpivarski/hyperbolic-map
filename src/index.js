@@ -1,4 +1,4 @@
-// hyperbolic-map-widget -- public surface.
+// hyperbolic-map -- public surface.
 //
 // This file is a barrel: it only re-exports. dev/build.mjs uses the names imported here to decide
 // what the browser bundle exposes on the global `HyperbolicMap` object, so anything intended to be
@@ -7,6 +7,7 @@
 // Imports must stay one-per-line and single-line (see dev/check-bundle.mjs): the builder strips
 // import lines individually, so a multi-line import would leave fragments behind.
 
+import { VERSION } from "./version.js";
 import { Isom, localCompanion, movePointToPoint } from "./core/isom.js";
 import { localToDisk, diskToLocal, localRadiusToDistance, distanceToLocalRadius, localDistance, halfPlaneToLocal, localToHalfPlane } from "./core/coords.js";
 import { Cap, coshHalfDistance, coshHalfDistanceSquared, screenRadiusToThresholdSquared, capMayBeVisible, capThreshold } from "./core/minkowski.js";
@@ -29,6 +30,7 @@ import { ExactRing, minPolyFor2Cos, exactMulCount, resetExactMulCount } from "./
 import { buildExactCoxeter, serializeExactVector } from "./data/atlas/exactcoxeter.js";
 
 export {
+  VERSION,
   ExactRing,
   minPolyFor2Cos,
   exactMulCount,

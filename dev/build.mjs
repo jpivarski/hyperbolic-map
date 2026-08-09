@@ -101,7 +101,7 @@ for (const n of entryImports) if (!publicNames.includes(n)) publicNames.push(n);
 const version = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
 
 const parts = [];
-parts.push(`/* hyperbolic-map-widget ${version} - https://github.com/jpivarski/hyperbolic-map-widget
+parts.push(`/* hyperbolic-map ${version} - https://github.com/jpivarski/hyperbolic-map
  * Built by dev/build.mjs (concatenation in dependency order; no bundler).
  * Generated file - do not edit. Edit src/ and run \`npm run build\`.
  */`);
@@ -111,9 +111,12 @@ for (const file of order) {
   parts.push(`\n// ===== ${relative(ROOT, file)} =====`);
   parts.push(modules.get(file).body.replace(/\n{3,}/g, "\n\n").trim());
 }
+// `VERSION` is NOT injected here. It used to be, and that is exactly how the bundle came to expose a
+// name the ES module did not: the global had a version and `import { VERSION }` did not resolve. It
+// now comes from `src/version.js` through the barrel like every other public name, so the two
+// surfaces cannot drift apart again.
 parts.push(`\nglobal.${GLOBAL_NAME} = {`);
 parts.push(publicNames.map((n) => `  ${n}: ${n},`).join("\n"));
-parts.push(`  VERSION: ${JSON.stringify(version)},`);
 parts.push(`};`);
 parts.push(`})(typeof globalThis !== "undefined" ? globalThis : self);`);
 

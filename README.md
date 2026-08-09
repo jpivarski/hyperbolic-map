@@ -1,21 +1,34 @@
-# Hyperbolic Map Widget
+# Hyperbolic Map
 
 A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model). Think of it like Google Earth for a negatively curved surface, rather than a sphere, which is positively curved.
 
-**See the demos:** https://jpivarski.github.io/hyperbolic-map-widget/
-
-Scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers or dragging the outer ring with a mouse.
+Use it like a normal web-based map: scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers (or dragging the outer ring with a mouse).
 
 The library is pure JavaScript (ES2020) without any runtime dependencies. It has been modernized and packaged from my 2012 blog post, [Lost in Hyperbolia](http://coffeeshopphysics.com/articles/2012-12/22_lost_in_hyperbolia/) (with associated [GitHub repo](https://github.com/jpivarski/hyperbolic-storage-space)).
+
+## Examples
+
+<table>
+<tr>
+<td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/dungeon-man.html"><img src="docs/img/demo-dungeon-man.png" alt="Dungeon Man: a video-game dungeon whose rooms have five doors each, on the back of a world-turtle" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/dungeon-man.html">Dungeon Man</a></td>
+<td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/jumping-man.html"><img src="docs/img/demo-jumping-man.png" alt="Jumping Man: a jump plotted with time across and altitude up, on a hyperbolic plane" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/jumping-man.html">Jumping Man</a></td>
+</tr>
+</table>
+<table>
+<tr>
+<td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/escher.html"><img src="docs/img/demo-escher.png" alt="M.C. Escher's Circle Limit III: interlocking fish in four colors on an {8,3} tiling" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/escher.html">Circle Limit III</a></td>
+<td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/clock.html"><img src="docs/img/demo-clock.png" alt="A one-handed clock with all 12 hours, 720 minutes and 43,200 seconds on one face" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/clock.html">Hyperbolic clock</a></td>
+</tr>
+</table>
 
 ## Install
 
 ```bash
-npm install hyperbolic-map-widget
+npm install hyperbolic-map
 ```
 
 ```js
-import { HyperbolicViewport } from "hyperbolic-map-widget";
+import { HyperbolicViewport } from "hyperbolic-map";
 ```
 
 or drop in the bundle and use the `HyperbolicMap` global:
@@ -52,356 +65,13 @@ The coordinates $(x, y)$ are projected onto the screen as $(\frac{x}{w}, \frac{y
 
 **There are two primary drawing modes:**
 * a single coordinate system, as above (specify `data` or `dataProvider`);
-* an [atlas of tiles](#atlas-of-tiles) (specify `atlas`), the space is divided into regular tiles, each with its own local coordinate system. A `tiling` scheme defines the placement of tiles, such as regular polygons or a binary tree, and you write a `tileData` function that returns drawables by tile index. This makes it easier to express repeating patterns and avoids floating-point errors at large distances from the origin.
+* an [atlas of tiles](https://jpivarski.github.io/hyperbolic-map/#atlas-of-tiles) (specify `atlas`), the space is divided into regular tiles, each with its own local coordinate system. A `tiling` scheme defines the placement of tiles, such as regular polygons or a binary tree, and you write a `tileData` function that returns drawables by tile index. This makes it easier to express repeating patterns and avoids floating-point errors at large distances from the origin.
 
-## Options
+## Documentation
 
-All are optional except that either a `container` or a `canvas` must be supplied. An unrecognized option name raises an error.
+**[Software reference:](https://jpivarski.github.io/hyperbolic-map/)** options, method, JSON graphics format, and infinite tiling.
 
-### Where it draws
-
-| option | default | meaning |
-|---|---|---|
-| `container` | — | CSS selector or element; a `<canvas>` is created inside it |
-| `canvas` | — | use an existing canvas instead |
-| `width`, `height` | container size or 400 | CSS pixels |
-| `aspectRatio` | `null` | width ÷ height; derives the height from the width instead of taking `height` |
-| `autoResize` | `false` | follow the container's size with a `ResizeObserver` |
-| `devicePixelRatio` | `"auto"` | `"auto"`, or a number. |
-
-#### Filling a fluid container
-
-`aspectRatio` with `autoResize` is how you get a widget that fills its column and stays the shape you want, without the page computing pixel sizes:
-
-```html
-<div id="map" style="width: 100%"></div>
-```
-```js
-new HyperbolicMap.HyperbolicViewport({
-  container: "#map",
-  aspectRatio: 1,     // square
-  autoResize: true,   // and follow the container when the window changes
-});
-```
-
-The height is *derived* from the width, so `aspectRatio` and `height` together raise an error — pick one. Deriving in that direction is deliberate: the canvas is usually the only thing giving the container its height, so a widget that measured that height back would oscillate. Only the width is read.
-
-The container must not shrink-wrap its contents. An `inline-block`, a float, or anything `width: fit-content` sizes itself *to the canvas*, so the widget measures its own output and never changes — it comes out 300 px square, the default size of a fresh `<canvas>`. Give the container `display: block` and a width.
-
-The widget checks for this: it measures the container while still empty, and warns on the console if it is zero pixels wide. (That check is skipped when you pass an explicit `width`, and it is harmless to see the warning if the container simply happens to be hidden at construction — `autoResize` will pick up the real size when it appears.)
-
-Resize the canvas rather than scaling it in CSS. A `max-width: 100%` on the canvas leaves its backing store at the old size, so its on-screen rectangle stops matching the pixel size the library thinks it has, and every pointer position is off by that ratio.
-
-### What it draws
-
-| option | default | meaning |
-|---|---|---|
-| `data` | `null` | drawables, as an array or a `{version, drawables}` document |
-| `dataProvider` | `null` | `async ({centre, zoom, drawRadius, visibleRadius, signal}) => data` |
-| `atlas` | `null` | see [atlas of tiles](#atlas-of-tiles) |
-| `styles` | `null` | named style classes, referenced by a drawable's `class` |
-
-### The initial view
-
-| option | default | meaning |
-|---|---|---|
-| `center` | `null` | the data point to put in the middle |
-| `offsetX`, `offsetY` | `0` | the raw view offset—the negation of `center` |
-| `rotation` | `0` | radians |
-| `zoom` | `0.95` | the disk's radius as a fraction of half the canvas |
-| `minZoom`, `maxZoom` | `0.5`, `null` | clamps; `null` means unbounded |
-
-### Interaction
-
-| option | default | meaning |
-|---|---|---|
-| `interactive` | `true` | no interactivity if `false` |
-| `allowPan`, `allowZoom`, `allowRotate` | `true` | allow panning/scrolling, zooming, and rotation |
-| `rimRotate` | `true` | dragging the outer ring rotates |
-| `wheelZoom`, `wheelZoomStep` | `true`, `1.1` | |
-| `rotationMode` | `"parallel-transport"` | or `"compass"` to keep one direction fixed |
-| `compassTarget` | `[0, 1]` | the direction held fixed in compass mode |
-| `interactRadius` | `0.9` | inside this, drag scrolls; outside it, drag rotates |
-| `drawRadius` | `1.0` | content beyond this is culled |
-
-### Appearance
-
-| option | default | meaning |
-|---|---|---|
-| `background` | `"#ffffff"` | the disk's interior color |
-| `pageBackground` | `null` | the whole canvas, behind the disk |
-| `rimFill`, `rimStroke`, `rimLineWidth` | `"#f5d6ab"`, `"#000000"`, `1.5` | the rotatable annulus around the disk |
-| `sagittaTolerancePx` | `0.25` | the largest bulge, in pixels, that may be flattened into a straight chord |
-| `decimateTolerancePx` | `0.25` | drop a vertex projecting within this distance of the last one drawn |
-| `minFeaturePx` | `0` | don't draw a shape whose projected size (including its stroke) is below this threshold |
-| `interactMinFeaturePx` | `0.5` | `minFeaturePx` used only while a gesture is in flight |
-| `minTextPx` | `3` | don't draw text smaller than this threshold |
-
-### Hooks
-
-`onBeforeDraw` and `onAfterDraw` receive `(ctx, view)`; `layers` is an array of `{z, draw(ctx, view), attach?, detach?}`. Everything with `z < 0` is drawn before the disk's opaque fill, so it shows only outside the disk.
-
-Draw order:
-1. `pageBackground`
-2. layers with `z < 0`
-3. `onBeforeDraw`
-4. disk interior filled with `background` color or `onDrawBackground`
-5. all drawables
-6. the rim annulus or `onDrawRim`
-7. layers with `z >= 0`
-8. `onAfterDraw`
-
-Steps 4 and 6 are alternatives: supplying `onDrawBackground` or `onDrawRim` suppresses the default fill rather than drawing over it.
-
-The `view` object passed to a hook is read-only: `{width, height, cx, cy, radius, zoom, rotation, bearing, matrix, ctxScale, drawRadius, interactRadius, effectiveRadius, interacting, toScreen, fromScreen}`.
-
-Also available: `onDrawBackground`, `onDrawRim`, `onViewChange`, `onGestureStart`, `onGestureEnd`, `onFrame`.
-
-### Methods
-
-**Reading and moving the view.**
-
-| method | what it does |
-|---|---|
-| `getView()` | the live view as `{center, zoom, rotation, bearing, interacting}`; `center` is the local point at the middle of the disk, and round-trips with `panTo` |
-| `getMatrix()` | a *copy* of the live view isometry, so mutating it is safe |
-| `setMatrix(isom)` | replace the view isometry; it is normalised on the way in, and the jump is not animated |
-| `setZoom(z)` | set the zoom, clamped to `minZoom`/`maxZoom` |
-| `setRotation(θ)` | set the *absolute* screen rotation in radians, not a relative turn |
-| `panTo(x, y)` | put that local point at the middle of the disk |
-
-**The camera (atlas mode).**
-
-| method | what it does |
-|---|---|
-| `getCamera()` | the whole camera as `{address, matrix, zoom, rotation, bearing, interacting}` — the only form that stays valid at any distance; `address` is `null` without an atlas, and `matrix` is relative to the anchor tile |
-| `setCamera(camera)` | restore a camera from `getCamera()`, as an exact round trip |
-| `panToTile(address, local?)` | put that tile's `local` point (default `[0, 0]`, its centre) at the middle of the disk; atlas only |
-
-**Data sources.** The first three refuse in atlas mode, because a source's coordinates are global.
-
-| method | what it does |
-|---|---|
-| `setData(data, name?)` | replace one named source's drawables, defaulting to `"default"` — the source that `data` or `dataProvider` created |
-| `addSource(name, dataOrCallback, {transform})` | add or replace a named source, either drawables or an `async view => data` callback; returns the source object |
-| `setSourceTransform(name, isom)` | give one source an extra isometry without recompiling its drawables; throws if there is no such source |
-| `removeSource(name)` | drop a named source and dispose it, aborting any fetch still in flight |
-| `refreshSources()` | make every async source re-request for the current view, bypassing its throttle and significance gate |
-
-**Screen coordinates.**
-
-| method | what it does |
-|---|---|
-| `toScreen(x, y)` | local point → `[px, py]` in CSS pixels |
-| `fromScreen(px, py)` | CSS pixels → local `[x, y]`, or `null` if the pixel is outside the disk |
-| `tileAtScreen(px, py)` | which tile is under that pixel: `{address, id, local}`, or `null` outside the disk; atlas only |
-
-**Lifecycle.**
-
-| method | what it does |
-|---|---|
-| `invalidate()` | ask for a redraw on the next animation frame; repeated calls coalesce into one, and this is the normal way to request a frame |
-| `render()` | draw right now, synchronously—usually you want `invalidate()` instead |
-| `resize(w, h)` | resize the canvas, in CSS pixels |
-| `destroy()` | cancel any pending frame, remove event listeners, dispose sources, detach layers, and remove the canvas if the widget created it |
-
-In atlas mode (see [atlas of tiles](#atlas-of-tiles)), use `getCamera`/`setCamera`/`panToTile` instead of `getView`/`getMatrix`/`setMatrix`/`panTo`. Those four take and return global coordinates, and far from the origin no global coordinate can be represented—that is the whole reason the atlas is anchored. Their meaning is unchanged and they remain correct in single-patch mode and while the camera is still anchored to the origin tile; past that they raise errors, naming `getCamera()`, rather than returning a wrong number.
-
-(`setZoom` and `setRotation` are unaffected: zoom and screen rotation are not global-coordinate quantities, so they work the same in either mode.)
-
-```js
-const cam = viewport.getCamera();    // the whole camera; cam.matrix is anchor-relative
-viewport.setCamera(cam);             // exact round trip
-viewport.panToTile(address, [0, 0]); // centre a tile, at any distance
-viewport.tileAtScreen(px, py);       // { address, id, local }; which tile is at px, py?
-```
-
-`toScreen` and `fromScreen` work in whatever frame the view is expressed in: the global frame in single-patch mode, the current anchor tile's frame in atlas mode (pair them with `getCamera().address`). `tileAtScreen` is the atlas-mode picking question, and it answers with the address and the tile-local coordinates the *renderer* used, so a pick correlates exactly with `atlas.lastTiles`.
-
-`setSourceTransform` applies an extra isometry to one named source without recompiling its drawables. The clock example rotates its hands with it once a second, which is an $\mathcal{O}(1)$ matrix change rather than rebuilding every hand.
-
-## The drawable format
-
-A document is `{"version": 1, "coordinates": "local", "drawables": [...]}`, or just a bare array. Coordinates are always in the local system described above (or, inside an atlas, relative to the tile's own centre).
-
-### `path`
-
-```json
-{"type": "path",
- "points": [[0.1, 0.2, "L"], [0.4, 0.2, "L"], [0.3, 0.5]],
- "closed": true,
- "fill": "#cde", "stroke": "#036", "lineWidth": 2}
-```
-
-A point's optional third element is a flag string for the edge leaving that point:
-
-- `"L"` — stroke that edge;
-- absent — the edge still takes part in the fill, but is not stroked;
-- `"P"` — also draw a marker at this point.
-
-So the fill path always closes while the stroke may be disconnected. This is deliberate: a move/line command model cannot express a closed fill with a disconnected outline without duplicating the geometry.
-
-### `text`
-
-```json
-{"type": "text", "text": "48", "at": [0.0, 1.2], "up": [0.0, 1.4],
- "fill": "#000", "align": "center", "baseline": "bottom"}
-```
-
-`at` is the anchor and `up` is a second point giving the text's up direction. The distance between their _projections_ sets the size, so text foreshortens with the geometry around it. Text smaller than `minTextPx` is skipped.
-
-### `marker`
-
-```json
-{"type": "marker", "at": [0.3, 0.7], "radius": 3.5, "fill": "#000"}
-```
-
-### Shared fields
-
-`class` selects a named style from `styles`; `fill`, `stroke`, `lineWidth`, `lineCap`, `lineJoin`, `miterLimit`, `align`, `baseline`, `font` override it. Use `"none"` for no fill or no stroke.
-
-## Atlas of tiles
-
-Instead of one global coordinate system, give each tile of a tiling its own. Two reasons:
-
-- **Infinite repeats.** Return the same tile for every address for a repeating pattern.
-- **Precision.** Data far from the origin loses resolution in a single patch: at hyperbolic distance 20 the disk coordinate is `1 − 3.6e-9`, so only about seven significant digits remain in the quantity that matters. In an atlas, every coordinate is measured from its own tile's centre.
-
-To use it, pass an `atlas` instead of `data` or `dataProvider`:
-
-```js
-const tiling = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
-
-const viewport = new HyperbolicViewport({
-  container: "#map",
-  atlas: {
-    tiling: tiling,
-    tileData: async (tile) => {
-      // tile.address identifies the tile; tile.id is its string form and
-      // tile.relativeFrame is its position relative to the camera, if you want it.
-      // Return DATA in TILE-LOCAL coordinates.
-      const res = await fetch(`tiles/${tile.id}.json`);
-      return res.json();
-    },
-    clip: "auto",     // "always" | "never" | "auto" (honours a tile's `withinTile: true`)
-    maxTiles: 200,
-    cacheSize: 512,
-    lodPx: 11,        // below this on-screen tile radius, use the tile's `lod` art if any
-  },
-  // Optional: open on a given tile rather than the origin, however far out it is.
-  // The address must be one of THIS tiling's own—a node object for RegularTiling (usually
-  // a saved `getCamera().address`), or `{lat, lon}` BigInts for BinaryTiling.
-  anchor: tiling.originAddress(),
-});
-```
-
-The `tile` index names the tile, not a route to it: reaching a tile from any direction gives the same `tile.id`, and the library draws it in the same frame every time. So `tileData` may return whatever it likes per tile — fully asymmetric art, art keyed on `tile.id`, a different picture in every tile — and it will not shift or turn as the user scrolls.
-
-`tile.classIndex` is the *structured* alternative to `tile.id`: it runs over `0 .. classCount-1` and adjacent tiles never share a value, so it colours the tiling the way a map colours countries rather than at random.
-
-### Color symmetry
-
-A tile class is one integer per tile, and it cannot describe a pattern whose colours *move*. In M.C. Escher's _Circle Limit III_ every motion of the tiling permutes the four fish colours, so the colour of a fish is not a property of the fish or of the tile — it is a group element applied to a base colour. That needs a homomorphism into a permutation group, and for `{8,3}` that group is `A₄`: twelve elements, not abelian, and it does *not* kill the tile stabiliser.
-
-Declare one and every tile is handed its element:
-
-```js
-const tiling = new RegularTiling({
-  p: 8, q: 3, frameSymmetry: 4,
-  colorSymmetry: {
-    colors: 4,
-    generators: [[2,0,1,3], /* ...one permutation per walk generator... */],
-    stabiliser: [1,0,3,2],   // the image of the 2π/m rotation about a tile centre
-  },
-});
-
-tileData: (tile) => {
-  tile.colorPermutation;   // e.g. [2,0,1,3] — this tile's permutation of your colors
-  tile.colorIndex;         // the same thing as 0 .. colorCount-1, for caching
-  tile.colorCount;         // 12 here; 1 when no color symmetry was declared
-}
-```
-
-Then a shape's fill in the file is a **role**, and what you draw is `palette[tile.colorPermutation[role]]`. Build one recoloured copy of your art per `colorIndex` and return it by index: there are only `colorCount` of them for the whole infinite plane, so the compile memo keeps hitting.
-
-Your permutations are **verified, not trusted**. Assigning one to each generator does not make a homomorphism — the group's relations have to hold too — and if they do not, a tile's colour would depend on the route the walk took to it and the pattern would change as you scrolled. So the library checks the cheap conditions individually (each with its own message) and then walks the tile graph and requires every pair of routes to one tile to agree, throwing if they do not. Of the 24 candidates for one generator's image in the `{8,3}` case, 16 satisfy every cheap condition and are still rejected by the walk.
-
-Note that unlike a tile class, a color symmetry is *not* required to kill the stabiliser: `stabiliser` is usually a real permutation, and in Escher's case it is what makes an octagon show two colours rather than four. This is only well defined because tile frames are canonical. Choosing a different representative of the tile's frame rotates the art by `2π/m` and permutes the colours by `stabiliser`, and the two cancel exactly, so the drawn result is the same either way.
-
-To draw a repeating pattern such as M.C. Escher's _Circle Limit_ series, the art does have to be invariant under a rotation of `2π/m` about the polygon's centre (`m` = `frameSymmetry`) — not because the library requires it, but because that is what makes every tile show the same motif in the same relative orientation. If your art is meant to be symmetric in that way, the library can watch for it drifting:
-
-```js
-atlas: {
-  checkTileSymmetry: "off",    // "off" (default) | "warn" | "throw"
-}
-viewport.atlas.tileSymmetry;   // { residual, checked, m, ok }; residual = 0 means ok
-```
-
-The art is measured once, on the first tile that carries any, and `"throw"` really does throw — out of the viewport constructor, and out of every later frame. It is a statement about the artwork rather than about one tile, so unlike a tile whose data fails to load it is not caught and skipped. An infinite `residual` is the distinct case where a shape has no counterpart of the same colour, kind and point count at all, which usually means the colouring is less symmetric than the outlines.
-
-### Performance hints
-
-**Return data synchronously when you can.** A callback that returns a plain object (rather than a promise) is compiled and drawn in the *same* frame. A tile that is not drawn for one frame visibly blinks, and tiles enter at the rim continuously while panning, so this is the difference between a clean edge and a shimmering one. Asynchronous providers work fine; they just cannot avoid that first frame.
-
-**Return the same object for tiles that look the same.** Compiled art is memoised on the identity of the object you return, so a provider that hands back one of a few shared objects never pays to recompile.
-
-**Prevent very small tiles from drawing.** Tiles smaller than the `lodPx` threshold are replaced by `lod`, which may be a solid color.
-
-### Regular tiling
-
-Use the `RegularTiling({p, q, frameSymmetry})` class.
-
-The `{p, q}` tilings: regular `p`-gons, `q` meeting at each vertex, which exist whenever `1/p + 1/q < 1/2`. An address is a **canonical id**: one tile, one address, whatever route the walk took to reach it. Treat it as opaque and use `addressToString` (or `addressKey`) for a printable form, which is stable and safe to use as a persistent key. Underneath it is the tile's centre in the Coxeter reflection representation of `[p,q]`, held exactly in `ℤ[2cos(π/N)]` with BigInt coefficients — identity is decided by integer equality, so it has no distance ceiling. The string is a name, not a coordinate: there is no way back from it to an address, so keep the object (`getCamera().address`) if you need to return to a tile.
-
-One consequence worth knowing: an id's length grows linearly with distance from the origin, about 12 characters per tile crossed. Naming a tile is exact integer arithmetic and happens once per tile ever, never per frame, but a walk of thousands of tiles is no longer free — see the performance notes.
-
-`frameSymmetry` (`m`) selects the walk group, so that the tile stabiliser is exactly `C_m`. It decides which group the tiling is built from and hence what pattern it makes: for M.C. Escher's *Circle Limit III* it must be `4`, not `8`. It is **not** a constraint on your art — each tile has a canonical frame, the lexicographically least element of its coset, so **your art may be fully asymmetric and may depend on the address**.
-
-Only `m = p` and `m = p/2` are accepted, and anything else throws. `m = p` steps by half-turns about edge midpoints, one generator per edge; `m = p/2` steps by rotations about alternate vertices, two per vertex. A smaller `m` would reach only `2m` of the `p` neighbours and could not cover the plane.
-
-*Circle Limit III* needs `m = 4` because the pattern has 4-fold centres at the octagon centres, and the natural general-purpose generator—a half-turn about an edge midpoint—is outside that group entirely.
-
-The tiling also exposes:
-
-```js
-tiling.stabiliserOrder;   // m: the tile stabiliser is C_m
-tiling.selfRotation;      // that rotation, as an Isom
-tiling.classModulus;      // how many distinct tile classes exist (1 = every tile identical)
-tiling.tileClass(addr);   // 0 .. classModulus-1, the same by every route
-```
-
-### Binary-tree tiling
-
-Use the `BinaryTiling()` class.
-
-The binary (Böröczky) tiling, addressed by `{lat, lon}` as BigInt arbitrary-precision integers. Point-to-cell is two `floor`s, which no `{p,q}` scheme can match, and the integer addresses make natural filenames and are canonical: one cell, one address, no ambiguity. BigInt because descending one latitude doubles the longitude, so about fifty levels down a plain number stops being exact—and addresses are identity only, never geometry, so it costs nothing per frame. Cells are congruent but not regular polygons—two sides are geodesics and two are horocycles—and the tiling is *not* tile-transitive, so it cannot make a seamless repeating pattern.
-
-### Custom tiling
-
-A new tiling can be constructed in the following way:
-
-```js
-{
-  metrics: { circumradius, centreSpacing },   // sizes the walk
-  originAddress(),                            // the tile containing the origin
-  addressToString(address),                   // canonical string, for caching and filenames
-  addressEquals(a, b),
-  neighbours(address),                        // [{ address, gen }] gen indexes the table
-  generator(i),                               // Isom, CONSTANT: neighbour-local → tile local
-  inverseGenerator(i),                        // the index whose isometry undoes generator i
-  reverseGenerator(address, i),               // the index that steps BACK -- not the same thing
-  generatorCount(),
-  containsLocal(x, y, tol?),                  // is this tile-local point inside this tile?
-  boundaryLocal(),                            // for clipping, in tile-local coordinates
-  addressesAreCanonical,                      // true if one tile has exactly one address
-  stabiliserOrder,                            // m: the tile stabiliser is C_m
-  selfRotation,                               // rotation as an Isom (identity when m = 1)
-  classModulus,                               // number of tile classes (1 = all must match)
-  tileClass(address),                         // 0 .. classModulus-1, path-independent
-}
-```
-
-The generators must be constant matrices—independent of which tile you are in. That is what makes a walk a product of small factors, and it is the whole trick. In SU(1,1) an edge half-turn squares to `−I` rather than `+I` (the spin double cover), so `inverseGenerator` may return the index of a matrix equal to the negation of the inverse; any comparison of frames must work up to sign.
+**[Mathematical reference:](docs/MATH.md)** projections, isometries, and transformations.
 
 ## Development
 
@@ -425,7 +95,7 @@ As of August 2026, I could find no other libraries that provide this functionali
 | [hyperbolic-canvas](https://github.com/ItsNickBarry/hyperbolic-canvas) | a Poincaré-disk **drawing interface** for HTML canvas (MIT, no dependencies) | closest in spirit, but it is a geometry-and-paths layer: `Point`, `Line`, `Circle`, `Polygon`, and `fill`/`stroke`. There is no view to pan, zoom or rotate, no data format, and no widget—you drive the canvas yourself |
 | [d3-hypertree](https://github.com/glouwa/d3-hypertree) | an interactive **hyperbolic tree browser** for the web (MIT, SVG, built on d3) | the closest thing to a drop-in widget, and it does pan and cull at scale—but the data model is a *hierarchy*, which the library lays out for you. You bring a tree, not arbitrary vector art |
 | [Cinderella](https://doc.cinderella.de/) / [CindyJS](https://cindyjs.org/) | interactive geometry software with native hyperbolic views (Poincaré and Beltrami–Klein) | for *constructions*—points, lines, incidences you build and drag—rather than rendering a dataset someone else produced |
-| [HyperRogue](https://github.com/zenorogue/hyperrogue) and its [RogueViz](https://roguetemple.com/z/hyper/rogueviz.php) engine | a mature non-Euclidean engine (GPL-2.0, C++) covering H², H³, S³, Nil, Solv and more | far more geometry than this library, and used for real visualisation and research—but it is a desktop application and engine, not something you embed in a page |
+| [HyperRogue](https://github.com/zenorogue/hyperrogue) and its [RogueViz](https://roguetemple.com/z/hyper/rogueviz.php) engine | a mature non-Euclidean engine (GPL-2.0, C++) covering H², H³, S³, Nil, Solv and more | far more geometry than this library, and used for real visualization and research—but it is a desktop application and engine, not something you embed in a page |
 | [HyperEngine](https://github.com/HackerPoet/HyperEngine) | the non-Euclidean Unity backend behind the game [*Hyperbolica*](https://codeparade.itch.io/hyperbolica) (MIT, C#) | a game engine for first-person 3D, not a 2D map viewer |
 | [EscherSketch](https://github.com/looeee/hyperbolic-tiling) and similar tessellation generators | tools that *produce* hyperbolic tilings and Escher-like art | they generate a picture; they are not a viewer for your own data |
 

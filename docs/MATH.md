@@ -19,7 +19,7 @@ infinitely far away. Angles are shown truthfully; distances are not. Things shri
 the rim, and the shrinking is what buys room for the infinite remainder.
 
 Straight lines — geodesics, the paths you get by walking without turning — appear in this projection
-as **circular arcs that meet the boundary circle at right angles**. A line through the centre of the
+as **circular arcs that meet the boundary circle at right angles**. A line through the center of the
 view is the special case where the arc has infinite radius and looks straight.
 
 ---
@@ -87,8 +87,8 @@ model's shadow is `sinh(d)`, not `sinh(d/2)`. What we have is the hyperboloid ve
 *midpoint* of the segment from the origin to the point — equivalently, the `SU(1,1)` spinor lift.
 The genuine Weierstrass vector is `(2xw, 2yw, 1 + 2(x² + y²))`.
 
-There does not appear to be a standard name for this parametrisation. It is common as an
-implementation detail. "SU(1,1) spinor coordinates" is the most recognisable description.
+There does not appear to be a standard name for this parametrization. It is common as an
+implementation detail. "SU(1,1) spinor coordinates" is the most recognizable description.
 
 **Conventions pinned.** Curvature `K = −1` throughout, so the disk metric carries the factor 4:
 `ds² = 4(dx² + dy²)/(1 − r²)²`, matching the half-plane `(dx² + dy²)/y²`. All the distance formulas
@@ -109,7 +109,7 @@ z ↦ i (z − i)/(z + i)
 
 The factor of `i` beyond the usual Cayley transform is deliberate: it puts the half-plane's point at
 infinity at the **top** of the disk rather than at the right. That is why "latitude increases
-upward" reads correctly on screen in the dungeon example. Landmarks: `i` goes to the centre, `∞` to
+upward" reads correctly on screen in the dungeon example. Landmarks: `i` goes to the center, `∞` to
 the top, `0` to the bottom.
 
 ---
@@ -135,7 +135,7 @@ M' = (the translation carrying F₀ to F) · M
 ```
 
 and the rotation you end up with is not computed at all — it is whatever the product happens to
-contain. That is **parallel transport**, and it is a real effect, not an artefact: drag in a closed
+contain. That is **parallel transport**, and it is a real effect, not an artifact: drag in a closed
 loop in the hyperbolic plane and you come back facing a different direction. The amount is
 proportional to the area you enclosed. `rotationMode: "compass"` cancels it, at the cost of no longer
 pinning the point under your cursor — you cannot have both.
@@ -149,7 +149,7 @@ isometry, and it is applied at draw time and nowhere else.
 This is correct rather than a compromise. Geodesic arcs are circles orthogonal to the *unit* circle,
 and a uniform scaling takes that whole configuration — arcs and boundary together — to a scaled copy
 of itself. So the picture magnifies consistently. What zoom cannot do is change *which* hyperbolic
-point is at the centre; that is what dragging is for.
+point is at the center; that is what dragging is for.
 </details>
 
 <details>
@@ -188,7 +188,7 @@ Two details worth stating because both are easy to get wrong:
 - If the two points are **collinear with the origin** the determinant vanishes and the geodesic
   really is a straight diameter. That branch is exact, not a fallback.
 - The correct arc is always the **minor** one. The whole in-disk portion of a geodesic subtends
-  `2·arctan(1/r) < π` at the arc's centre, so any sub-segment does too. Taking the major arc sends
+  `2·arctan(1/r) < π` at the arc's center, so any sub-segment does too. Taking the major arc sends
   the curve outside the disk — which is exactly what a sign error in the sweep direction produces,
   and how that bug announced itself here.
 
@@ -226,7 +226,7 @@ inradius       cosh ψ = cos(π/q) / sin(π/p)
 half-edge      cosh φ = cos(π/p) / sin(π/q)
 ```
 
-with adjacent tile centres `2ψ` apart, and `cosh χ = cosh ψ · cosh φ` as a check (hyperbolic
+with adjacent tile centers `2ψ` apart, and `cosh χ = cosh ψ · cosh φ` as a check (hyperbolic
 Pythagoras on the fundamental right triangle).
 
 > `cos(π/p)/sin(π/q)` is the **half-edge**, not the inradius. The two swap under `p ↔ q` and coincide
@@ -236,11 +236,11 @@ Pythagoras on the fundamental right triangle).
 **Repeating one tile everywhere** produces a pattern with a symmetry worth stating plainly:
 
 > The union of copies is symmetric under the walk group **if and only if** the tile's art is
-> invariant under the tile's stabiliser in that group.
+> invariant under the tile's stabilizer in that group.
 
 That is a statement about which *pattern* you get, not a restriction on what you may draw: art that is
-not stabiliser-invariant is drawn perfectly stably (see §6), it simply produces a decorated tiling with
-less symmetry than the tiling itself. Which stabiliser you get is what `frameSymmetry` selects — `C_p`
+not stabilizer-invariant is drawn perfectly stably (see §6), it simply produces a decorated tiling with
+less symmetry than the tiling itself. Which stabilizer you get is what `frameSymmetry` selects — `C_p`
 for the edge-half-turn group, `C_{p/2}` for the alternate-vertex group.
 
 ### The binary (Böröczky) tiling
@@ -254,7 +254,7 @@ x ∈ [lon·2^lat, (lon+1)·2^lat]        y ∈ [2^lat, 2^(lat+1)]
 All cells are congruent, each of hyperbolic area exactly `1/2`, and point-to-cell is two `floor`s.
 They are **not** regular polygons: two sides are geodesics and two are horocycles, meeting at right
 angles, and the cell is not convex. The tiling is **not edge-to-edge** — each cell has *five*
-neighbours (one parent, two children, two lateral), because a cell's bottom edge is the union of its
+neighbors (one parent, two children, two lateral), because a cell's bottom edge is the union of its
 two children's top edges. That is the "five doors" of the dungeon.
 
 It is also only *weakly* aperiodic: monohedral, but not tile-transitive. Its symmetry group is
@@ -275,15 +275,15 @@ say four; that contradicts the definition of `{8,3}`.) Its symmetry group is `43
 notation: chiral, rotations only, the `(3,3,4)` triangle rotation group. One fish is a fundamental
 domain, and there are exactly **four fish per octagon** — by area, `(2π/3)/(π/6) = 4`.
 
-For the infinite demo, the tile stabiliser under `433` is **C₄, not C₈**, because `433` contains no
+For the infinite demo, the tile stabilizer under `433` is **C₄, not C₈**, because `433` contains no
 order-8 rotation. So the art must be 4-fold symmetric; 8-fold art would give a different member of
 Dunham's family, not Escher's.
 
 The trap: the two most natural ways to step between tiles are both *outside* `433`. The 8-fold
-rotation about a tile centre is not in it, and neither is the half-turn about a shared edge midpoint
+rotation about a tile center is not in it, and neither is the half-turn about a shared edge midpoint
 — `433` has no order-2 points at all — even though that half-turn is the natural general-purpose
 generator for any `{p,q}`. What works is 3-fold rotations about *alternate* vertices, which is
-precisely Escher's own construction: the `{8,3}` edge graph is bipartite, so its vertices two-colour
+precisely Escher's own construction: the `{8,3}` edge graph is bipartite, so its vertices two-color
 consistently, and connecting alternate ones is what produces the pattern.
 
 Coxeter's result, for interest: the white "spines" running along the fish are **not** geodesics.
@@ -309,7 +309,7 @@ attempt here was not, which is worth spelling out because the wrong version look
 
 ### The composition to avoid
 
-The obvious design stores each tile's data relative to its own centre (so every stored number is
+The obvious design stores each tile's data relative to its own center (so every stored number is
 small), gives each tile a frame `F_k` carrying tile-local coordinates into the world, and renders
 with
 
@@ -328,7 +328,7 @@ Splitting the *data* into tiles is not enough. The *frames* must never be global
 
 ### The anchored composition
 
-Let `c` be the **camera tile** — the tile containing the view centre. Define
+Let `c` be the **camera tile** — the tile containing the view center. Define
 
 ```
 V_c   = V · F_c            the view, expressed in the camera tile's own frame
@@ -344,9 +344,9 @@ Three facts make it work, all proved in `dev/audit_atlas_math.py`:
 
 | | |
 |---|---|
-| appending a generator multiplies on the right, `F_{c·g} = F_c · G_g` | so a neighbour's relative frame *is* that generator, and a walk telescopes to a plain product |
+| appending a generator multiplies on the right, `F_{c·g} = F_c · G_g` | so a neighbor's relative frame *is* that generator, and a walk telescopes to a plain product |
 | **re-anchoring**: crossing into `c' = c·g` gives `V_{c'} = V_c · G_g` | one small multiply, so whenever the view would drift far from its tile the *tile* changes instead and the matrix never grows |
-| for the binary tiling every neighbour step is a position-independent **constant** | all `lat` and `lon` cancel symbolically: `S = 1, T = ±√2/2` laterally, `S = ½, T = ∓√2/8` to a child, `S = 2, T = ±√2/4` to a parent |
+| for the binary tiling every neighbor step is a position-independent **constant** | all `lat` and `lon` cancel symbolically: `S = 1, T = ±√2/2` laterally, `S = ½, T = ∓√2/8` to a child, `S = 2, T = ±√2/4` to a parent |
 
 The last row has a trap in it. The *general* relative frame between two binary cells is
 
@@ -354,7 +354,7 @@ The last row has a trap in it. The *general* relative frame between two binary c
 S = 2^(lat − lat₀),    T = (√2/4)·( 2^Δlat·(2·lon + 1) − (2·lon₀ + 1) )
 ```
 
-which still contains both absolute longitudes. It must never be used. Only the neighbour steps are
+which still contains both absolute longitudes. It must never be used. Only the neighbor steps are
 constant, so a relative frame has to be *composed along a path* rather than computed from addresses.
 
 ### What that buys, measured
@@ -362,7 +362,7 @@ constant, so a relative frame has to be *composed along a path* rather than comp
 - The rendered picture matches, to the last antialiasing level, at 1, 5, 50, 500 and 2000 tiles from
   the origin, across nine tilings — which is the acceptance criterion: a regular tiling is homogeneous,
   so however far you scroll it must look as it did at the start. Eight of the nine are byte-identical;
-  `{3,7}` differs on 1–4 channels of 409,600 by one level of 255, because canonicalisation is not
+  `{3,7}` differs on 1–4 channels of 409,600 by one level of 255, because canonicalization is not
   equivariant under translation and a tile 120° from where it was rasterises its last bit differently.
 - Screen-position error against a 60-digit `mpmath` reference is **flat in distance**: `3 × 10⁻¹⁶` to
   `1.3 × 10⁻¹⁵` disk units, the same at 5000 tiles as at 0 (worst growth factor 1.0). The *flatness* is
@@ -377,8 +377,8 @@ The anchored composition fixes the arithmetic of *where* a tile is drawn. It say
 tile it is, and that is a separate question with a separate answer.
 
 **A tile's frame is not unique.** If `F_k` carries the base tile onto tile `k`, so does `F_k · s` for
-any `s` in the **stabiliser** of the base tile — the subgroup fixing it. For a `{p,q}` walk group that
-stabiliser is the cyclic group `C_m` of rotations about the tile centre, `m = frameSymmetry`. Measured
+any `s` in the **stabilizer** of the base tile — the subgroup fixing it. For a `{p,q}` walk group that
+stabilizer is the cyclic group `C_m` of rotations about the tile center, `m = frameSymmetry`. Measured
 directly, by walking the tile graph and collecting `F_seen⁻¹ · F_new` at every collision: every
 discrepancy is a rotation by a multiple of `2π/m`, never anything else. So a tile is not a group
 element; a tile is a **coset** `F · C_m`.
@@ -389,16 +389,18 @@ set*, so their minima are identical. That is the whole proof that the choice doe
 route — no automaton, no normal form, no parent heuristic. The winner is simultaneously the tile's
 unique **id** and its canonical **frame**: one object answers both questions.
 
-Canonicalise over `C_m` and not over the full `C_p`. A canonical frame has to stay inside the set of
+Canonicalize over `C_m` and not over the full `C_p`. A canonical frame has to stay inside the set of
 frames the walk can produce; over `C_p`, roughly half of `{8,3}` m=4's tiles would be turned by an odd
 multiple of 45°, and the Escher pattern would shatter into a misaligned variant.
 
 **Why it has to be exact.** The comparison is between matrices whose entries grow like `cosh(d/2)`. By
-hyperbolic distance ≈ 37 one ulp of such an entry exceeds the spacing between adjacent tile centres, so
+hyperbolic distance ≈ 37 one ulp of such an entry exceeds the spacing between adjacent tile centers, so
 no float test can still tell two tiles apart out there — and identity decided by proximity fails at
 *some* distance however the threshold is tuned. So the representation is integral:
 
-- the ring is `ℤ[μ]`, `μ = 2cos(π/N)`, with `BigInt` coefficients reduced modulo the minimal polynomial
+- the ring is `ℤ[μ]`, `μ = 2cos(π/N)`, with exact integer coefficients reduced modulo the minimal
+  polynomial (held as doubles while they fit that range exactly, as `BigInt` beyond it; see
+  `notes/math-audit.md` for why the switch cannot lose a value)
   of `μ` (monic, so no division ever appears);
 - the group is `[p,q] = Δ(2,p,q)` in its **Coxeter geometric representation** — mirrors `a`, `b`, `c`
   with `m(a,b) = p`, `m(b,c) = q`, `m(a,c) = 2`, and reflections `S_i = I − e_i·(row i of 2B)`;
@@ -410,9 +412,9 @@ no float test can still tell two tiles apart out there — and identity decided 
   requires `n | N`, so with `N = 8` and `n = 3` it silently yields `√2` instead of `1` and the Coxeter
   relations fail. `lambdaFor` asserts it.
 
-**The published id** is the serialized tile centre `F · v_O`, three ring elements rather than nine. `P`
-fixes `v_O`, so every frame in the coset gives the same vector — the id needs no canonicalisation at all,
-and distinct tiles have distinct centres, so it is injective.
+**The published id** is the serialized tile center `F · v_O`, three ring elements rather than nine. `P`
+fixes `v_O`, so every frame in the coset gives the same vector — the id needs no canonicalization at all,
+and distinct tiles have distinct centers, so it is injective.
 
 **What this costs.** Naming a tile is ~117 ring multiplications and happens once per tile ever, never
 per frame: measured across a 200-frame pan of the Escher atlas, 197 frames perform zero. An id's text
@@ -425,12 +427,12 @@ because both the id and the frame are functions of the tile alone.
 ### Tile classes
 
 Art may key on the id, but the id is unstructured. A **tile class** is the structured alternative: a
-colouring by a group homomorphism `φ: Γ → Z/n` that kills the stabiliser, so it descends to tiles, and
+coloring by a group homomorphism `φ: Γ → Z/n` that kills the stabilizer, so it descends to tiles, and
 under which adjacent tiles never agree. The available `n` is fixed by the abelianisation:
 
 | generators | `φ(g)` order | classes |
 |---|---|---|
-| vertex rotations, `m = p/2` (e.g. `{8,3}` m=4) | `q` | `q` — three for Circle Limit III, a proper 3-colouring |
+| vertex rotations, `m = p/2` (e.g. `{8,3}` m=4) | `q` | `q` — three for Circle Limit III, a proper 3-coloring |
 | edge half-turns, `m = p` | divides 2, and `q·φ(g) = 0` | 2 when `q` is even, 1 when odd |
 
 The modulus is verified rather than assumed: the tile graph is walked with exact ids and every pair of
@@ -444,13 +446,13 @@ vertex — reaching `2m` of the `p` edges. Covering the plane needs `2m ≥ p`, 
 forces `m = p/2` exactly. Smaller values are rejected at construction: `{8,3}` with `m = 2` reaches
 edges 0, 1, 4 and 5 only, and a view that holds 17 tiles would return 5.
 
-### Escher's colours
+### Escher's colors
 
-Around an octagon centre in *Circle Limit III* the four fish alternate green–orange, so the colouring is
+Around an octagon center in *Circle Limit III* the four fish alternate green–orange, so the coloring is
 only `C₂` while the shape is `C₄`. Such a tile draws perfectly stably, but it would not reassemble into
 Escher's pattern: which phase a given octagon shows would follow its canonical frame, which is fixed by
-an arithmetic tie-break rather than by anything about the picture, so neighbouring octagons would
-alternate in unrelated senses. The four fish in a tile therefore share a colour and the variety comes
+an arithmetic tie-break rather than by anything about the picture, so neighboring octagons would
+alternate in unrelated senses. The four fish in a tile therefore share a color and the variety comes
 from the tile class.
 
 <details>
@@ -458,7 +460,7 @@ from the tile class.
 
 Its projection was three unrolled ~40-term polynomials. Scrolling to the far end of the dungeon data
 means choosing an offset that cancels the point — at which stage every term is about `1.9 × 10¹⁶` and
-they must cancel to `1`. Measured against 60-digit arithmetic, the point that belongs at the centre of
+they must cancel to `1`. Measured against 60-digit arithmetic, the point that belongs at the center of
 the disk lands on the **boundary**: 310 pixels wrong on a 620-pixel canvas. The matrix form is exact
 on the same input.
 
@@ -510,8 +512,8 @@ so this is below a pixel at any zoom, and it avoids solving for boundary tangenc
 **The Escher tile art is a fit, and the seams are real.** The tiling is exact; the art is not.
 Escher's woodcut is hand-drawn, and the 2012 tracing of it was replicated with an admittedly
 approximate group — its author wrote that "some fish don't line up in orientation or color" and that
-he gave up a few layers out. The tile here is re-anchored from the tracing's 3-fold centre onto an
-octagon centre and symmetrised to exact C₄, but it does not meet the octagon boundary perfectly. The
+he gave up a few layers out. The tile here is re-anchored from the tracing's 3-fold center onto an
+octagon center and symmetrised to exact C₄, but it does not meet the octagon boundary perfectly. The
 demo offers a no-clip toggle, which trades hard cuts for soft overlaps.
 
 ---

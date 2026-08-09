@@ -12,22 +12,22 @@
 //                                 sharp test for clipping
 //   4  nothing outside the disk   no drawn pixel beyond the disk, at any distance
 //   5  coverage                   no gaps between abutting tiles
-//   6  address round-trip         walking out and back restores the same addresses, hence colours
+//   6  address round-trip         walking out and back restores the same addresses, hence colors
 //   7  boundedness                max|V| and the relative frames stay O(1) at every distance
 //   8  picking                    the tile under the cursor is the tile that was drawn there
 //   9  smoothness                 crossing a tile boundary changes nothing discontinuously
 //  10  hundred-step scroll        a full tile spacing in a hundred equal steps, with fully asymmetric
-//                                 art coloured by tile id, must not jump at any step
+//                                 art colored by tile id, must not jump at any step
 //
-// Check 2 uses the SYMMETRISED motif on purpose. Canonicalisation is lex-min over a coset, which is not
+// Check 2 uses the SYMMETRISED motif on purpose. Canonicalization is lex-min over a coset, which is not
 // equivariant under translating the whole tiling, so the arrangement far out is the near one with each
-// tile turned about its own centre by a multiple of 2*pi/m. With C_m-symmetric art that is invisible and
+// tile turned about its own center by a multiple of 2*pi/m. With C_m-symmetric art that is invisible and
 // the pictures match; with asymmetric art it would differ by construction rather than by bug. Checks 1,
 // 3, 9 and 10 use the asymmetric motif, where a turned tile is exactly what we want to catch.
 
 /* global window, document, HyperbolicMap */
 
-import { makeTiling, motifFor, colourFor, DIAG_TILINGS } from "./diagnostics.js";
+import { makeTiling, motifFor, colorFor, DIAG_TILINGS } from "./diagnostics.js";
 
 const KEYS = ["8,3,4", "8,3,0", "7,3,0", "5,4,0", "4,5,0", "6,4,0", "3,7,0", "12,3,0", "binary"];
 const SIZE = 320;
@@ -107,7 +107,7 @@ function diffCount(a, b) {
   return { n, worst };
 }
 
-// Walk the ADDRESS n tiles away, and PROVE the walk travelled. The renderer forms no global coordinate,
+// Walk the ADDRESS n tiles away, and PROVE the walk traveled. The renderer forms no global coordinate,
 // which is why the picture 2000 tiles out is as ACCURATE as the one at 1 -- but the walk itself has to
 // know how far it got, or "the picture 2000 tiles out" is an unchecked claim.
 //
@@ -131,7 +131,7 @@ function walkWithDistance(tiling, n, seed) {
   const logAbsA = () => Math.log(Math.hypot(ar, ai)) + logScale;
   let progress = logAbsA();
   for (let i = 0; i < n; i++) {
-    const nbrs = tiling.neighbours(address);
+    const nbrs = tiling.neighbors(address);
     let best = null;
     const off = Math.floor(rand() * nbrs.length);
     for (let k = 0; k < nbrs.length; k++) {
@@ -184,7 +184,7 @@ export async function checkGroundTruth(lines) {
   let worst = 0;
   let where = "";
   for (const key of KEYS) {
-    const { vp, tiling } = build(key, { motif: "asym", hashColour: true });
+    const { vp, tiling } = build(key, { motif: "asym", hashColor: true });
     await settle(vp);
     const view = vp.surface.buildView(vp.view, vp.options);
     // The camera's own global frame has to be divided out. `view.matrix` is V_c = V . F_c, so the
@@ -226,7 +226,7 @@ export async function checkGroundTruth(lines) {
 // A FRESH viewport, and therefore a fresh canvas, per capture. This is not fussiness: Chrome moves a
 // canvas between software and GPU rasterization as it decides the canvas is worth promoting, and the
 // two antialias differently. Re-panning one canvas and re-reading it made the SAME view differ from
-// itself by 28,841 colour channels (worst 101) while two genuinely different views differed by 6 --
+// itself by 28,841 color channels (worst 101) while two genuinely different views differed by 6 --
 // the measurement was pure canvas state. With a fresh canvas the control (same address twice) is
 // exactly 0, which is what makes the comparison mean anything. See notes/canvas-testing.md.
 async function renderFresh(key, address, opts) {
@@ -281,10 +281,10 @@ export async function checkInvariance(lines, only) {
   // the browser tab.
   const distances = [1, 5, 50, 500, 2000];
   const failures = [];
-  const travelled = [];
+  const traveled = [];
   const antialiased = [];
   let checked = 0;
-  const opts = { motif: "sym", hashColour: false, uniform: true };
+  const opts = { motif: "sym", hashColor: false, uniform: true };
   for (const key of only || KEYS) {
     const tiling0 = makeTiling(key);
     // The binary tiling's exact symmetry is LATITUDE SHIFT: z -> 2z maps cell (lat, lon) to
@@ -300,7 +300,7 @@ export async function checkInvariance(lines, only) {
       });
     // Report how far the far views actually ARE, so "byte-identical at 5000 tiles" is a checked claim
     // rather than a label. Word length would not do: see walkWithDistance.
-    for (const a of addresses) travelled.push(a.dist);
+    for (const a of addresses) traveled.push(a.dist);
 
     const ref = await renderFresh(key, tiling0.originAddress(), opts);
     // The control: the same address rendered again must be byte-identical, or the instrument is broken
@@ -314,8 +314,8 @@ export async function checkInvariance(lines, only) {
     // BYTE-IDENTICAL, or within one level on a handful of channels. The exception is new and it is not
     // slack, it is a consequence of canonical orientation.
     //
-    // Canonicalisation is lex-min over the coset, which is not equivariant under translating the whole
-    // tiling: the far arrangement is the near one with each tile turned about its own centre by some
+    // Canonicalization is lex-min over the coset, which is not equivariant under translating the whole
+    // tiling: the far arrangement is the near one with each tile turned about its own center by some
     // multiple of 2*pi/m. With C_m-symmetric art the drawn SHAPE is unchanged -- that is what C_m
     // symmetry means -- but the coordinates handed to the rasteriser are the rotated ones, and for m
     // whose rotation has irrational cosines that differs in the last bit. Measured across the nine
@@ -343,7 +343,7 @@ export async function checkInvariance(lines, only) {
     ok: failures.length === 0,
     text: `2. translation invariance: ${checked - failures.length}/${checked} views match the origin view ` +
       `(${distances.join(", ")} tiles out = up to ` +
-      `${Math.max(...travelled).toFixed(0)} hyperbolic units, verified travelled)` +
+      `${Math.max(...traveled).toFixed(0)} hyperbolic units, verified traveled)` +
       (antialiased.length ? `; byte-identical except for last-level antialiasing on ${antialiased.join(" ")}` : "; all byte-identical") +
       (failures.length ? `\n     ${failures.slice(0, 5).join("\n     ")}` : ""),
   });
@@ -353,8 +353,8 @@ export async function checkInvariance(lines, only) {
 //
 // Fill each tile flat with hash(address) and OVERFLOW it past its own boundary, so clipping has to trim
 // it. Then for a grid of pixels: find which returned tile contains that point, and require the pixel to
-// be that tile's colour. A clipping error is a band of the wrong colour along a boundary; a gap is a
-// background-coloured pixel where a tile should be.
+// be that tile's color. A clipping error is a band of the wrong color along a boundary; a gap is a
+// background-colored pixel where a tile should be.
 export async function checkOwnership(lines) {
   const results = [];
   const gaps = [];
@@ -362,7 +362,7 @@ export async function checkOwnership(lines) {
     for (const walk of [0, 40]) {
       const { vp, tiling, canvas } = build(key, {
         motif: "over",
-        hashColour: true,
+        hashColor: true,
         clip: true,
         drawRadius: 0.72,
       });
@@ -371,11 +371,11 @@ export async function checkOwnership(lines) {
       const px = pixels(canvas);
       const view = vp.surface.buildView(vp.view, vp.options);
 
-      // Expected colour per tile, and the inverse of each tile's composite for point tests.
+      // Expected color per tile, and the inverse of each tile's composite for point tests.
       const tiles = vp.atlas.lastTiles.map((t) => ({
         id: t.id,
         inv: t.net.inverse(),
-        rgb: rgbOf(colourFor(t.id)),
+        rgb: rgbOf(colorFor(t.id)),
       }));
 
       let wrong = 0;
@@ -390,7 +390,7 @@ export async function checkOwnership(lines) {
           // Stay well inside the drawn region so the rim annulus and the sub-pixel fringe are excluded.
           if (rr > 0.62 * 0.62) continue;
           // Which tile contains this screen point? Test strictly inside, with a margin, so pixels lying
-          // on a boundary -- where antialiasing legitimately blends two colours -- are not counted.
+          // on a boundary -- where antialiasing legitimately blends two colors -- are not counted.
           let owner = null;
           let ambiguous = false;
           for (const t of tiles) {
@@ -450,7 +450,7 @@ export async function checkOutsideDisk(lines) {
   let where = "";
   for (const key of KEYS) {
     for (const walk of [0, 200]) {
-      const { vp, tiling, canvas } = build(key, { motif: "over", hashColour: true, clip: true, zoom: 0.7 });
+      const { vp, tiling, canvas } = build(key, { motif: "over", hashColor: true, clip: true, zoom: 0.7 });
       if (walk) vp.panToTile(walkAddress(tiling, walk, 55), [0, 0]);
       await settle(vp);
       const px = pixels(canvas);
@@ -492,21 +492,21 @@ export async function checkAddressRoundTrip(lines) {
       return s / 4294967296;
     };
     for (let i = 0; i < 300; i++) {
-      const nbrs = tiling.neighbours(address);
+      const nbrs = tiling.neighbors(address);
       const pick = nbrs[Math.floor(rand() * nbrs.length)];
       // `reverseGenerator`, not `inverseGenerator`, and recorded FROM the tile it was taken from. On a
       // regular tiling the child's canonical frame differs from the frame the step produced by a power
       // of P, and conjugating by P permutes the generators, so the index that walks back is a different
-      // one. The plain inverse index lands on a real but wrong neighbour and the walk never comes home.
+      // one. The plain inverse index lands on a real but wrong neighbor and the walk never comes home.
       path.push(tiling.reverseGenerator(address, pick.gen));
       address = pick.address;
     }
     const far = tiling.addressToString(address);
     for (let i = path.length - 1; i >= 0; i--) {
       const want = path[i];
-      const nb = tiling.neighbours(address).find((n) => n.gen === want);
+      const nb = tiling.neighbors(address).find((n) => n.gen === want);
       if (!nb) {
-        failures.push(`${key}: no neighbour with generator ${want}`);
+        failures.push(`${key}: no neighbor with generator ${want}`);
         break;
       }
       address = nb.address;
@@ -529,7 +529,7 @@ export async function checkBounded(lines) {
   let worstRel = 0;
   let where = "";
   for (const key of KEYS) {
-    const { vp, tiling } = build(key, { motif: "asym", hashColour: true });
+    const { vp, tiling } = build(key, { motif: "asym", hashColor: true });
     for (const walk of [0, 5, 500, 2000]) {
       const address = key === "binary" ? { lat: BigInt(walk), lon: 0n } : walkAddress(tiling, walk, 8 + walk);
       vp.panToTile(address, [0, 0]);
@@ -548,15 +548,15 @@ export async function checkBounded(lines) {
   lines.push({
     ok: worstV < 10 && worstRel < 1e4 && Number.isFinite(worstRel),
     text: `7. boundedness: max|V| reached ${worstV.toFixed(4)} (worst ${where}), max relative-frame entry ` +
-      `${worstRel.toFixed(1)} -- both must be independent of distance travelled`,
+      `${worstRel.toFixed(1)} -- both must be independent of distance traveled`,
   });
 }
 
 // ---- 8. picking agrees with what is on screen -----------------------------------------------
 //
-// `tileAtScreen` must name the tile the RENDERER used, and the artwork here is coloured by a hash of
+// `tileAtScreen` must name the tile the RENDERER used, and the artwork here is colored by a hash of
 // the ADDRESS, so any disagreement between what was picked and what was painted shows up as a wrong
-// colour under the cursor -- which is the sharpest form this question has.
+// color under the cursor -- which is the sharpest form this question has.
 export async function checkPicking(lines) {
   let tested = 0;
   let wrong = 0;
@@ -567,7 +567,7 @@ export async function checkPicking(lines) {
       const address = far
         ? (key === "binary" ? { lat: BigInt(far), lon: 0n } : walkAddress(tiling0, far, 5))
         : tiling0.originAddress();
-      const { vp, tiling, canvas } = build(key, { motif: "fill", hashColour: true, clip: true, drawRadius: 0.72 });
+      const { vp, tiling, canvas } = build(key, { motif: "fill", hashColor: true, clip: true, drawRadius: 0.72 });
       vp.panToTile(address, [0, 0]);
       await settle(vp);
       const px = pixels(canvas);
@@ -581,13 +581,13 @@ export async function checkPicking(lines) {
           if (dx * dx + dy * dy > 0.55 * 0.55) continue;
           const col = at(x, y);
           if (col[0] > 250 && col[1] > 250 && col[2] > 250) continue;
-          // Flat regions only: on an antialiased boundary the rendered colour is legitimately a blend.
+          // Flat regions only: on an antialiased boundary the rendered color is legitimately a blend.
           if (!same(col, at(x - 2, y)) || !same(col, at(x + 2, y)) ||
               !same(col, at(x, y - 2)) || !same(col, at(x, y + 2))) continue;
           const pick = vp.tileAtScreen(x, y);
           if (!pick) continue;
           tested++;
-          if (!same(col, rgbOf(colourFor(pick.id)))) {
+          if (!same(col, rgbOf(colorFor(pick.id)))) {
             wrong++;
             if (failures.length < 3) failures.push(`${key} at ${far} tiles, pixel (${x},${y}): picked ${pick.id}`);
           }
@@ -632,7 +632,7 @@ window.runAllChecks = runAllChecks;
 // `smoothness` and `hundredStep` are declared below this point and are included here by hoisting.
 // `smoothness` was MISSING from this map for a while, which meant any driver iterating
 // `window.diagChecks` silently skipped the most sensitive check in the suite -- the one that caught the
-// stabiliser bug. Anything added below must be added here too.
+// stabilizer bug. Anything added below must be added here too.
 window.diagChecks = {
   groundTruth: checkGroundTruth,
   invariance: checkInvariance,
@@ -647,7 +647,7 @@ window.diagChecks = {
 
 // ---- 9. SMOOTHNESS across a tile boundary -------------------------------------------------------
 //
-// Panning across a tile centre forces a re-anchor, which is the moment at which a tile's frame or its
+// Panning across a tile center forces a re-anchor, which is the moment at which a tile's frame or its
 // name could conceivably change. Neither may: frames and ids are functions of the tile. Nothing here
 // may jump.
 //
@@ -672,7 +672,7 @@ export async function checkSmoothness(lines, only) {
   const failures = [];
   const detail = [];
 
-  // The camera at parameter t along a straight pan of one tile spacing, canonicalised: build it in a
+  // The camera at parameter t along a straight pan of one tile spacing, canonicalized: build it in a
   // fresh viewport from the origin tile and let the library re-anchor, so the state is exactly what
   // scrolling there would produce.
   const makeVp = (key, opts) => {
@@ -694,7 +694,7 @@ export async function checkSmoothness(lines, only) {
 
   const at = async (key, opts, t, wantPixels) => {
     const { vp, host, tiling } = makeVp(key, opts);
-    const d = tiling.metrics.centreSpacing * t;
+    const d = tiling.metrics.centerSpacing * t;
     if (d > 0) {
       const T = H.Isom.translationToDisk(0, -Math.tanh(d / 2));
       vp.view.matrix = T.mul(vp.view.matrix).normalize();
@@ -714,7 +714,7 @@ export async function checkSmoothness(lines, only) {
 
   // Compare only the INTERIOR. At the rim, tiles legitimately enter and leave the visible set and the
   // maxTiles budget as the camera moves, which changes pixels for reasons that have nothing to do with
-  // the stabiliser. Including the rim put the flat-fill control at 2x when it should be ~1x.
+  // the stabilizer. Including the rim put the flat-fill control at 2x when it should be ~1x.
   // Count only SUBSTANTIAL changes. Two pictures that differ by 0.03 px of pan differ slightly on every
   // stroke edge, and rotating a tile's clip polygon onto itself re-rasterises its edge pixels even
   // though the region is identical -- both are antialiasing, not motion. A pixel that changes by more
@@ -740,18 +740,18 @@ export async function checkSmoothness(lines, only) {
     return { n, worst };
   };
 
-  // The two hostile cases are the last two: an id-hash colour, and a fully asymmetric shape with an
-  // id-hash colour. Those are the combinations that a route-dependent frame or a route-dependent name
+  // The two hostile cases are the last two: an id-hash color, and a fully asymmetric shape with an
+  // id-hash color. Those are the combinations that a route-dependent frame or a route-dependent name
   // would break instantly, and they must be as still as the symmetric ones. The binary tiling is
   // carried through all five as a control, being the tiling whose addresses are integers and whose
-  // stabiliser is trivial, so it has nothing to get wrong.
+  // stabilizer is trivial, so it has nothing to get wrong.
   const cases = [];
   for (const key of only || KEYS) {
-    cases.push({ key, opts: { motif: "art", hashColour: false } });
-    cases.push({ key, opts: { motif: "sym", hashColour: false } });
-    cases.push({ key, opts: { motif: "fill", hashColour: false } });
-    cases.push({ key, opts: { motif: "art", hashColour: true } });
-    cases.push({ key, opts: { motif: "asym", hashColour: true } });
+    cases.push({ key, opts: { motif: "art", hashColor: false } });
+    cases.push({ key, opts: { motif: "sym", hashColor: false } });
+    cases.push({ key, opts: { motif: "fill", hashColor: false } });
+    cases.push({ key, opts: { motif: "art", hashColor: true } });
+    cases.push({ key, opts: { motif: "asym", hashColor: true } });
   }
 
   // SENSITIVITY PROBE. A check where nothing may jump is a check that a dead renderer passes: if every
@@ -759,8 +759,8 @@ export async function checkSmoothness(lines, only) {
   // So measure a difference that MUST be large -- the same art half a tile spacing apart -- and require
   // it. This is the assertion that the instrument is switched on.
   for (const key of (only || KEYS).slice(0, 3)) {
-    const [p0, p1] = [await at(key, { motif: "art", hashColour: false }, 0, true),
-      await at(key, { motif: "art", hashColour: false }, 0.5, true)];
+    const [p0, p1] = [await at(key, { motif: "art", hashColor: false }, 0, true),
+      await at(key, { motif: "art", hashColor: false }, 0.5, true)];
     let ink = 0;
     for (let i = 0; i < p0.data.length; i += 4) {
       if (p0.data[i] < 200 || p0.data[i + 1] < 200 || p0.data[i + 2] < 200) ink++;
@@ -798,7 +798,7 @@ export async function checkSmoothness(lines, only) {
     const jump = interiorDiff(before.data, after.data);
     const ctrl = interiorDiff(cA.data, cB.data);
     const budget = Math.max(40, ctrl.n * 3 + 30);
-    const hash = opts.hashColour ? "+hash" : "";
+    const hash = opts.hashColor ? "+hash" : "";
     detail.push(`${key} ${opts.motif}${hash} ${jump.n}/${ctrl.n}`);
     if (jump.n > budget) {
       failures.push(
@@ -818,8 +818,8 @@ export async function checkSmoothness(lines, only) {
 
 // ---- 10. THE HUNDRED-STEP SCROLL ----------------------------------------------------------------
 //
-// The acceptance test for canonical tile identity: scroll smoothly from one tile centre to the next in
-// a hundred equal steps, with the most hostile art available -- a fully asymmetric stroke coloured by a
+// The acceptance test for canonical tile identity: scroll smoothly from one tile center to the next in
+// a hundred equal steps, with the most hostile art available -- a fully asymmetric stroke colored by a
 // hash of the tile id -- and require that NO step shows a discontinuity. Every regular tiling, plus the
 // binary one as a control.
 //
@@ -829,7 +829,7 @@ export async function checkSmoothness(lines, only) {
 // jump at some other tile's re-anchor, a jump that happens twice, or art that drifts rather than snaps.
 //
 // The measure is per-step interior difference: a steady pan changes pixels at a steady rate, so a jump
-// is a step that stands far above its own neighbours. See the budget below for how far above, and how
+// is a step that stands far above its own neighbors. See the budget below for how far above, and how
 // that number was calibrated.
 export async function checkHundredStep(lines, only) {
   const H = window.HyperbolicMap;
@@ -841,7 +841,7 @@ export async function checkHundredStep(lines, only) {
   for (const key of only || KEYS) {
     const spec = DIAG_TILINGS[key];
     const tiling = makeTiling(key);
-    const opts = { motif: "asym", hashColour: true };
+    const opts = { motif: "asym", hashColor: true };
     const host = document.createElement("div");
     host.style.cssText = "position:absolute;left:-10000px;top:0";
     document.body.appendChild(host);
@@ -858,7 +858,7 @@ export async function checkHundredStep(lines, only) {
     // ONE viewport for the whole traverse, unlike check 9. That is the point: this is a real scroll,
     // with the library's own re-anchoring happening between the frames being compared, rather than a
     // sequence of independently rebuilt cameras.
-    const spacing = tiling.metrics.centreSpacing;
+    const spacing = tiling.metrics.centerSpacing;
     const diffs = [];
     let prev = null;
     let anchors = 0;
@@ -910,7 +910,7 @@ export async function checkHundredStep(lines, only) {
     // The budget, calibrated from the measured distribution rather than guessed. A steady pan is
     // steady: across the nine tilings the ninetieth percentile sits 1.1-1.2x the median and the worst
     // ordinary step 1.2-1.9x it (the extremes are {8,3} m=4 at 573/687/792/848 for min/median/p90/max
-    // and {3,7} at 237/294/338/549). Against that, a stabiliser jump is not marginal: check 9 measures a
+    // and {3,7} at 237/294/338/549). Against that, a stabilizer jump is not marginal: check 9 measures a
     // real one at 3,000-5,000 changed channels on a 240 px canvas, so 2,000-3,500 here.
     //
     // Twice the ninetieth percentile leaves 1.6x headroom over the worst ordinary step actually seen
@@ -937,7 +937,7 @@ export async function checkHundredStep(lines, only) {
   }
   lines.push({
     ok: failures.length === 0,
-    text: `10. hundred-step scroll, fully asymmetric art coloured by tile id:\n     ` +
+    text: `10. hundred-step scroll, fully asymmetric art colored by tile id:\n     ` +
       detail.join("\n     ") +
       (failures.length ? `\n     ${failures.slice(0, 6).join("\n     ")}` : ""),
   });

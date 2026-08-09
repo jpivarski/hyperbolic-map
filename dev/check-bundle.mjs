@@ -37,6 +37,20 @@ function fail(file, line, msg) {
 const files = walk(SRC).sort();
 if (files.length === 0) fail(SRC, 0, "no .js files found under src/");
 
+// The version is a literal in src/version.js, because src/ is loaded straight into browsers and the
+// bundle is plain concatenation -- there is nothing to substitute at either. npm publishes the copy in
+// package.json. Two copies, so they are compared here rather than trusted.
+{
+  const declared = readFileSync(join(SRC, "version.js"), "utf8").match(/export const VERSION = "([^"]*)"/);
+  const packaged = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+  if (!declared) {
+    fail(join(SRC, "version.js"), 0, 'expected a line `export const VERSION = "x.y.z";`');
+  } else if (declared[1] !== packaged) {
+    fail(join(SRC, "version.js"), 0,
+      `VERSION is "${declared[1]}" but package.json says "${packaged}" — they must match`);
+  }
+}
+
 // name -> file that declares it at top level (exported or not). The bundle shares one scope, so BOTH
 // kinds collide. Missing the private ones is a real gap: `const arc = new Arc()` in two different
 // render modules is perfectly legal ESM and a SyntaxError once concatenated.

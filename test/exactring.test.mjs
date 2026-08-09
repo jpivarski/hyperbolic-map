@@ -141,7 +141,7 @@ test("cmp is a strict total order", () => {
   for (let i = 1; i < sorted.length; i++) assert.ok(R.cmp(sorted[i - 1], sorted[i]) <= 0);
 });
 
-test("serialize is injective and stable, and normalises -0n", () => {
+test("serialize is injective and stable, and normalizes -0n", () => {
   const R = new ExactRing(8);
   const seen = new Map();
   let s = 4242;
@@ -158,7 +158,7 @@ test("serialize is injective and stable, and normalises -0n", () => {
   }
   const negZero = R.zero();
   negZero[0] = -0n;
-  assert.equal(R.serialize(negZero), R.serialize(R.zero()), "-0n must serialise as 0");
+  assert.equal(R.serialize(negZero), R.serialize(R.zero()), "-0n must serialize as 0");
 });
 
 test("the multiply counter tracks exact work, so 'no BigInt work per frame' is measurable", () => {
@@ -174,4 +174,111 @@ test("the multiply counter tracks exact work, so 'no BigInt work per frame' is m
   assert.equal(exactMulCount(), 1, "add/sub must not count as exact multiplies");
   R.dicksonOfMu(5);
   assert.ok(exactMulCount() > 1, "dicksonOfMu should do real work");
+});
+
+// ---------------------------------------------------------------------------------------------
+// The two coefficient representations
+//
+// Coefficients are held as Numbers while they fit the exactly-integral range and are promoted to
+// BigInt, permanently, when they stop fitting. The whole scheme is only safe if nothing a caller can
+// observe depends on which one an element happens to carry, so these tests attack exactly that.
+// ---------------------------------------------------------------------------------------------
+
+// The same value in both representations. `big` is what a caller building an element by hand gets,
+// which is also what the older BigInt-only implementation produced everywhere.
+const asBig = (a) => a.map((c) => (typeof c === "bigint" ? c : BigInt(c)));
+
+test("small and big representations are observationally identical", () => {
+  for (const N of [4, 5, 8, 12, 24]) {
+    const R = new ExactRing(N);
+    let s = 20260808;
+    const rnd = () => {
+      s = (s * 1103515245 + 12345) % 2147483648;
+      return (s % 41) - 20;
+    };
+    for (let trial = 0; trial < 300; trial++) {
+      const a = Array.from({ length: R.deg }, rnd);
+      const b = Array.from({ length: R.deg }, rnd);
+      const A = asBig(a);
+      const B = asBig(b);
+      assert.equal(typeof a[0], "number", "fixture should start in the small representation");
+      assert.equal(typeof A[0], "bigint");
+
+      for (const op of ["add", "sub", "mul"]) {
+        const small = R[op](a, b);
+        const big = R[op](A, B);
+        const mixedL = R[op](a, B);
+        const mixedR = R[op](A, b);
+        // The text is what becomes a tile id, so this is the assertion that matters most.
+        const want = R.serialize(big);
+        assert.equal(R.serialize(small), want, `${op}: N = ${N}, trial ${trial}`);
+        assert.equal(R.serialize(mixedL), want, `${op} small x big: N = ${N}`);
+        assert.equal(R.serialize(mixedR), want, `${op} big x small: N = ${N}`);
+        // And every other observable.
+        assert.ok(R.equals(small, big), `${op}: equals must see one value across representations`);
+        assert.equal(R.cmp(small, big), 0, `${op}: cmp must see one value across representations`);
+        assert.equal(R.isZero(small), R.isZero(big), `${op}: isZero disagrees`);
+        assert.equal(R.toNumber(small), R.toNumber(big), `${op}: toNumber disagrees`);
+      }
+      // cmp orders VALUES, not representations: every mixed pairing must give the same sign.
+      const want = R.cmp(asBig(a), asBig(b));
+      assert.equal(R.cmp(a, b), want, "cmp small/small");
+      assert.equal(R.cmp(a, asBig(b)), want, "cmp small/big");
+      assert.equal(R.cmp(asBig(a), b), want, "cmp big/small");
+      assert.equal(R.neg(a).map(String).join(","), R.neg(asBig(a)).map(String).join(","), "neg");
+    }
+  }
+});
+
+test("promotion happens, is permanent, and does not change the value", () => {
+  // Squaring repeatedly is the fastest way to walk a coefficient out of the small range. The point is
+  // not just that the answers agree but that the crossing itself is exercised: a test that never
+  // promotes would pass no matter how wrong the big path was.
+  const R = new ExactRing(24);
+  let small = R.add(R.mu(), R.fromInt(3));
+  let big = asBig(small);
+  let promotedAt = -1;
+  for (let i = 0; i < 12; i++) {
+    small = R.mul(small, small);
+    big = R.mul(big, big);
+    assert.equal(R.serialize(small), R.serialize(big), `step ${i}: the two paths diverged`);
+    assert.equal(typeof big[0], "bigint", `step ${i}: a big operand must give a big result`);
+    if (promotedAt < 0 && typeof small[0] === "bigint") promotedAt = i;
+    if (promotedAt >= 0) {
+      assert.equal(typeof small[0], "bigint", `step ${i}: promotion must be permanent, never undone`);
+    }
+  }
+  assert.ok(promotedAt >= 0, "the fixture never left the small range, so it tested nothing");
+  assert.ok(promotedAt >= 2, `promoted implausibly early, at step ${promotedAt}`);
+});
+
+test("REGRESSION: the small path never rounds -- it bails out while still exact", () => {
+  // The one way this optimization could be wrong is a coefficient silently rounding instead of
+  // promoting. Drive `mulSmall` straight at values astride the limit and require that whatever comes
+  // back is either exactly right or not the small path at all.
+  const R = new ExactRing(8);
+  for (const scale of [1, 1e6, 1e9, 2 ** 26, 2 ** 30, 2 ** 40, 2 ** 50, 2 ** 52]) {
+    const a = R.zero();
+    const b = R.zero();
+    for (let i = 0; i < R.deg; i++) {
+      a[i] = Math.round(scale * (i % 3 === 0 ? 1 : -0.5));
+      b[i] = Math.round(scale * (i % 2 === 0 ? -1 : 0.75));
+    }
+    assert.equal(R.serialize(R.mul(a, b)), R.serialize(R.mul(asBig(a), asBig(b))), `scale ${scale}`);
+    assert.equal(R.serialize(R.add(a, b)), R.serialize(R.add(asBig(a), asBig(b))), `add, scale ${scale}`);
+    assert.equal(R.serialize(R.sub(a, b)), R.serialize(R.sub(asBig(a), asBig(b))), `sub, scale ${scale}`);
+  }
+});
+
+test("a hand-built BigInt element still gets BigInt answers back", () => {
+  // `ExactRing` is exported so the group relations can be checked from outside, and the natural way
+  // to write such a check is with BigInt literals. Feeding those in must not hand back Numbers.
+  const R = new ExactRing(8);
+  const a = [1n, 2n, 0n, -3n];
+  const b = [0n, 1n, 1n, 0n];
+  for (const op of ["add", "sub", "mul"]) {
+    assert.equal(typeof R[op](a, b)[0], "bigint", `${op} on BigInt input`);
+  }
+  assert.equal(typeof R.reduce([1n, 2n, 3n, 4n, 5n, 6n, 7n])[0], "bigint", "reduce stays BigInt");
+  assert.equal(typeof R.neg(a)[0], "bigint", "neg on BigInt input");
 });

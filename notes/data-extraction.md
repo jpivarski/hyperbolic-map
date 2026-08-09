@@ -81,7 +81,7 @@ see `su11-core.md`.
   2026-08-07) from a cell-keyed table of 399 placements into a library of **9 named pieces of art in
   generic cell-local coordinates**, any of which can go in any cell. `dungeon-man.html` now places
   them by hashing each cell's address with a per-page-load salt, so the dungeon is infinite rather than
-  stopping at latitude ±20. The original placement list is a 2012 artefact and is not reproducible from
+  stopping at latitude ±20. The original placement list is a 2012 artifact and is not reproducible from
   this repository.
 - The **clock face** was generated offline by `svgtools/examples/clock.py` (720 minute ticks, 43,200
   second ticks, 12 hour numerals). Radii in local units: hour ticks 1.0→1.1, numerals at 1.2 (up-vector
@@ -134,9 +134,10 @@ sub-path.
 
 The 2011 `minRadius`/`maxRadius` zoom-gated level of detail has **no v2 equivalent**. It was briefly
 carried as `visibleFrom`/`visibleTo`, which the parser stored and the renderer never read; those
-fields were removed rather than left to lie. `docs/escher.json` still carries `visibleTo: 0.75` on
-32,760 of its 38,640 records and they are simply ignored. Per-tile level of detail in atlas mode is a
-different, working mechanism: see `lod`/`lodPx` in README.md.
+fields were removed rather than left to lie. (The extracted `docs/escher.json` carried `visibleTo:
+0.75` on 32,760 of its 38,640 records, which were simply ignored; that dataset was itself removed
+before the 0.1.0 release along with the single-patch page that used it.) Per-tile level of detail in
+atlas mode is a different, working mechanism: see `lod`/`lodPx` in README.md.
 
 ## Output sizing
 

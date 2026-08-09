@@ -1,5 +1,5 @@
 {
-  "name": "hyperbolic-map-widget",
+  "name": "hyperbolic-map",
   "version": "0.1.0",
   "description": "Interactive viewer for vector maps of the hyperbolic plane, drawn in the Poincar\u00e9 disk. Zero dependencies.",
   "keywords": [
@@ -13,20 +13,26 @@
     "escher"
   ],
   "license": "BSD-3-Clause",
+  "author": {
+    "name": "Jim Pivarski",
+    "url": "https://github.com/jpivarski"
+  },
+  "homepage": "https://github.com/jpivarski/hyperbolic-map",
+  "bugs": {
+    "url": "https://github.com/jpivarski/hyperbolic-map/issues"
+  },
   "type": "module",
   "sideEffects": false,
+  "types": "./src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./types/index.d.ts",
-      "script": "./dist/hyperbolic-map.iife.js",
-      "import": "./src/index.js",
+      "types": "./src/index.d.ts",
       "default": "./src/index.js"
     }
   },
   "files": [
     "src",
     "dist",
-    "types",
     "README.md",
     "LICENSE"
   ],
@@ -34,6 +40,8 @@
     "check": "node dev/check-bundle.mjs",
     "build": "node dev/check-bundle.mjs && node dev/build.mjs && node -e \"require('fs').copyFileSync('dist/hyperbolic-map.iife.js','docs/lib/hyperbolic-map.iife.js')\"",
     "test": "node --test \"test/**/*.test.mjs\"",
+    "typecheck": "npx -y --package typescript@5 tsc --noEmit -p dev/typecheck/tsconfig.json",
+    "smoke": "node dev/smoke.mjs",
     "bench": "node bench/bench.mjs",
     "serve": "python3 -m http.server --directory docs 8000"
   },
@@ -42,6 +50,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jpivarski/hyperbolic-map-widget.git"
+    "url": "git+https://github.com/jpivarski/hyperbolic-map.git"
   }
 }

@@ -4,7 +4,7 @@
 //
 // For each tiling and each walk distance, this walks the camera out along a fixed word, then records
 // the relative frame and the projected screen position of a few tile-local sample points for every
-// tile in the neighbourhood. dev/audit_atlas_numeric.py recomputes the same quantities at 60 digits
+// tile in the neighborhood. dev/audit_atlas_numeric.py recomputes the same quantities at 60 digits
 // three independent ways and compares.
 //
 // The walk words are deterministic and are emitted too, so the oracle walks EXACTLY the same path --
@@ -30,8 +30,8 @@ const SPECS = [
 // hyperbolic distance ~3800, where cosh(d/2) overflows float64 entirely.
 const WALKS = [0, 1, 5, 50, 500, 5000];
 
-// Sample points in tile-local coordinates: the centre and four offsets, chosen asymmetrically so a
-// mirrored or rotated frame would show up as a mismatch rather than cancelling.
+// Sample points in tile-local coordinates: the center and four offsets, chosen asymmetrically so a
+// mirrored or rotated frame would show up as a mismatch rather than canceling.
 const SAMPLES = [[0, 0], [0.31, 0.07], [-0.11, 0.27], [0.05, -0.19], [0.4, 0.4]];
 
 function walkWord(tiling, steps, seed) {
@@ -65,14 +65,14 @@ for (const spec of SPECS) {
     const anchor = new Anchor(tiling);
     const genPath = [];
     for (const g of word) {
-      const nbrs = tiling.neighbours(anchor.address);
+      const nbrs = tiling.neighbors(anchor.address);
       const chosen = nbrs.find((n) => n.gen === g) || nbrs[g % nbrs.length];
       genPath.push(chosen.gen);
       anchor.address = chosen.address;
     }
 
     const V = Isom.identity(); // camera-relative view: the camera looking straight at its own tile
-    const tiles = anchor.neighbourhood(V, 0.62, 60);
+    const tiles = anchor.neighborhood(V, 0.62, 60);
     const rec = {
       steps,
       genPath,
@@ -81,7 +81,7 @@ for (const spec of SPECS) {
       tiles: [],
     };
     for (const t of tiles) {
-      // The relative word for this tile is not returned by neighbourhood(), so recover it by matching
+      // The relative word for this tile is not returned by neighborhood(), so recover it by matching
       // the address: the oracle needs a path, not just a matrix. For canonical (binary) addresses this
       // is exact; for word addresses the address IS the path from the origin, so the relative path is
       // its suffix after the camera's word.

@@ -3,7 +3,7 @@
 // Walking in one direction is the easy case. These tests do what a user does: change direction
 // constantly, mix short hops that stay inside one tile with long hauls that cross hundreds, reverse,
 // zoom, and come back. The invariant throughout is that NOTHING may depend on how far the camera has
-// travelled -- so most assertions compare a far-away state against the state at the origin and demand
+// traveled -- so most assertions compare a far-away state against the state at the origin and demand
 // they be indistinguishable, rather than merely both finite.
 
 import test from "node:test";
@@ -17,7 +17,8 @@ import { RegularTiling, BinaryTiling } from "../src/data/atlas/tiling.js";
 import { Anchor } from "../src/data/atlas/anchor.js";
 import { Atlas } from "../src/data/atlas/atlas.js";
 import { tileSymmetryResidual, tileSymmetryMessage } from "../src/data/atlas/symmetry.js";
-import { normaliseOptionsForTesting } from "../src/viewport.js";
+import { normalizeOptionsForTesting } from "../src/viewport.js";
+import { readFileSync } from "node:fs";
 
 const REGULARS = [
   { p: 8, q: 3, frameSymmetry: 4 },
@@ -50,11 +51,11 @@ function rng(seed) {
   };
 }
 
-// The signature of a neighbourhood: the multiset of relative frames, rounded. For a homogeneous tiling
+// The signature of a neighborhood: the multiset of relative frames, rounded. For a homogeneous tiling
 // this is what must be independent of the camera's position.
 function signature(anchor, matrix, radius, maxTiles) {
   return anchor
-    .neighbourhood(matrix, radius, maxTiles)
+    .neighborhood(matrix, radius, maxTiles)
     .map((t) => [t.rel.ar, t.rel.ai, t.rel.br, t.rel.bi].map((v) => v.toFixed(11)).join(","))
     .sort()
     .join("|");
@@ -62,12 +63,12 @@ function signature(anchor, matrix, radius, maxTiles) {
 
 // Where a tile sits, as a sortable key. Sub-1e-11 magnitudes are printed as +0 so that a -1.2e-16
 // coordinate does not read as a different place from +0.
-function centreKey(rel) {
+function centerKey(rel) {
   const z = rel.applyToDisk(0, 0, [0, 0]);
   return z.map((v) => (Math.abs(v) < 1e-11 ? 0 : v).toFixed(11)).join(",");
 }
 
-// The neighbourhood as {centres, byCentre}: the sorted set of tile positions, and each position's
+// The neighborhood as {centers, byCenter}: the sorted set of tile positions, and each position's
 // frame.
 //
 // Positions and frames have to be looked at separately now, and that is the whole point of canonical
@@ -75,19 +76,19 @@ function centreKey(rel) {
 // around the origin -- that is still exactly true and is what these tests check. The FRAMES are not:
 // a tile's frame is now an absolute property of that tile rather than of the route to it, so the same
 // arrangement seen from a different place has each tile turned by some multiple of 2*pi/m about its
-// own centre. `frameDefects` measures those turns and insists they are exactly that.
+// own center. `frameDefects` measures those turns and insists they are exactly that.
 function layout(anchor, matrix, radius, maxTiles) {
-  const byCentre = new Map();
-  for (const t of anchor.neighbourhood(matrix, radius, maxTiles)) byCentre.set(centreKey(t.rel), t.rel);
-  return { centres: [...byCentre.keys()].sort().join("|"), byCentre };
+  const byCenter = new Map();
+  for (const t of anchor.neighborhood(matrix, radius, maxTiles)) byCenter.set(centerKey(t.rel), t.rel);
+  return { centers: [...byCenter.keys()].sort().join("|"), byCenter };
 }
 
 // For every tile the two layouts share, the angle between the two frames. Both frames send the tile's
-// own centre to the same point, so their ratio fixes that centre and is a pure rotation about it.
+// own center to the same point, so their ratio fixes that center and is a pure rotation about it.
 function frameDefects(a, b) {
   const out = [];
-  for (const [key, relA] of a.byCentre) {
-    const relB = b.byCentre.get(key);
+  for (const [key, relA] of a.byCenter) {
+    const relB = b.byCenter.get(key);
     if (!relB) continue;
     const d = relA.inverse().mul(relB).normalize();
     // A rotation is [[e^{i t/2}, 0], [0, e^{-i t/2}]] up to sign, acting as z -> e^{i t} z.
@@ -97,9 +98,9 @@ function frameDefects(a, b) {
 }
 
 // Assert that two layouts describe the same arrangement of tiles, differing only by each tile's own
-// stabiliser rotation.
+// stabilizer rotation.
 function assertSameArrangement(t, ref, got, what) {
-  assert.equal(got.centres, ref.centres, `${what}: the tiles are in different places`);
+  assert.equal(got.centers, ref.centers, `${what}: the tiles are in different places`);
   const defects = frameDefects(ref, got);
   assert.ok(defects.length > 5, `${what}: only ${defects.length} tiles compared`);
   const quantum = (2 * Math.PI) / t.m;
@@ -138,7 +139,7 @@ function compoundWalk(tiling, seed, legs, perLeg) {
         worstV = Math.max(worstV, maxEntry(V));
       }
     }
-    for (const t of anchor.neighbourhood(V, 0.7, 120)) worstRel = Math.max(worstRel, maxEntry(t.rel));
+    for (const t of anchor.neighborhood(V, 0.7, 120)) worstRel = Math.max(worstRel, maxEntry(t.rel));
   }
   return { anchor, V, worstV, worstRel };
 }
@@ -163,21 +164,21 @@ test("compound motion in many directions keeps the view matrix O(1)", () => {
   assert.ok(rb.worstV < 10, `binary max|V| reached ${rb.worstV}`);
 });
 
-test("after compound motion the neighbourhood is still the same arrangement of tiles", () => {
+test("after compound motion the neighborhood is still the same arrangement of tiles", () => {
   // The strongest statement available for a homogeneous tiling: having wandered a long way by a
   // complicated route, the local picture must be what it was at the start.
   //
-  // "Identical" up to each tile's own stabiliser rotation, not identical byte for byte, and the
+  // "Identical" up to each tile's own stabilizer rotation, not identical byte for byte, and the
   // difference is the point of canonical orientation rather than a weakening. Lex-min over the coset
   // is not equivariant under translating the whole tiling, so the canonical frame of a tile far out is
   // not the translate of the canonical frame of the corresponding tile here. What IS preserved is
-  // everything geometric: the same tiles in the same places, each turned about its own centre by a
-  // multiple of 2*pi/m -- which is exactly the freedom the tile stabiliser has always had.
+  // everything geometric: the same tiles in the same places, each turned about its own center by a
+  // multiple of 2*pi/m -- which is exactly the freedom the tile stabilizer has always had.
   for (const spec of REGULARS) {
     const t = new RegularTiling(spec);
     const reference = layout(new Anchor(t), Isom.identity(), 0.7, 120);
     const r = compoundWalk(t, 55 + spec.p, 30, 25);
-    // Re-centre the camera on its own tile so the comparison is of the same view, not the same drift.
+    // Re-center the camera on its own tile so the comparison is of the same view, not the same drift.
     const got = layout(r.anchor, Isom.identity(), 0.7, 120);
     assertSameArrangement(t, reference, got, `{${spec.p},${spec.q}} after ${r.anchor.reanchorCount} crossings`);
   }
@@ -207,10 +208,10 @@ test("long hauls in eight directions all behave the same", () => {
   }
 });
 
-test("the camera tile always CONTAINS the view centre", () => {
-  // The invariant that makes re-anchoring canonical: after re-anchoring, the view centre is inside the
+test("the camera tile always CONTAINS the view center", () => {
+  // The invariant that makes re-anchoring canonical: after re-anchoring, the view center is inside the
   // camera tile, not merely near it. That is what stops the camera tile from depending on the route
-  // taken. The nearest-centre descent needs a strict-improvement margin or a view on a boundary would
+  // taken. The nearest-center descent needs a strict-improvement margin or a view on a boundary would
   // oscillate, so the descent finishes on the exact containment predicate instead.
   for (const spec of REGULARS) {
     const t = new RegularTiling(spec);
@@ -226,12 +227,12 @@ test("the camera tile always CONTAINS the view centre", () => {
         V = step.mul(V);
         const { shift } = anchor.reanchor(V);
         V = V.mul(shift).normalize();
-        const c = anchor.viewCentreLocal(V, [0, 0, 0]);
+        const c = anchor.viewCenterLocal(V, [0, 0, 0]);
         frames++;
         if (!t.containsLocal(c[0], c[1], 1e-9)) bad++;
       }
     }
-    assert.equal(bad, 0, `{${spec.p},${spec.q}}: ${bad}/${frames} frames where the camera tile did not contain the view centre`);
+    assert.equal(bad, 0, `{${spec.p},${spec.q}}: ${bad}/${frames} frames where the camera tile did not contain the view center`);
   }
 });
 
@@ -379,7 +380,7 @@ test("a regular tiling's address does not drift over a long round trip", () => {
 });
 
 test("re-anchoring cannot oscillate, even with the view exactly on a tile boundary", () => {
-  // A view sitting precisely on the perpendicular bisector of two tile centres is equidistant from
+  // A view sitting precisely on the perpendicular bisector of two tile centers is equidistant from
   // both. Without a strict-improvement margin the camera would swap between them forever, and
   // `reanchor` would never return.
   for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 7, q: 3 }, { p: 5, q: 4 }]) {
@@ -387,7 +388,7 @@ test("re-anchoring cannot oscillate, even with the view exactly on a tile bounda
     const psi = t.metrics.inradius;
     for (let k = 0; k < t.generatorCount(); k++) {
       const anchor = new Anchor(t);
-      // Put the view centre exactly on edge k's midpoint, i.e. exactly on the bisector.
+      // Put the view center exactly on edge k's midpoint, i.e. exactly on the bisector.
       const c = t.generator(k).applyToDisk(0, 0, [0, 0]);
       const bearing = Math.atan2(c[1], c[0]);
       const r = Math.sinh(psi / 2);
@@ -396,11 +397,11 @@ test("re-anchoring cannot oscillate, even with the view exactly on a tile bounda
       assert.ok(steps < 64, `{${spec.p},${spec.q}} edge ${k}: re-anchor used ${steps} steps`);
     }
   }
-  // And the degenerate case: a view centred exactly on a tile centre must not move at all.
+  // And the degenerate case: a view centered exactly on a tile center must not move at all.
   const t = new RegularTiling({ p: 5, q: 4 });
   const anchor = new Anchor(t);
   const { steps } = anchor.reanchor(Isom.identity());
-  assert.equal(steps, 0, "a view centred on its own tile must not re-anchor");
+  assert.equal(steps, 0, "a view centered on its own tile must not re-anchor");
 });
 
 test("the binary camera survives compound motion including deep descents", () => {
@@ -412,7 +413,7 @@ test("the binary camera survives compound motion including deep descents", () =>
   const path = [];
   const rand = rng(8899);
   for (let i = 0; i < 400; i++) {
-    const nbrs = t.neighbours(address);
+    const nbrs = t.neighbors(address);
     // Bias downward so the longitude really grows.
     const pick = rand() < 0.6 ? nbrs[2 + Math.floor(rand() * 2)] : nbrs[Math.floor(rand() * nbrs.length)];
     path.push(pick.gen);
@@ -423,7 +424,7 @@ test("the binary camera survives compound motion including deep descents", () =>
     address.lon > (1n << 40n) || address.lon < -(1n << 40n),
     `expected a longitude past float64 exactness, got ${address.lon}`,
   );
-  // What the binary neighbourhood may and may not depend on, stated precisely -- an earlier version of
+  // What the binary neighborhood may and may not depend on, stated precisely -- an earlier version of
   // this test got it wrong and compared against longitude 0.
   //
   // The parent step is chosen by the longitude's PARITY (a cell is either the left or the right child of
@@ -437,19 +438,19 @@ test("the binary camera survives compound motion including deep descents", () =>
   assert.equal(
     signature(far, Isom.identity(), 0.6, 200),
     signature(shiftedLat, Isom.identity(), 0.6, 200),
-    "binary neighbourhood depends on LATITUDE, which is its exact symmetry and must not matter",
+    "binary neighborhood depends on LATITUDE, which is its exact symmetry and must not matter",
   );
   const highBits = new Anchor(t, { address: { lat: address.lat, lon: address.lon + (1n << 30n) } });
   assert.equal(
     signature(far, Isom.identity(), 0.6, 200),
     signature(highBits, Isom.identity(), 0.6, 200),
-    "binary neighbourhood depends on HIGH longitude bits, which a bounded walk cannot reach",
+    "binary neighborhood depends on HIGH longitude bits, which a bounded walk cannot reach",
   );
   // Walk the path back and confirm exactness.
   for (let i = path.length - 1; i >= 0; i--) {
     const want = t.inverseGenerator(path[i]);
-    const nb = t.neighbours(address).find((n) => n.gen === want);
-    assert.ok(nb, `no neighbour with generator ${want}`);
+    const nb = t.neighbors(address).find((n) => n.gen === want);
+    assert.ok(nb, `no neighbor with generator ${want}`);
     address = nb.address;
   }
   assert.equal(address.lat, 0n);
@@ -457,7 +458,7 @@ test("the binary camera survives compound motion including deep descents", () =>
   assert.ok(anchor.reanchorCount === 0);
 });
 
-test("neighbourhood cost does not grow with distance", () => {
+test("neighborhood cost does not grow with distance", () => {
   // Not a benchmark -- a shape check. The walk is bounded by the VISIBLE radius, so its work must be the
   // same at 5000 tiles as at 0. If this ever regressed, something would be scanning from the origin.
   const t = new RegularTiling({ p: 7, q: 3 });
@@ -467,13 +468,13 @@ test("neighbourhood cost does not grow with distance", () => {
     anchor.address = advanceAddress(t, walk, 700 + walk);
     assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
       `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
-    counts.push(anchor.neighbourhood(Isom.identity(), 0.7, 200).length);
+    counts.push(anchor.neighborhood(Isom.identity(), 0.7, 200).length);
   }
   assert.ok(new Set(counts).size === 1, `tile counts differ by distance: ${counts.join(", ")}`);
 });
 
 test("REGRESSION: the camera can move in every direction, from every parity of cell", () => {
-  // A refactor made `stepToward` name a GENERATOR rather than an index into the neighbour list. For the
+  // A refactor made `stepToward` name a GENERATOR rather than an index into the neighbor list. For the
   // binary tiling that cannot work: the parent step comes in two parities, so an odd-longitude cell
   // offers only PARENT_ODD and a request for PARENT_EVEN found nothing. The camera could then never move
   // UP, and chased downward instead -- max|V| reached 2.6e24 and the latitude ran to several hundred
@@ -502,10 +503,10 @@ test("REGRESSION: the camera can move in every direction, from every parity of c
           totalSteps += r.steps;
           V = V.mul(r.shift).normalize();
         }
-        const c = anchor.viewCentreLocal(V, [0, 0, 0]);
+        const c = anchor.viewCenterLocal(V, [0, 0, 0]);
         assert.ok(
           t.containsLocal(c[0], c[1], 1e-9),
-          `${name} bearing ${k} from ${t.addressToString(start)}: camera lost the view centre`,
+          `${name} bearing ${k} from ${t.addressToString(start)}: camera lost the view center`,
         );
         assert.ok(
           maxEntry(V) < 10,
@@ -549,7 +550,7 @@ test("re-anchoring mid-gesture keeps a pinch's grabbed points pinned", () => {
   //
   // ViewState.rebase pulls both back through the shift. Without that, re-anchoring in the middle of a
   // pinch makes the solver pin the wrong points and the picture jumps out from under the fingers. This
-  // is hard to provoke through the browser -- a pinch that zooms in moves the view centre less, in
+  // is hard to provoke through the browser -- a pinch that zooms in moves the view center less, in
   // hyperbolic terms, than the same gesture panning -- so it is checked directly here.
   const t = new RegularTiling({ p: 5, q: 4 });
   const g = t.generator(0);
@@ -658,22 +659,22 @@ test("an atlas refuses to be combined with a global data source", () => {
   const tiling = new RegularTiling({ p: 5, q: 4 });
   const atlas = { tiling, tileData: () => ({ drawables: [] }) };
   assert.throws(
-    () => normaliseOptionsForTesting({ atlas, data: [{ type: "path", points: [[0, 0], [1, 0]] }] }),
+    () => normalizeOptionsForTesting({ atlas, data: [{ type: "path", points: [[0, 0], [1, 0]] }] }),
     /cannot be combined with `data`/,
   );
   assert.throws(
-    () => normaliseOptionsForTesting({ atlas, data: { drawables: [{ type: "path", points: [[0, 0]] }] } }),
+    () => normalizeOptionsForTesting({ atlas, data: { drawables: [{ type: "path", points: [[0, 0]] }] } }),
     /cannot be combined with `data`/,
   );
   assert.throws(
-    () => normaliseOptionsForTesting({ atlas, dataProvider: async () => ({ drawables: [] }) }),
+    () => normalizeOptionsForTesting({ atlas, dataProvider: async () => ({ drawables: [] }) }),
     /cannot be combined with `data`/,
   );
   // The defaults must NOT trip the guard: `data` defaults to an empty list and every atlas demo relies
   // on that.
-  assert.doesNotThrow(() => normaliseOptionsForTesting({ atlas }));
-  assert.doesNotThrow(() => normaliseOptionsForTesting({ atlas, data: [] }));
-  assert.doesNotThrow(() => normaliseOptionsForTesting({ data: [{ type: "path", points: [[0, 0]] }] }));
+  assert.doesNotThrow(() => normalizeOptionsForTesting({ atlas }));
+  assert.doesNotThrow(() => normalizeOptionsForTesting({ atlas, data: [] }));
+  assert.doesNotThrow(() => normalizeOptionsForTesting({ data: [{ type: "path", points: [[0, 0]] }] }));
 });
 
 test("compass mode survives re-anchoring: north keeps pointing the same way", () => {
@@ -729,7 +730,7 @@ test("zoom extremes far from the origin behave as they do at it", () => {
     const reference = {};
     for (const radius of [0.2, 0.5, 0.8, 0.95, 0.999]) {
       const anchor = new Anchor(t);
-      const tiles = anchor.neighbourhood(Isom.identity(), radius, 300);
+      const tiles = anchor.neighborhood(Isom.identity(), radius, 300);
       reference[radius] = tiles.length;
       assert.ok(tiles.length > 0, `{${spec.p},${spec.q}} radius ${radius}: no tiles`);
       assert.ok(tiles.length <= 300, `{${spec.p},${spec.q}} radius ${radius}: budget exceeded`);
@@ -741,7 +742,7 @@ test("zoom extremes far from the origin behave as they do at it", () => {
       assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
         `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
       for (const radius of [0.2, 0.5, 0.8, 0.95, 0.999]) {
-        const n = anchor.neighbourhood(Isom.identity(), radius, 300).length;
+        const n = anchor.neighborhood(Isom.identity(), radius, 300).length;
         assert.equal(
           n,
           reference[radius],
@@ -752,7 +753,7 @@ test("zoom extremes far from the origin behave as they do at it", () => {
   }
 });
 
-test("clip auto honours a tile's withinTile promise", () => {
+test("clip auto honors a tile's withinTile promise", () => {
   // `clip: "auto"` exists so a provider that knows its art stays inside the tile can skip the clip and
   // the save/restore around it. Worth pinning because the wrong branch is invisible in the common case:
   // art that already fits looks the same clipped or not, so only art that OVERFLOWS distinguishes them.
@@ -798,7 +799,7 @@ test("clip auto honours a tile's withinTile promise", () => {
 test("the tile cache evicts without ever serving another tile's data", () => {
   // Cache keys are a 53-bit hash of the address, not the address string, because the string is thousands
   // of characters far from the origin. That is safe only if distinct tiles get distinct keys, so check
-  // it directly over a large neighbourhood -- a collision would silently paint one tile with another's
+  // it directly over a large neighborhood -- a collision would silently paint one tile with another's
   // data, which for position-dependent content would be a real corruption.
   for (const spec of [{ p: 8, q: 3, frameSymmetry: 4 }, { p: 5, q: 4 }, { p: 3, q: 7 }]) {
     const t = new RegularTiling(spec);
@@ -810,7 +811,7 @@ test("the tile cache evicts without ever serving another tile's data", () => {
       anchor.address = advanceAddress(t, walk, 700 + walk);
       assert.ok(addressDistance(t, anchor.address) >= walk * 0.25 || walk === 0,
         `the walk did not travel: ${walk} steps reached only ${addressDistance(t, anchor.address).toFixed(2)} hyperbolic units`);
-      for (const tile of anchor.neighbourhood(Isom.identity(), 0.97, 1500)) {
+      for (const tile of anchor.neighborhood(Isom.identity(), 0.97, 1500)) {
         const key = t.addressKey(tile.address);
         const str = t.addressToString(tile.address);
         if (seen.has(key) && seen.get(key) !== str) collisions++;
@@ -821,7 +822,7 @@ test("the tile cache evicts without ever serving another tile's data", () => {
     assert.equal(collisions, 0, `{${spec.p},${spec.q}}: ${collisions} hash collisions among ${seen.size} tiles`);
   }
   // The binary tiling keys on its canonical string, so collisions are impossible by construction; check
-  // the memoisation returns a stable value rather than rebuilding differently.
+  // the memoization returns a stable value rather than rebuilding differently.
   const b = new BinaryTiling();
   const addr = { lat: -40n, lon: 123456789012345678901234567890n };
   assert.equal(b.addressKey(addr), b.addressKey(addr));
@@ -841,7 +842,7 @@ test("synchronous tile data is drawn in the SAME frame, not the next one", () =>
     tileData: () => ({ drawables: [{ type: "path", points: [[0, 0], [0.1, 0], [0.05, 0.1]], closed: true, fill: "#123456" }] }),
   });
   const view = { matrix: Isom.identity(), effectiveRadius: 0.5, radius: 200 };
-  const wanted = atlas.anchor.neighbourhood(Isom.identity(), 0.5, 40).length;
+  const wanted = atlas.anchor.neighborhood(Isom.identity(), 0.5, 40).length;
   assert.ok(wanted > 5, `only ${wanted} tiles -- not exercising anything`);
   // The VERY FIRST pass, with a cold cache, must already draw everything.
   const passes = atlas.passes(view, () => {});
@@ -869,7 +870,7 @@ test("an asynchronous provider still works, and still resolves", async () => {
   assert.ok(calls > 5);
 });
 
-test("compiled art is memoised on the identity of the returned object", () => {
+test("compiled art is memoized on the identity of the returned object", () => {
   // What turns a re-anchor from a 125 ms stall into nothing. The walk renames many tiles at once, so
   // they all miss the address-keyed cache together -- but a provider obeying the rule returns one of a
   // few shared objects, and those are already compiled.
@@ -924,7 +925,7 @@ test("a fatal symmetry lint is fatal, and does not degrade to one silently missi
   // turns a TILE failure into a skipped tile. So the strictest setting produced the mildest symptom:
   // the first tile requested -- the one under the camera -- was cached empty and never drawn, every
   // later tile skipped the already-run check and drew fine, and the only trace was a console.error.
-  // On escher-atlas.html that was a single blank octagon in the middle of an otherwise perfect
+  // On escher.html that was a single blank octagon in the middle of an otherwise perfect
   // Circle Limit III. A lint and a broken tile are different kinds of failure and must not share a
   // handler.
   const tiling = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
@@ -974,8 +975,8 @@ test("a fatal symmetry lint is fatal, and does not degrade to one silently missi
 test("the lint distinguishes a shape that is merely off from one with no counterpart at all", () => {
   // "worst mismatch Infinity" reads like a coordinate blew up. It means the search found no candidate:
   // nothing of the same style with the same point count lies where the rotation sends the shape. That
-  // is what a C_2 COLOURING of C_4 outlines looks like -- four fish rotate onto each other but are
-  // painted four different colours -- and it is a different thing to go and fix.
+  // is what a C_2 COLORING of C_4 outlines looks like -- four fish rotate onto each other but are
+  // painted four different colors -- and it is a different thing to go and fix.
   const wedge = (a) => {
     const c = Math.cos(a);
     const s = Math.sin(a);
@@ -983,19 +984,19 @@ test("the lint distinguishes a shape that is merely off from one with no counter
   };
   const quarter = [0, 1, 2, 3].map((k) => (k * Math.PI) / 2);
 
-  // Same colour everywhere and exactly rotated: clean.
+  // Same color everywhere and exactly rotated: clean.
   const exact = quarter.map((a) => ({ type: "path", points: wedge(a), closed: true, fill: "#0a0" }));
   assert.ok(tileSymmetryResidual(exact, 4).residual < 1e-12, "an exactly rotated wedge is invariant to float noise");
 
-  // Same colour, one corner nudged: a finite, quotable residual.
+  // Same color, one corner nudged: a finite, quotable residual.
   const nudged = exact.map((d, i) => (i === 2 ? { ...d, points: d.points.map(([x, y], j) => (j === 0 ? [x + 0.002, y] : [x, y])) } : d));
   const off = tileSymmetryResidual(nudged, 4);
   assert.ok(off.residual > 1e-6 && off.residual < 0.01, `residual ${off.residual} should be small and finite`);
   assert.match(tileSymmetryMessage(off.residual, 4, "{8,3}", off.offender), /worst mismatch 2\.00e-3/);
 
-  // Exact outlines, four different colours: no counterpart at all.
-  const recoloured = quarter.map((a, k) => ({ type: "path", points: wedge(a), closed: true, fill: `#0a${k}` }));
-  const none = tileSymmetryResidual(recoloured, 4);
+  // Exact outlines, four different colors: no counterpart at all.
+  const recolored = quarter.map((a, k) => ({ type: "path", points: wedge(a), closed: true, fill: `#0a${k}` }));
+  const none = tileSymmetryResidual(recolored, 4);
   assert.equal(none.residual, Infinity);
   const msg = tileSymmetryMessage(none.residual, 4, "{8,3}", none.offender);
   assert.match(msg, /no counterpart at all \(drawable \d\)/);
@@ -1004,7 +1005,7 @@ test("the lint distinguishes a shape that is merely off from one with no counter
 
 test("the atlas hands a tile its color-symmetry element, and tiles sharing one share compiled art", () => {
   // A repeating atlas returns one of a FEW data objects, and the compile memo keys on their identity.
-  // A colour symmetry has to preserve that: there are twelve colourings of the whole plane and no more,
+  // A color symmetry has to preserve that: there are twelve colorings of the whole plane and no more,
   // so twelve compiled copies is the whole cost, however far you scroll.
   const mul = (a, b) => a.map((_, i) => a[b[i]]);
   const inv = (a) => { const r = a.slice(); a.forEach((v, i) => { r[v] = i; }); return r; };
@@ -1015,7 +1016,7 @@ test("the atlas hands a tile its color-symmetry element, and tiles sharing one s
   for (let g = 0; g < 6; g++) gens[g + 2] = mul(mul(P, gens[g]), inv(P));
   const tiling = new RegularTiling({
     p: 8, q: 3, frameSymmetry: 4,
-    colorSymmetry: { colors: 4, generators: gens, stabiliser: P },
+    colorSymmetry: { colors: 4, generators: gens, stabilizer: P },
   });
   const PALETTE = ["#ffeeaa", "#afe9af", "#ffaaaa", "#afc6e9"];
   const variants = new Map();
@@ -1048,12 +1049,12 @@ test("the atlas hands a tile its color-symmetry element, and tiles sharing one s
     assert.deepEqual(t.colorPermutation, tiling.colorPermutation(t.address));
   }
   const indices = new Set(seenTiles.map((t) => t.colorIndex));
-  assert.ok(indices.size > 6, `only ${indices.size} of 12 colourings appeared in one view`);
+  assert.ok(indices.size > 6, `only ${indices.size} of 12 colorings appeared in one view`);
 
-  // ...and the compiled art collapses to one array per colouring, not one per tile.
+  // ...and the compiled art collapses to one array per coloring, not one per tile.
   const distinct = new Set(passes.map((p) => p.drawables));
   assert.equal(distinct.size, indices.size,
-    `${distinct.size} compiled arrays for ${indices.size} colourings -- the memo is not hitting`);
+    `${distinct.size} compiled arrays for ${indices.size} colorings -- the memo is not hitting`);
 
   // A tiling without one reports null rather than a fake identity, so art can tell the difference.
   const plain = new Atlas({
@@ -1065,4 +1066,39 @@ test("the atlas hands a tile its color-symmetry element, and tiles sharing one s
     },
   });
   assert.ok(plain.passes({ matrix: Isom.identity(), effectiveRadius: 0.4, radius: 200 }, () => {}).length > 0);
+});
+
+test("a misspelled atlas option is an error, not a silently ignored one", () => {
+  // The viewport has always rejected unknown top-level options; the atlas destructured its own and so
+  // accepted anything. `atlas: { maxTiels: 5 }` therefore drew 256 tiles instead of 5 and said nothing.
+  const tiling = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  const tileData = () => ({ version: 1, coordinates: "local", drawables: [] });
+
+  assert.throws(
+    () => new Atlas({ tiling, tileData, maxTiels: 5 }),
+    /unknown atlas option\(s\): maxTiels/,
+    "a typo must be rejected",
+  );
+  assert.throws(
+    () => new Atlas({ tiling, tileData, clip: "always", lodPixels: 8, cachesize: 4 }),
+    /unknown atlas option\(s\): lodPixels, cachesize/,
+    "every unknown key is named, not just the first",
+  );
+
+  // And every option the constructor actually destructures must still be accepted. Reading them back
+  // out of the source is what keeps this test honest when someone adds an option: a new destructured
+  // name that was not added to the allowed set turns into an error the moment anyone passes it.
+  const src = readFileSync(new URL("../src/data/atlas/atlas.js", import.meta.url), "utf8");
+  const block = src.slice(src.indexOf("constructor(options = {}) {"), src.indexOf("if (!tiling)"));
+  const destructured = [...block.matchAll(/^\s{6}([a-zA-Z][\w]*)\s*(?:=|,)/gm)].map((m) => m[1]);
+  assert.ok(destructured.length >= 11, `only found ${destructured.length} destructured options`);
+  for (const name of destructured) {
+    // The key goes in FIRST so that `tiling` and `tileData` still land on real values: the point here
+    // is only whether the name is accepted, and those two have their own checks below the allowed-set
+    // one.
+    assert.doesNotThrow(
+      () => new Atlas({ [name]: undefined, tiling, tileData }),
+      `the constructor destructures "${name}" but the allowed set rejects it`,
+    );
+  }
 });

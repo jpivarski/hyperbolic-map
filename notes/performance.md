@@ -22,7 +22,7 @@ names the before-state it improved on.
 The 2011 baseline will never be measured. The harness that would have produced it (`bench/ab.html`,
 `bench/baseline.html`, `bench/make_legacy_fixtures.py`) loaded the deleted `OLD/` tree and was removed
 with the rest of the compatibility layer. Nothing is lost that matters: the numbers in "What each
-optimisation bought" below are all before/after measurements of *this* library against itself, which
+optimization bought" below are all before/after measurements of *this* library against itself, which
 is the comparison that actually guides work. The original deferral record is kept below because the
 rule it illustrates still stands.
 
@@ -32,7 +32,7 @@ The baseline was **not** measured because the machine was saturated. Readings at
 
 - load average `17.15 / 17.50 / 16.66` on **16** cores;
 - eight `scripts/nova2026/run_round.py --round 3` processes, four of them at 200–300 % CPU;
-- GPU (RTX 3060) at **100 %** utilisation, 4671 / 12288 MiB used;
+- GPU (RTX 3060) at **100 %** utilization, 4671 / 12288 MiB used;
 - that job's own deadline was `2026-08-06 00:19` — about 4 h 23 m out at the time.
 
 A canvas-rendering benchmark under those conditions would measure the contention, not the code.
@@ -80,13 +80,13 @@ the DevTools MCP server (`performance_start_trace` with `reload: false, autoStop
 
 - The 2011 README notes Firefox-on-Linux was "very, very, very slow" for the same graphics, which the
   author attributed to a missing hardware-accelerated canvas path. Browser and platform must be named.
-- Path2D batching changes fill behaviour for self-overlapping or hole-punched polygons (nonzero winding
+- Path2D batching changes fill behavior for self-overlapping or hole-punched polygons (nonzero winding
   over a merged path). The golden-image test over the escher fixture is what establishes it is safe
   there; `isolate: true` per drawable and `batchByStyle: false` globally are the escape hatches.
 
 ### Second deferral, 2026-08-05 21:5x
 
-Re-checked before attempting the optimisation pass. Still busy:
+Re-checked before attempting the optimization pass. Still busy:
 
 - load average `9.12 / 9.89 / 10.51` on 16 cores;
 - GPU at **100 %**, 7502 MiB used;
@@ -96,10 +96,10 @@ Re-checked before attempting the optimisation pass. Still busy:
 to present its results as usable when the machine is busy (exit code 2), because a microbenchmark
 under contention measures the contention. It said so on this run, so nothing is recorded here.
 
-Everything else in the project is complete; the optimisation pass is the only outstanding work.
+Everything else in the project is complete; the optimization pass is the only outstanding work.
 
 
-## 2026-08-06 — First real measurements, and three optimisations
+## 2026-08-06 — First real measurements, and three optimizations
 
 **Machine load.** All numbers below were taken with a one-minute load average of 0.2-0.8 on 16
 cores, nothing running but this session's own Chrome and tooling, and the GPU at 31%. Load was
@@ -110,7 +110,7 @@ machine finished around midnight, which is what made these valid.
 synchronous, so wall time around it is the frame cost. Panning numbers are PACED at one render per
 animation frame. That distinction matters: rendering in a tight loop backs up Chrome's raster queue
 and every third frame blocks, producing a bogus 230 ms spike that no user would ever see. The first
-set of numbers had exactly that artefact.
+set of numbers had exactly that artifact.
 
 ### Baseline and result (620x620, paced pan, median ms per frame)
 
@@ -133,10 +133,10 @@ Now module-scope buffers grown on demand. escher 62.9 -> 46.3 ms in the tight-lo
 
 ### 2. Canvas state caching (lossless)
 
-Assigning `fillStyle` is not free in Chrome even when the value is unchanged; it re-parses the colour
+Assigning `fillStyle` is not free in Chrome even when the value is unchanged; it re-parses the color
 string. Now skipped when unchanged, with the cache cleared at every frame, every pass boundary and
 every other place that touches the context -- bluntly, because a stale cache would paint a shape in
-the previous shape's colour. Included in the figure above; clock 20.6 -> 14.0.
+the previous shape's color. Included in the figure above; clock 20.6 -> 14.0.
 
 ### 3. Style interning (memory)
 
@@ -156,7 +156,7 @@ small steps cannot accumulate into drift) removes ~51% of them: 56.5 -> 43.6 ms,
 
 Cost, measured against a control of two identical renders that differ by exactly zero:
 
-| tolerance | centred view | panned view | speed |
+| tolerance | centered view | panned view | speed |
 |---|---|---|---|
 | 0.25 px | 12 channels, worst delta 2 | 425 channels (0.028%), worst 35 | -23% |
 | 0.5 px | 281 channels, worst delta 86 | 579 channels (0.038%), worst 63 | -33% |
@@ -189,12 +189,12 @@ to runs of CONSECUTIVE same-styled shapes would be order-preserving, but the mea
 interning is only 1.69 on escher and exactly 1 on clock, so the win would be small. Not worth the
 risk; recorded here so the option is not re-derived from scratch.
 
-### Correctness after optimising
+### Correctness after optimizing
 
 The full interaction sweep was re-run on all pages afterwards and is unchanged: three seeds per page,
-worst signature difference 0 except the known first-gesture canvas-promotion artefact, which came
+worst signature difference 0 except the known first-gesture canvas-promotion artifact, which came
 back with the identical value (11.36 on escher, 9.73 on the escher atlas) -- the same deterministic
-Chrome behaviour, not something introduced here. 94 unit tests pass.
+Chrome behavior, not something introduced here. 94 unit tests pass.
 
 
 ## 2026-08-06 — The anchored atlas: cost independent of position
@@ -255,7 +255,7 @@ afterwards:
 | panning back over ground already walked | free |
 
 Naming one tile is ~117 ring multiplications: 27 for `F_parent . G_g`, 9 for the id vector, and
-`27(m-1)` to canonicalise. It happens once per edge ever traversed and never again, which is what
+`27(m-1)` to canonicalize. It happens once per edge ever traversed and never again, which is what
 `exactMulCount()` exists to let you verify. A frame that crosses into unexplored ground names ~1,800
 edges at once, which is the whole of the 130 ms.
 
@@ -307,7 +307,7 @@ under 4 px.
 | < 4 px | 45 | |
 
 Fix: per-tile level of detail. A tile may carry `lod` art used below `lodPx` (default 11). For Circle
-Limit III that is one octagon in the area-weighted average colour, which the tracer computes from the
+Limit III that is one octagon in the area-weighted average color, which the tracer computes from the
 coverage it measured (ink 0.149, body 0.733, spine 0.118).
 
 ### Where it landed
@@ -322,8 +322,89 @@ coverage it measured (ink 0.149, body 0.733, spine 0.118).
 | diagnostics, drag median | — | 6.4 ms, worst 11.8 ms |
 | dungeon atlas, drag median | — | 5.6 ms (unchanged) |
 
-Compiling is memoised on the identity of the object the callback returns, so a provider handing back one
+Compiling is memoized on the identity of the object the callback returns, so a provider handing back one
 of a few shared objects — as a repeating atlas does, one per tile class — recompiles nothing however
 many tiles miss the cache at once. Compiling 160 tiles from scratch costs 125 ms against a 16 ms median,
 so the memo is what keeps a burst of misses affordable. A provider that builds a fresh object per call
 is unaffected and pays the compile.
+
+
+## 2026-08-08 — Naming tiles: replacing BigInt with doubles where they fit
+
+**Machine load.** Idle throughout. One-minute load average 0.23-0.52 on 16 cores before and after every
+run below; GPU (RTX 3060) 31 % with 66 MiB used, which is the desktop and nothing else. Re-checked
+after each measurement.
+
+Issue #4's last box asked specifically whether BigInt could be replaced by ordinary integers "if all
+values are within some specified thresholds". The answer is yes, worth about **2.4x on tile naming**,
+and the threshold is not a distance in tiles — it is a bound checked per operation.
+
+### What was measured first
+
+| measurement | result |
+|---|---|
+| coefficient growth, `{8,3}`, walking outward | ~**2 bits per tile step**; past 2^24 by step 12, past 2^48 by step 24 |
+| `ExactRing.mul`, N = 24 (deg 8), 20-bit coefficients | 840-1100 ns |
+| same, 40-bit | 3 840 ns |
+| same, 400-bit | 10 470 ns |
+| same, 2000-bit | 99 100 ns |
+| the identical algorithm over doubles, small coefficients | **342 ns** |
+| `BigInt(number)` / `Number(bigint)` / bigint mul / number mul | 2.9 / 8.1 / 4.5 / **1.0** ns |
+
+So the ceiling was a factor of about three, and it applies only while coefficients fit the
+exactly-integral range of a double.
+
+### The negative result, recorded so it is not re-attempted
+
+Micro-optimizing the **existing** BigInt representation buys **nothing**. A version with the scratch
+buffer hoisted out of `mul` (removing three allocations per multiply) and the reduction loop skipping
+the minimal polynomial's zero coefficients measured **1 188 ns against 1 100** — i.e. no faster, and
+inside the noise. Allocation is not the cost here; BigInt operation cost is, and it is 4.5 ns against
+a double's 1.0 ns however the loop is arranged.
+
+### What was done
+
+Two coefficient representations inside `ExactRing`, small (Number) until an operation would leave the
+exactly-integral range and BigInt permanently thereafter. See `notes/math-audit.md` for why each step
+is exact and how it is verified; the short version is that the invariant is "no stored coefficient
+exceeds 2^52", which leaves a factor of two of headroom, so every bail-out inspects a value that has
+not yet rounded.
+
+### Naming, node, `npm run bench` (which prints the load average and refuses to report when busy)
+
+| tiling | tiles named | before | after | |
+|---|---|---|---|---|
+| `{8,3}` m=4 | 609 | 49.5 ms | **19.6 ms** | 2.5x |
+| `{7,3}` m=7 | 617 | 74.4 ms | **28.3 ms** | 2.6x |
+| `{3,7}` m=3 | 742 | 27.9 ms | **12.1 ms** | 2.3x |
+| `{12,3}` m=12 | 865 | 99.6 ms | **42.2 ms** | 2.4x |
+| `{8,3}` tiling construction | — | 32.8 ms | **15.5 ms** | 2.1x |
+
+Ring-multiply counts are **identical** before and after in every row (150,399 / 321,147 / 127,359 /
+434,160), which is the check that this is the same algorithm and not a different one.
+
+### In the browser: `docs/escher.html`, Chrome, 620 px, fresh page each time
+
+Building a fresh `{8,3}` m=4 tiling and rendering the first frame, three runs:
+
+| | before | after |
+|---|---|---|
+| first frame (names every visible tile) | 101-125 ms | **46-59 ms** |
+| second frame, same view | 8.5-9.8 ms | 7.1-9.2 ms |
+
+A 200-frame pan across new ground, driven through `getCamera`/`setCamera`, counting ring multiplies
+per frame so the two kinds of frame can be separated:
+
+| | before | after |
+|---|---|---|
+| frames doing **zero** ring work | 180 / 200 | 180 / 200 |
+| median of those | 7.8 ms | 7.9 ms |
+| median frame that names tiles | **42.3 ms** | **19.3 ms** |
+| worst frame that names tiles | **58.3 ms** | **28.7 ms** |
+
+Total ring multiplies over the pan was 2,907,216 in **both** runs, and the 180/20 split is the same, so
+the two runs did identical work and the comparison is of arithmetic speed alone. The steady state is
+untouched, as it must be: it does no exact arithmetic at all.
+
+The user-visible effect is on the two moments that were never smooth — the first frame, and the stutter
+when a pan reaches ground never walked before. Both are now about half what they were.

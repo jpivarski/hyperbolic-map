@@ -6,12 +6,12 @@
 //
 // A tile's frame and its id are functions of the TILE: the frame is the lexicographically least
 // element of the coset F.C_m, computed exactly in the Coxeter representation over Z[mu], and the id is
-// that frame's tile centre. Neither depends on the route the walk took, so tile art may be fully
+// that frame's tile center. Neither depends on the route the walk took, so tile art may be fully
 // asymmetric and may depend on its own id.
 //
 // That is a claim about something invisible when the picture is standing still, and it is only
 // falsifiable while SCROLLING. So the motifs are built to make any frame rotation or any renaming of a
-// tile as loud as possible: one asymmetric stroke, one colour per id, and nothing symmetric to hide
+// tile as loud as possible: one asymmetric stroke, one color per id, and nothing symmetric to hide
 // behind.
 //
 // ---------------------------------------------------------------------------------------------
@@ -20,10 +20,10 @@
 //
 //   sym     An asymmetric hook repeated under C_m. Reveals position, orientation and handedness, so a
 //           mirrored or misplaced tile is obvious, while a 2*pi/m rotation is invisible -- which makes
-//           it the motif that CANNOT detect a frame rotation, and so the control. Coloured by tile
+//           it the motif that CANNOT detect a frame rotation, and so the control. Colored by tile
 //           class.
 //
-//   asym    The same hook drawn ONCE, coloured by hash(id). Nothing hides a frame rotation or a
+//   asym    The same hook drawn ONCE, colored by hash(id). Nothing hides a frame rotation or a
 //           renamed tile: this is the acceptance test. Scroll with it selected and nothing may change
 //           discontinuously.
 //
@@ -60,12 +60,12 @@ export function makeTiling(key) {
   return spec.binary ? new H.BinaryTiling() : new H.RegularTiling(spec);
 }
 
-// A stable, well-spread colour from a string. Neighbouring ids differ in only part of their text, so
-// the hash must mix hard or adjacent tiles come out nearly the same colour.
+// A stable, well-spread color from a string. Neighboring ids differ in only part of their text, so
+// the hash must mix hard or adjacent tiles come out nearly the same color.
 //
-// Keying a colour on the id is meaningful precisely because the id is canonical: the same tile gets
-// the same colour from every direction the camera approaches it.
-export function colourFor(addressString) {
+// Keying a color on the id is meaningful precisely because the id is canonical: the same tile gets
+// the same color from every direction the camera approaches it.
+export function colorFor(addressString) {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < addressString.length; i++) {
     h ^= addressString.charCodeAt(i);
@@ -80,12 +80,12 @@ export function colourFor(addressString) {
   return `hsl(${hue} ${sat}% ${light}%)`;
 }
 
-// One hue per tile CLASS. Adjacent tiles always differ, so the tiling reads as a proper colouring
+// One hue per tile CLASS. Adjacent tiles always differ, so the tiling reads as a proper coloring
 // rather than as noise -- which is what makes this the informative default, with the id hash reserved
 // for the case where every tile should look different.
 const CLASS_HUES = [210, 25, 140, 300, 60, 180];
 
-export function colourForClass(classIndex, classCount) {
+function colorForClass(classIndex, classCount) {
   if (classCount <= 1) return "hsl(210 58% 47%)";
   const hue = CLASS_HUES[classIndex % CLASS_HUES.length];
   return `hsl(${hue} ${58 + ((classIndex * 7) % 18)}% ${44 + ((classIndex * 5) % 14)}%)`;
@@ -98,7 +98,7 @@ function strokeGeometry(tiling, spec) {
   const H = window.HyperbolicMap;
   if (spec.binary) {
     // In the cell's own half-plane box: up the middle, then a hook to one side. Asymmetric in x, so a
-    // mirrored frame is visible. No symmetry constraint here -- the binary stabiliser is trivial.
+    // mirrored frame is visible. No symmetry constraint here -- the binary stabilizer is trivial.
     const hw = H.BINARY_LOCAL_HALF_WIDTH;
     const pts = [
       [0, 1.02 / Math.SQRT2],
@@ -108,7 +108,7 @@ function strokeGeometry(tiling, spec) {
     ];
     return pts.map(([hx, hy]) => H.halfPlaneToLocal(hx, hy, [0, 0]));
   }
-  // Regular: centre -> edge-0 midpoint (at the inradius, bearing 0), then a hook turning +90 degrees.
+  // Regular: center -> edge-0 midpoint (at the inradius, bearing 0), then a hook turning +90 degrees.
   const psi = tiling.metrics.inradius;
   const out = [];
   const along = (frac) => Math.sinh((psi * frac) / 2);
@@ -122,7 +122,7 @@ function strokeGeometry(tiling, spec) {
   return out;
 }
 
-// Lighten (t > 0) or darken (t < 0) an hsl() colour, keeping the hue so the tile class stays readable.
+// Lighten (t > 0) or darken (t < 0) an hsl() color, keeping the hue so the tile class stays readable.
 function shade(css, t) {
   const m = /hsl\((\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%\)/.exec(css);
   if (!m) return css;
@@ -145,7 +145,7 @@ function binaryCellOutline(b) {
   return points;
 }
 
-// Rotate tile-local coordinates about the tile centre. In local ("companion") coordinates that is an
+// Rotate tile-local coordinates about the tile center. In local ("companion") coordinates that is an
 // ordinary Euclidean rotation, which is both exact and exactly what the library's symmetry check does --
 // so art built this way passes that check to machine precision rather than approximately.
 function rotateLocal(points, angle) {
@@ -196,29 +196,29 @@ export function motifFor(tiling, spec, address, opts) {
   const motif = opts.motif;
   const drawables = [];
 
-  // Colour, in three flavours:
+  // Color, in three flavors:
   //
   //   uniform     every tile the same. Needed by the translation-invariance check, which asks whether
   //               the picture 2000 tiles out is byte-identical to the picture at the origin. Class
-  //               colours legitimately fail that: a 3-colouring is invariant under the class-preserving
-  //               subgroup, not under every translation, so moving one tile shifts the colours.
+  //               colors legitimately fail that: a 3-coloring is invariant under the class-preserving
+  //               subgroup, not under every translation, so moving one tile shifts the colors.
   //   class       one hue per tile class (the page default, because it is informative).
-  //   hashColour  hash of the tile id, so every tile is its own colour. The sharpest test that ids are
-  //               canonical: a tile renamed by the walk would change colour under the cursor.
-  const colour = opts.uniform
+  //   hashColor  hash of the tile id, so every tile is its own color. The sharpest test that ids are
+  //               canonical: a tile renamed by the walk would change color under the cursor.
+  const color = opts.uniform
     ? "#1a5fb4"
-    : opts.hashColour
-      ? colourFor(tiling.addressToString(address))
-      : colourForClass(tiling.tileClass(address), tiling.classModulus || 1);
+    : opts.hashColor
+      ? colorFor(tiling.addressToString(address))
+      : colorForClass(tiling.tileClass(address), tiling.classModulus || 1);
 
-  const m = spec.binary ? 1 : tiling.stabiliserOrder || tiling.m || tiling.p;
+  const m = spec.binary ? 1 : tiling.stabilizerOrder || tiling.m || tiling.p;
 
   if (motif === "art") {
     const b = tiling.boundaryLocal();
     const base = b.kind === "binary-cell" ? binaryCellOutline(b) : b.points.map((p) => [p[0], p[1]]);
-    drawables.push({ type: "path", points: base, closed: true, fill: colour, stroke: "none" });
+    drawables.push({ type: "path", points: base, closed: true, fill: color, stroke: "none" });
     if (spec.binary) {
-      // Trivial stabiliser: no constraint at all, so the blade is drawn once and may be as asymmetric
+      // Trivial stabilizer: no constraint at all, so the blade is drawn once and may be as asymmetric
       // as it likes. This is exactly why the binary tiling was always the one that scrolled cleanly.
       const H2 = window.HyperbolicMap;
       const hw = H2.BINARY_LOCAL_HALF_WIDTH;
@@ -227,15 +227,15 @@ export function motifFor(tiling, spec, address, opts) {
         [hw * 0.62, 1.24 / Math.SQRT2], [hw * 0.05, 1.33 / Math.SQRT2],
         [-hw * 0.30, 1.20 / Math.SQRT2],
       ].map(([hx, hy]) => H2.halfPlaneToLocal(hx, hy, [0, 0]));
-      drawables.push({ type: "path", points: blade, closed: true, fill: shade(colour, -0.42), stroke: "none" });
+      drawables.push({ type: "path", points: blade, closed: true, fill: shade(color, -0.42), stroke: "none" });
       const dot = H2.halfPlaneToLocal(hw * 0.42, 1.12 / Math.SQRT2, [0, 0]);
-      drawables.push({ type: "marker", at: dot, radius: 3.2, fill: shade(colour, 0.55) });
+      drawables.push({ type: "marker", at: dot, radius: 3.2, fill: shade(color, 0.55) });
       return drawables;
     }
     const blade = pinwheelWedge(tiling, m);
     const dot = wedgeDot(tiling, m);
-    const dark = shade(colour, -0.42);
-    const light = shade(colour, 0.55);
+    const dark = shade(color, -0.42);
+    const light = shade(color, 0.55);
     for (let k = 0; k < m; k++) {
       const a = (2 * Math.PI * k) / m;
       drawables.push({ type: "path", points: rotateLocal(blade, a), closed: true, fill: dark, stroke: "none" });
@@ -249,7 +249,7 @@ export function motifFor(tiling, spec, address, opts) {
 
   if (motif === "fill" || motif === "over") {
     // `over` pushes every boundary point outward along its own bearing, so the art spills into the
-    // neighbours by a fixed hyperbolic margin and clipping has something to do.
+    // neighbors by a fixed hyperbolic margin and clipping has something to do.
     const grow = motif === "over" ? 1.45 : 1;
     const b = tiling.boundaryLocal();
     let points;
@@ -268,12 +268,12 @@ export function motifFor(tiling, spec, address, opts) {
       const r = Math.hypot(x, y);
       if (r === 0) return [x, y];
       // Scale the hyperbolic radius, not the local coordinate, so the margin is geometric rather than
-      // shrinking with distance from the tile centre.
+      // shrinking with distance from the tile center.
       const d = 2 * Math.asinh(r);
       const rr = Math.sinh((d * grow) / 2);
       return [(x / r) * rr, (y / r) * rr];
     });
-    drawables.push({ type: "path", points: scaled, closed: true, fill: colour, stroke: "none" });
+    drawables.push({ type: "path", points: scaled, closed: true, fill: color, stroke: "none" });
     return drawables;
   }
 
@@ -294,14 +294,14 @@ export function motifFor(tiling, spec, address, opts) {
       // shape is exactly what was asked for.
       points: pts.map((p, i) => (i === pts.length - 1 ? [p[0], p[1]] : [p[0], p[1], "L"])),
       closed: false,
-      stroke: colour,
+      stroke: color,
       fill: "none",
       lineWidth: 2.5,
       lineCap: "round",
     });
   }
-  // A dot at the tile centre, so the tile's own position is unambiguous even when the stroke is short.
-  // The centre is a fixed point of every rotation, so this is invariant for free.
-  drawables.push({ type: "marker", at: [0, 0], radius: 2.6, fill: colour });
+  // A dot at the tile center, so the tile's own position is unambiguous even when the stroke is short.
+  // The center is a fixed point of every rotation, so this is invariant for free.
+  drawables.push({ type: "marker", at: [0, 0], radius: 2.6, fill: color });
   return drawables;
 }

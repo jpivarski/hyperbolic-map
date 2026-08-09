@@ -84,7 +84,7 @@ export function pointerEvent(overrides) {
 }
 
 // A host object for PointerInput that maps client coordinates to disk coordinates the same way the
-// real Surface does: origin at the centre, y up, scaled by the disk radius.
+// real Surface does: origin at the center, y up, scaled by the disk radius.
 export function makeHost(element, window, doc, size = 400) {
   return {
     element,

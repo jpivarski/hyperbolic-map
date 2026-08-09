@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tiling diagnostics — hyperbolic-map-widget</title>
+<title>Tiling diagnostics — hyperbolic-map</title>
 <style>
   body { font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 1000px; padding: 16px; }
   h1 { font-size: 1.3rem; }
@@ -28,14 +28,14 @@
 
 <p class="rule"><b>What this page demonstrates.</b> Every tile has a canonical <b>id</b> and a canonical
 <b>frame</b>, both functions of the tile itself rather than of the route the camera took to reach it.
-The frame is the lexicographically least element of the tile&rsquo;s coset under its stabiliser
+The frame is the lexicographically least element of the tile&rsquo;s coset under its stabilizer
 C<sub>m</sub> (m&nbsp;=&nbsp;<code>frameSymmetry</code>), computed in exact integer arithmetic, and the
-id is that frame&rsquo;s tile centre. So <b>tile art may be fully asymmetric and may depend on the tile
+id is that frame&rsquo;s tile center. So <b>tile art may be fully asymmetric and may depend on the tile
 id</b>, at any distance, and it will not move when you scroll.</p>
 
-<p class="rule"><b>How to check it by eye.</b> Select <b>asymmetric</b> and <b>colour by id hash</b>,
-then drag. Every tile then shows a single hooked stroke and a colour of its own, so nothing can hide a
-tile that has been turned about its own centre or handed a different name. Nothing may change
+<p class="rule"><b>How to check it by eye.</b> Select <b>asymmetric</b> and <b>color by id hash</b>,
+then drag. Every tile then shows a single hooked stroke and a color of its own, so nothing can hide a
+tile that has been turned about its own center or handed a different name. Nothing may change
 discontinuously as the camera crosses a tile boundary. The self-checks below measure the same thing:
 check&nbsp;9 isolates one boundary crossing to a hundredth of a pixel, and check&nbsp;10 scrolls a full
 tile spacing in a hundred steps.</p>
@@ -73,7 +73,7 @@ underneath: it must stay near 1 forever.</p>
       <label><input type="radio" name="motif" value="asym"> <b>asymmetric</b>: the acceptance test &mdash; must not move as you scroll</label>
       <label><input type="radio" name="motif" value="fill"> flat fill (shows tile ownership)</label>
       <label><input type="radio" name="motif" value="over"> overflowing fill (tests clipping)</label>
-      <label><input type="checkbox" id="hashColour"> colour by tile-id hash (every tile its own colour)</label>
+      <label><input type="checkbox" id="hashColor"> color by tile-id hash (every tile its own color)</label>
       <label><input type="checkbox" id="clip" checked> clip each tile to its own boundary</label>
       <label><input type="checkbox" id="outline"> outline tile boundaries</label>
     </fieldset>
@@ -98,7 +98,7 @@ underneath: it must stay near 1 forever.</p>
 <script src="./lib/hyperbolic-map.iife.js"></script>
 <script type="module">
 import { errorBox } from "./demo/common.js";
-import { makeTiling, motifFor, colourFor, DIAG_TILINGS } from "./demo/diagnostics.js";
+import { makeTiling, motifFor, colorFor, DIAG_TILINGS } from "./demo/diagnostics.js";
 
 try {
   const H = window.HyperbolicMap;
@@ -109,7 +109,7 @@ try {
   function options() {
     return {
       motif: document.querySelector('input[name="motif"]:checked').value,
-      hashColour: document.getElementById("hashColour").checked,
+      hashColor: document.getElementById("hashColor").checked,
       clip: document.getElementById("clip").checked,
       outline: document.getElementById("outline").checked,
     };
@@ -147,7 +147,7 @@ try {
         },
         clip: o.clip ? "always" : "never",
         // The callback returns DATA in tile-local coordinates and never does geometry. It is handed
-        // the tile's ADDRESS, which is what the colour hash keys off.
+        // the tile's ADDRESS, which is what the color hash keys off.
         tileData: (tile) => ({
           version: 1,
           coordinates: "local",
@@ -227,7 +227,7 @@ try {
     let s = 2246 + n;
     const rand = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
     for (let i = 0; i < n; i++) {
-      const nbrs = tiling.neighbours(address);
+      const nbrs = tiling.neighbors(address);
       address = nbrs[Math.floor(rand() * nbrs.length)].address;
     }
     viewport.panToTile(address, [0, 0]);
@@ -235,7 +235,7 @@ try {
   }
 
   document.getElementById("tiling").addEventListener("change", () => build(false));
-  for (const id of ["hashColour", "clip", "outline"]) {
+  for (const id of ["hashColor", "clip", "outline"]) {
     document.getElementById(id).addEventListener("change", () => build(true));
   }
   for (const r of document.querySelectorAll('input[name="motif"]')) {

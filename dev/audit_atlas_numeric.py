@@ -271,9 +271,9 @@ for spec in data["specs"]:
     for rec in spec["walks"]:
         worst_rel = mpf(0)
         worst_screen = mpf(0)
-        # The oracle needs each tile's RELATIVE path. neighbourhood() does not return it, so recover it
+        # The oracle needs each tile's RELATIVE path. neighborhood() does not return it, so recover it
         # from the emitted relative matrix by trusting only its structure: walk every word up to a
-        # small depth and match. Cheap because the neighbourhood is shallow.
+        # small depth and match. Cheap because the neighborhood is shallow.
         depth_limit = 3
         lookup = {}
 
@@ -374,7 +374,7 @@ for spec in data["specs"]:
               for g in gens]
     for rec in spec["walks"]:
         gp = rec["genPath"]
-        # Old route, in float64: the camera's global frame, and a neighbour's, then the quotient.
+        # Old route, in float64: the camera's global frame, and a neighbor's, then the quotient.
         Fc = (complex(1, 0), complex(0, 0))
         for g in gp:
             Fc = f64_mul(Fc, gens64[g])
@@ -391,7 +391,7 @@ for spec in data["specs"]:
         for gi in range(len(gens64)):
             Fk = f64_mul(Fc, gens64[gi])
             rel_old = f64_mul(f64_inv(Fc), Fk)
-            # The oracle's answer for the same neighbour is just the generator.
+            # The oracle's answer for the same neighbor is just the generator.
             want = gens[gi]
             if not finite(rel_old):
                 worst_old = float("inf")

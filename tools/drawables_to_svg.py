@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert hyperbolic-map-widget drawables into an SVG you can edit in Inkscape.
+"""Convert hyperbolic-map drawables into an SVG you can edit in Inkscape.
 
     python3 drawables_to_svg.py FROM-FILE TO-FILE JSON-PATH [--coords ...] [--guidelines ...]
 
@@ -24,7 +24,7 @@ import xml.etree.ElementTree as ET
 # --------------------------------------------------------------------------------------------------
 # KEEP IN SYNC.  `resolve_json_path` below is duplicated VERBATIM in drawables_to_svg.py and
 # svg_to_drawables.py.  The two scripts are deliberately standalone -- there is no shared module to
-# install -- so the only defence against the copies drifting apart is that they are, and remain,
+# install -- so the only defense against the copies drifting apart is that they are, and remain,
 # character-for-character identical.  If you change one, change the other.
 # --------------------------------------------------------------------------------------------------
 
@@ -90,11 +90,11 @@ def resolve_json_path(document, json_path):
 # End of the shared region.
 # --------------------------------------------------------------------------------------------------
 
-NAMESPACE = "https://github.com/jpivarski/hyperbolic-map-widget"
+NAMESPACE = "https://github.com/jpivarski/hyperbolic-map"
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
-GUIDELINES_CLASS = "hyperbolic-map-widget-guidelines"
-DRAWABLES_CLASS = "hyperbolic-map-widget-drawables"
+GUIDELINES_CLASS = "hyperbolic-map-guidelines"
+DRAWABLES_CLASS = "hyperbolic-map-drawables"
 
 # The library's own defaults, from DEFAULT_STYLE in src/data/drawable.js.  A style attribute is
 # written into the SVG whenever it matters for display, but `svg_to_drawables.py` only writes one
@@ -128,13 +128,13 @@ NOMINAL_VIEWER_SCALE = 300.0
 SAMPLES_PER_TILE_EDGE = 48
 SAMPLES_PER_R_STROKE = 16
 
-GREY_BASE = "#bbbbbb"
-GREY_NEIGHBOUR = "#dddddd"
+GRAY_BASE = "#bbbbbb"
+GRAY_NEIGHBOR = "#dddddd"
 
 
 # --------------------------------------------------------------------------------------------------
 # Coordinates.  Ported from src/core/coords.js and src/core/isom.js; the half-plane pair are the
-# CORRECTED forms, whose comments there explain what the cancelling versions broke.
+# CORRECTED forms, whose comments there explain what the canceling versions broke.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -278,23 +278,23 @@ def geodesic_polyline_disk(points, segments):
 # nothing here has to be kept in sync with anything.
 # --------------------------------------------------------------------------------------------------
 
-# A capital R as thin polylines, in a normalised box: u across, v up, both roughly 0..1.  Its job is
-# to show the ORIENTATION each neighbouring tile is placed in, which needs a glyph that is neither
+# A capital R as thin polylines, in a normalized box: u across, v up, both roughly 0..1.  Its job is
+# to show the ORIENTATION each neighboring tile is placed in, which needs a glyph that is neither
 # rotationally symmetric nor mirror-symmetric.
 R_STROKES = [
     [(0.0, 0.0), (0.0, 1.0)],
     [(0.0, 1.0), (0.55, 1.0), (0.75, 0.87), (0.75, 0.63), (0.55, 0.5), (0.0, 0.5)],
     [(0.3, 0.5), (0.78, 0.0)],
 ]
-R_CENTRE_U = 0.39
+R_CENTER_U = 0.39
 
 
 def letter_r_disk(height_local):
-    """The letter R, centred on the tile centre, as geodesic-sampled polylines in disk coordinates."""
+    """The letter R, centered on the tile center, as geodesic-sampled polylines in disk coordinates."""
     out = []
     for stroke in R_STROKES:
         corners = [
-            local_to_disk((u - R_CENTRE_U) * height_local, (v - 0.5) * height_local)
+            local_to_disk((u - R_CENTER_U) * height_local, (v - 0.5) * height_local)
             for u, v in stroke
         ]
         out.append(geodesic_polyline_disk(corners, SAMPLES_PER_R_STROKE))
@@ -311,7 +311,7 @@ def regular_metrics(p, q):
 
 
 def regular_tiling_guides(p, q, frame_symmetry):
-    """Base tile border, one ring of neighbours, and an R showing each neighbour's orientation."""
+    """Base tile border, one ring of neighbors, and an R showing each neighbor's orientation."""
     m = frame_symmetry or p
     if p % m != 0:
         raise ValueError("frameSymmetry {} must divide p = {}".format(m, p))
@@ -332,7 +332,7 @@ def regular_tiling_guides(p, q, frame_symmetry):
             for k in range(p)
         ]
     else:
-        # The half-turn is outside the subgroup whose stabiliser is C_m, so rotate about every m-th
+        # The half-turn is outside the subgroup whose stabilizer is C_m, so rotate about every m-th
         # vertex instead.  This is the {8,3} frameSymmetry=4 case that Circle Limit III needs.
         generators = []
         for k in range(0, p, p // m):
@@ -347,18 +347,18 @@ def regular_tiling_guides(p, q, frame_symmetry):
     border = geodesic_polyline_disk(vertices + [vertices[0]], SAMPLES_PER_TILE_EDGE)
     letter = letter_r_disk(1.2 * math.sinh(psi / 2.0))
 
-    curves = [{"disk": border, "closed": True, "stroke": GREY_BASE}]
+    curves = [{"disk": border, "closed": True, "stroke": GRAY_BASE}]
     seen = []
     for g in generators:
-        centre = g.apply_to_disk(0.0, 0.0)
-        if any(math.hypot(centre[0] - sx, centre[1] - sy) < 1e-9 for sx, sy in seen):
+        center = g.apply_to_disk(0.0, 0.0)
+        if any(math.hypot(center[0] - sx, center[1] - sy) < 1e-9 for sx, sy in seen):
             continue
-        seen.append(centre)
+        seen.append(center)
         curves.append(
             {
                 "disk": [g.apply_to_disk(*z) for z in border],
                 "closed": True,
-                "stroke": GREY_NEIGHBOUR,
+                "stroke": GRAY_NEIGHBOR,
             }
         )
         for stroke in letter:
@@ -366,7 +366,7 @@ def regular_tiling_guides(p, q, frame_symmetry):
                 {
                     "disk": [g.apply_to_disk(*z) for z in stroke],
                     "closed": False,
-                    "stroke": GREY_NEIGHBOUR,
+                    "stroke": GRAY_NEIGHBOR,
                 }
             )
     return curves, len(seen)
@@ -413,11 +413,11 @@ def binary_cell_border_disk():
 
 
 def binary_tiling_guides():
-    """Base cell plus its neighbours.
+    """Base cell plus its neighbors.
 
     A prototype cell does not know its own longitude, so it does not know which of the two parent
     steps applies -- the even one when it is a left child, the odd one when it is a right child.  Both
-    are drawn; only one of them is a real neighbour of any given cell.
+    are drawn; only one of them is a real neighbor of any given cell.
     """
     root2 = math.sqrt(2.0)
     generators = [
@@ -429,13 +429,13 @@ def binary_tiling_guides():
         binary_scale_shift(2.0, -0.5 / root2),  # parent, odd longitude
     ]
     border = binary_cell_border_disk()
-    curves = [{"disk": border, "closed": True, "stroke": GREY_BASE}]
+    curves = [{"disk": border, "closed": True, "stroke": GRAY_BASE}]
     for g in generators:
         curves.append(
             {
                 "disk": [g.apply_to_disk(*z) for z in border],
                 "closed": True,
-                "stroke": GREY_NEIGHBOUR,
+                "stroke": GRAY_NEIGHBOR,
             }
         )
     return curves, len(generators)
@@ -460,7 +460,7 @@ def build_guidelines(spec):
         if args:
             raise ValueError("BinaryTiling() takes no arguments, got {!r}".format(spec))
         curves, count = binary_tiling_guides()
-        return curves, "BinaryTiling(), {} neighbouring cells".format(count)
+        return curves, "BinaryTiling(), {} neighboring cells".format(count)
 
     if not 2 <= len(args) <= 3:
         raise ValueError(
@@ -473,7 +473,7 @@ def build_guidelines(spec):
     p, q = numbers[0], numbers[1]
     m = numbers[2] if len(numbers) == 3 else p
     curves, count = regular_tiling_guides(p, q, m)
-    return curves, "RegularTiling({}, {}, {}), {} neighbouring tiles".format(p, q, m, count)
+    return curves, "RegularTiling({}, {}, {}), {} neighboring tiles".format(p, q, m, count)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -722,7 +722,7 @@ def indent(element, level=0):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Convert hyperbolic-map-widget drawables into an SVG for editing in Inkscape.",
+        description="Convert hyperbolic-map drawables into an SVG for editing in Inkscape.",
         epilog="The coordinate system is recorded in the SVG, so svg_to_drawables.py can invert it.",
     )
     parser.add_argument("from_file", metavar="from-file", help="the JSON document to read")
@@ -743,7 +743,7 @@ def main(argv=None):
         "--guidelines",
         metavar="SPEC",
         default=None,
-        help='light grey tile borders beneath the art: "BinaryTiling()" or '
+        help='light gray tile borders beneath the art: "BinaryTiling()" or '
         '"RegularTiling(p, q, frameSymmetry)".  Omit for none.',
     )
     args = parser.parse_args(argv)
@@ -807,7 +807,7 @@ def main(argv=None):
             {
                 "target": [(min(axis_xs), 0.0), (max(axis_xs), 0.0)],
                 "closed": False,
-                "stroke": GREY_NEIGHBOUR,
+                "stroke": GRAY_NEIGHBOR,
             }
         )
         xs.extend((min(axis_xs), max(axis_xs)))
@@ -828,7 +828,7 @@ def main(argv=None):
     )
 
     params = {
-        "generator": "hyperbolic-map-widget tools/drawables_to_svg.py",
+        "generator": "hyperbolic-map tools/drawables_to_svg.py",
         "version": 1,
         "coords": args.coords,
         "scale": layout.scale,
@@ -851,16 +851,16 @@ def main(argv=None):
             root, "g", {"class": GUIDELINES_CLASS, "fill": "none", "stroke-width": "1.5"}
         )
         if boundary_circle:
-            centre = layout.to_svg(0.0, 0.0)
+            center = layout.to_svg(0.0, 0.0)
             ET.SubElement(
                 group,
                 "circle",
                 {
-                    "cx": fmt(centre[0]),
-                    "cy": fmt(centre[1]),
+                    "cx": fmt(center[0]),
+                    "cy": fmt(center[1]),
                     "r": fmt(layout.scale),
                     "fill": "none",
-                    "stroke": GREY_NEIGHBOUR,
+                    "stroke": GRAY_NEIGHBOR,
                 },
             )
         for curve in guidelines:

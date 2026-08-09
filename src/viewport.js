@@ -86,11 +86,11 @@ export const DEFAULT_OPTIONS = {
 };
 
 // Exported for tests: option validation is pure, so it can be checked without a DOM.
-export function normaliseOptionsForTesting(userOptions) {
-  return normaliseOptions(userOptions);
+export function normalizeOptionsForTesting(userOptions) {
+  return normalizeOptions(userOptions);
 }
 
-function normaliseOptions(userOptions) {
+function normalizeOptions(userOptions) {
   const opts = Object.assign({}, DEFAULT_OPTIONS);
   const unknown = [];
   for (const key of Object.keys(userOptions || {})) {
@@ -135,7 +135,7 @@ function normaliseOptions(userOptions) {
 
 export class HyperbolicViewport {
   constructor(userOptions) {
-    const opts = normaliseOptions(userOptions);
+    const opts = normalizeOptions(userOptions);
     this.options = opts;
 
     this.styleSheet = Object.assign({ default: Object.assign({}, DEFAULT_STYLE) }, opts.styles || {});
@@ -249,7 +249,7 @@ export class HyperbolicViewport {
     });
   }
 
-  // Keep the camera anchored to a tile near the view centre.
+  // Keep the camera anchored to a tile near the view center.
   //
   // This is what bounds the view matrix. `reanchor` returns a RIGHT factor, applied to BOTH the
   // committed and the live matrix: `updatePan` builds the live matrix by left-multiplying the
@@ -301,17 +301,17 @@ export class HyperbolicViewport {
     });
     const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
     this.stats.frameMs = t1 - t0;
-    // How far the view centre has travelled from the data origin, in hyperbolic units. Exposed
+    // How far the view center has traveled from the data origin, in hyperbolic units. Exposed
     // because in SINGLE-PATCH mode it is the one number that predicts precision trouble: a float64
     // SU(1,1) matrix has entries of order cosh(d/2), so by d ~ 37 the entries reach 1e8, |a|^2 reaches
     // 1e16, and one ULP of that exceeds the spacing between adjacent tiles.
     //
     // In ATLAS mode that ceiling does not apply, because no global quantity is ever formed: the
-    // distance travelled is carried by the tile ADDRESS and the matrix stays camera-relative. See
+    // distance traveled is carried by the tile ADDRESS and the matrix stays camera-relative. See
     // docs/MATH.md section 6.
     if (this.atlas) {
       // In atlas mode the view matrix is camera-relative, so its "distance" is a local quantity of
-      // order the visible radius -- not the distance travelled, which is now unbounded and is carried
+      // order the visible radius -- not the distance traveled, which is now unbounded and is carried
       // by the ADDRESS instead. `maxViewEntry` is the number that demonstrates the design: it must
       // stay O(1) however far the camera goes.
       this.stats.anchorAddress = this.atlas.tiling.addressToString(this.atlas.anchor.address);
@@ -329,7 +329,7 @@ export class HyperbolicViewport {
   // Three rules, in one place, because they are one idea: some methods are meaningful in single-patch
   // mode, some only in atlas mode, and the global-coordinate ones stop being meaningful part-way
   // through an atlas session. A fourth guard -- `atlas` cannot be combined with `data` -- is in
-  // normaliseOptions(), because it can be decided before anything is built.
+  // normalizeOptions(), because it can be decided before anything is built.
   //
   // Each one refuses rather than returning a number that is quietly wrong, and each names the method
   // to use instead.
@@ -380,7 +380,7 @@ export class HyperbolicViewport {
   getView() {
     this.assertGlobalCoordinatesUsable("getView");
     return {
-      center: this.view.liveMatrix.centreLocal([0, 0]),
+      center: this.view.liveMatrix.centerLocal([0, 0]),
       zoom: this.view.liveZoom,
       rotation: this.view.liveMatrix.screenRotation(),
       bearing: this.view.north(),
@@ -392,7 +392,7 @@ export class HyperbolicViewport {
   //
   // These are the atlas-aware accessors. They are NEW NAMES on purpose: `getMatrix`/`setMatrix`/
   // `panTo`/`getView` keep exactly the meaning they always had (global coordinates), so no existing
-  // caller silently changes behaviour. Instead those four throw once the camera has left the origin
+  // caller silently changes behavior. Instead those four throw once the camera has left the origin
   // tile, where a global coordinate can no longer be represented -- a loud failure rather than a
   // plausible wrong number.
 
@@ -403,7 +403,7 @@ export class HyperbolicViewport {
       matrix: this.view.liveMatrix.clone(),
       zoom: this.view.liveZoom,
       // Screen quantities, so they mean the same thing in either mode -- and they are the only parts of
-      // getView() that survive in atlas mode, where a global centre does not exist.
+      // getView() that survive in atlas mode, where a global center does not exist.
       rotation: this.view.liveMatrix.screenRotation(),
       bearing: this.view.north(),
       interacting: !!this.view.gesture,
@@ -423,7 +423,7 @@ export class HyperbolicViewport {
     this.invalidate();
   }
 
-  // Put a given TILE-LOCAL point of a given tile at the centre of the view. The atlas-mode equivalent
+  // Put a given TILE-LOCAL point of a given tile at the center of the view. The atlas-mode equivalent
   // of panTo, and the only form that stays meaningful arbitrarily far out.
   panToTile(address, local = [0, 0]) {
     this.requireAtlas("panToTile", "panTo()");
@@ -434,7 +434,7 @@ export class HyperbolicViewport {
     this.invalidate();
   }
 
-  // The view isometry that puts (x, y) at the centre WITHOUT turning the map.
+  // The view isometry that puts (x, y) at the center WITHOUT turning the map.
   //
   // Panning must not rotate. Building the pure translation alone would silently reset the screen
   // rotation to zero, which is invisible on a page that never rotates and jarring on one that does:
@@ -476,7 +476,7 @@ export class HyperbolicViewport {
     this.invalidate();
   }
 
-  // Put the given local point at the centre of the view. GLOBAL local coordinates -- see
+  // Put the given local point at the center of the view. GLOBAL local coordinates -- see
   // assertGlobalCoordinatesUsable; panToTile() is the atlas-mode form.
   panTo(x, y) {
     this.assertGlobalCoordinatesUsable("panTo");

@@ -86,7 +86,7 @@ export function halfPlaneToLocal(px, py, out) {
   const sinhHalf = t / Math.sqrt((1 - t) * (1 + t));
 
   // Direction: the map is z -> i(z - i)/(z + i), so the phase is that of i(z - i)(conj(z) - i)... but
-  // it is clearer, and better conditioned, to form the disk image directly and normalise it.
+  // it is clearer, and better conditioned, to form the disk image directly and normalize it.
   //   (z - i)/(z + i), then multiply by i
   const nr = px;
   const ni = py - 1;

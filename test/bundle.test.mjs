@@ -34,11 +34,27 @@ test("the bundle evaluates in a clean realm", () => {
   assert.equal(typeof H.VERSION, "string");
 });
 
-test("the bundle exposes everything the ESM entry point exports", async () => {
+test("the bundle exposes everything the ESM entry point exports, and nothing else", async () => {
   const H = loadBundle();
   const esm = await import("../src/index.js");
   const missing = Object.keys(esm).filter((k) => !(k in H));
   assert.deepEqual(missing, [], `names missing from the bundle: ${missing.join(", ")}`);
+  // And the other direction, which used to be untested and was untrue: the builder injected VERSION
+  // into the global, so `HyperbolicMap.VERSION` worked while `import { VERSION }` did not. One public
+  // surface, not two.
+  const extra = Object.keys(H).filter((k) => !(k in esm));
+  assert.deepEqual(extra, [], `names on the bundle that the ESM entry does not export: ${extra.join(", ")}`);
+});
+
+test("the version is one number, not two", async () => {
+  // A literal in src/version.js because src/ is loaded directly by browsers, plus whatever npm
+  // publishes. `npm run check` compares them; this pins that both surfaces report it.
+  const { readFileSync } = await import("node:fs");
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const esm = await import("../src/index.js");
+  assert.equal(esm.VERSION, pkg.version, "src/version.js disagrees with package.json");
+  assert.equal(loadBundle().VERSION, pkg.version, "the bundle disagrees with package.json");
+  assert.match(esm.VERSION, /^\d+\.\d+\.\d+/, "not a version number");
 });
 
 test("the bundle computes the same answers as the ESM source", async () => {
@@ -58,7 +74,7 @@ test("the bundle computes the same answers as the ESM source", async () => {
 
 test("the far-field precision fix survives the bundling", () => {
   const H = loadBundle();
-  // Recentring the view on a point puts it at the disk centre. The 2011 polynomial put this
+  // Recentring the view on a point puts it at the disk center. The 2011 polynomial put this
   // particular point on the disk boundary instead; see notes/su11-core.md.
   const x = 0;
   const y = 11711.92;

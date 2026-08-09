@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dungeon Man &mdash; hyperbolic-map-widget</title>
-<link rel="stylesheet" href="demo/style.css">
+<title>Dungeon Man &mdash; hyperbolic-map</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<nav><a href="index.html">&larr; all examples</a></nav>
+<nav><a href="https://github.com/jpivarski/hyperbolic-map">&larr; back to GitHub</a></nav>
 
 <h1>Dungeon Man</h1>
 
@@ -34,7 +34,7 @@
   <li><strong>room numbers</strong> that index every room with a pair of numbers.</li>
 </ol>
 
-<p>See the code in <a href="https://github.com/jpivarski/hyperbolic-map-widget/blob/main/docs/dungeon-man.html">docs/dungeon-man.html</a>.</p>
+<p>See the code in <a href="https://github.com/jpivarski/hyperbolic-map/blob/main/docs/dungeon-man.html">docs/dungeon-man.html</a>.</p>
 
 <h2>What it represents</h2>
 
@@ -70,7 +70,7 @@
 
 <img src="img/neighboring-pixels.svg" style="width: 50%; display: block; margin: 10px auto;">
 
-<p>Although we are viewing models of 2-dimensional curvature in 3 dimensions, we don't need a higher-dimensional space to make sense of it. Intrinsic curvature is defined by how the space is connected, with large-scale observable effects like the shortest path between two points being something other than what you'd expect in Euclidean space, or the sum of angles in a triangle being more or less than 180°, or the area of a circle being more or less than 2π times the radius.</p>
+<p>Although we are viewing models of 2-dimensional curvature in 3 dimensions, we don't need a higher-dimensional space to make sense of it. Intrinsic curvature is defined by how the space is connected, with large-scale observable effects like the shortest path between two points being something other than what you'd expect in Euclidean space, or the sum of angles in a triangle being more or less than 180°, or the circumference of a circle being more or less than 2π times the radius.</p>
 
 <p>The Poincaré disk is one way to project it onto a flat computer screen, like a projection of the spherical Earth onto a map widget, but I prefer to zoom into the individual rooms to see curvature as a matter of connectivity.</p>
 
@@ -85,16 +85,17 @@ try {
 
   // Room-number anchors, on the cell's own vertical axis, in the cell's own local coordinates.
   //
-  // The 2012 art is drawn UPSIDE DOWN in the cell frame -- measured: dungeon.html presents the hero
-  // cell with its local +y axis pointing straight down (bearing 179.87 degrees), which is how that
-  // page comes out the right way up. So this page turns the camera by pi as well, below, and that
-  // makes local -y the SCREEN-UP direction. Hence both numbers below are negative: the labels sit at
-  // the top of the room, and the up-vector points further up.
+  // The 2012 art is drawn UPSIDE DOWN in the cell frame -- measured on the single-patch dungeon page
+  // that this one replaced: it presented the hero cell with its local +y axis pointing straight down
+  // (bearing 179.87 degrees), which is how that page came out the right way up. So this page turns
+  // the camera by pi as well, below, and that makes local -y the SCREEN-UP direction. Hence both
+  // numbers below are negative: the labels sit at the top of the room, and the up-vector points
+  // further up.
   //
   // The labels have to be turned with the camera, or a correctly-oriented dungeon would carry
-  // upside-down room numbers -- which is exactly what dungeon.html does. Only the labels move,
+  // upside-down room numbers -- which is exactly what that page did. Only the labels move,
   // though. The room art must NOT be flipped per cell: the doors deliberately straddle cell
-  // boundaries, so rotating each cell's art about its own centre would misalign every junction. A
+  // boundaries, so rotating each cell's art about its own center would misalign every junction. A
   // camera rotation is rigid and keeps them all joined.
   //
   // `up` is not just an orientation, it is also the SIZE: the renderer takes the glyph height from
@@ -102,9 +103,9 @@ try {
   // and how big it is -- which is what lets it be tucked into the strip above the critters. Measured
   // at zoom 2.2, where the disk radius is 682 px and one local unit is about 682 px: the room spans
   // screen y -89 to +140, the cell spans +-174, and the critters reach up to -53.5 (mr-T), -48.9
-  // (link), then a cluster at -42. A block centred at -78 with a 27 px glyph spans -105 to -51,
+  // (link), then a cluster at -42. A block centered at -78 with a 27 px glyph spans -105 to -51,
   // which clears seven of the nine and touches only mr-T, who turns up in one room in 120.
-  const NUM_Y = -0.115;      // where the two-line block is centred
+  const NUM_Y = -0.115;      // where the two-line block is centered
   const NUM_GLYPH = 0.040;   // length of the up-vector, i.e. the glyph height
   const numAt = [0, NUM_Y];
   const numUp = [0, NUM_Y - NUM_GLYPH];
@@ -141,7 +142,7 @@ try {
   // Number cannot do above 2^53.
   //
   // The avalanche matters here. Adjacent rooms have addresses differing by one in lat or lon, and a
-  // weak hash would put visible streaks and stripes of the same critter along a row of neighbours.
+  // weak hash would put visible streaks and stripes of the same critter along a row of neighbors.
   const M64 = (1n << 64n) - 1n;
   function mix64(z) {
     z = (z + 0x9E3779B97F4A7C15n) & M64;
@@ -177,7 +178,7 @@ try {
     return COMMON[Number((r - RARE_WEIGHT) / COMMON_WEIGHT)];
   }
 
-  // PAINTER'S ORDER, and it is not cosmetic. This art is drawn unclipped and neighbouring cells
+  // PAINTER'S ORDER, and it is not cosmetic. This art is drawn unclipped and neighboring cells
   // overlap on purpose, so which cell paints last decides what you see at every seam. The atlas's own
   // walk order is nearest-first from the CAMERA, which makes that camera-dependent: pan a little and
   // two overlapping cells swap, so a seam that was hidden appears as a stray stroke across a floor
@@ -232,7 +233,7 @@ try {
           const drawables = doc.room.slice();
           const who = critterFor(lat, lon);
           if (who) drawables.push(...doc.critters[who]);
-          // The hero's room is left unlabelled, as in 2012.
+          // The hero's room is left unlabeled, as in 2012.
           if (wantNumbers && !(lat === -1n && lon === 0n)) {
             drawables.push({
               type: "text", text: String(-lat - 1n), at: numAt, up: numUp,
@@ -260,7 +261,7 @@ try {
     const col = parseInt(document.getElementById("col").value, 10) || 0;
     // panToTile takes the ADDRESS, so this works at any depth -- no global frame is ever formed, and
     // there is no coordinate to lose precision. The previous version built the cell's global frame and
-    // panned to its centre, which is exactly the pattern this rewrite removed.
+    // panned to its center, which is exactly the pattern this rewrite removed.
     viewport.panToTile({ lat: BigInt(-row - 1), lon: BigInt(-col) }, [0, 0]);
   });
 } catch (err) {

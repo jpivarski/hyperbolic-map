@@ -1,0 +1,63 @@
+# The checks, on every push and pull request.
+#
+# There is no `npm install` or `npm ci` step anywhere, and that is not an omission: the library has
+# zero runtime dependencies and no devDependencies, so there is no lockfile and nothing to install.
+# `npm run typecheck` fetches tsc with `npx -y` at the moment it needs it.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Not 18, even though that is package.json's `engines` floor: the test script globs with
+        # `node --test "test/**/*.test.mjs"` and the runner's glob support arrived in Node 22, so on
+        # 18 the suite fails for tooling reasons that say nothing about the library. The `engines`
+        # job below tests the floor properly instead.
+        node-version: ["22", "24"]
+    name: test (node ${{ matrix.node-version }})
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # Source style: the constraints that make plain concatenation a valid transform.
+      - run: npm run check
+
+      - run: npm test
+
+      - run: npm run build
+
+      # dist/ and docs/lib/ are COMMITTED artifacts, and `npm publish` ships dist/. Rebuilding and
+      # diffing is what stops a stale bundle reaching npm -- the same failure dev/build.mjs already
+      # carries a long comment about, moved off one laptop and into CI.
+      - name: The committed bundle must match a fresh build
+        run: git diff --exit-code dist/ docs/lib/
+
+      # Once only: the result cannot differ by Node version, and each run fetches tsc.
+      - name: Type-check the declarations
+        if: matrix.node-version == '24'
+        run: npm run typecheck
+
+  engines:
+    # Does the library actually work on the oldest Node it advertises? Nothing tested that before.
+    # dev/smoke.mjs uses no test framework, deliberately: a floor check that depends on the floor's
+    # own tooling is not a floor check.
+    runs-on: ubuntu-latest
+    name: engines floor (node 18)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "18"
+      - run: npm run smoke

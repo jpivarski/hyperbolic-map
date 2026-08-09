@@ -36,7 +36,7 @@
         const gx = Math.min(N - 1, Math.floor((x / w) * N));
         const i = (y * w + x) * 4;
         const g = gy * N + gx;
-        const a = d[i + 3] / 255; // composite on mid-grey so transparent != opaque
+        const a = d[i + 3] / 255; // composite on mid-gray so transparent != opaque
         acc[g * 3] += d[i] * a + 128 * (1 - a);
         acc[g * 3 + 1] += d[i + 1] * a + 128 * (1 - a);
         acc[g * 3 + 2] += d[i + 2] * a + 128 * (1 - a);
@@ -157,7 +157,7 @@
   // then shows a difference that is nothing but load latency.
   //
   // Worth the care: the measured noise floor for two renders of a settled view is exactly 0, so any
-  // nonzero difference is real and must not be spent on harness artefacts.
+  // nonzero difference is real and must not be spent on harness artifacts.
   async function settle(vp, maxRounds) {
     for (let i = 0; i < (maxRounds || 12); i++) {
       if (vp.sources && vp.sources.values) {
@@ -199,7 +199,7 @@
     // and promotes it to the GPU once it looks worth it; the two antialias differently, so the very
     // first gesture after a page load shifts every edge slightly. Measured: a fresh load reports a
     // difference of 11.35 on step 0 and exactly 0 on every step after, and a second sweep over the
-    // same warmed page reports 0 throughout. That is a Chrome artefact, not a library bug, and
+    // same warmed page reports 0 throughout. That is a Chrome artifact, not a library bug, and
     // burning a finding on it every run would bury the real ones.
     await settle(vp);
     // Three round trips, not one: promotion needs a few paints, and a single warm gesture still
@@ -274,7 +274,7 @@
         } else {
           const confirmed = compare(sig, sig3);
           // Beyond the measured float64 ceiling the picture legitimately stops being a function of
-          // the view alone: the tile set is stable under a one-ULP or renormalising perturbation
+          // the view alone: the tile set is stable under a one-ULP or renormalizing perturbation
           // through d = 28, degrades from d = 30 and is thoroughly unstable by d = 34 (see the test
           // in test/tiling.test.mjs). An unbounded random pan reaches d ~ 39 within a couple of
           // minutes, so without this check the sweep reports a stream of impressive-looking findings
@@ -305,9 +305,9 @@
       }
       // A blank disk is only a BUG if re-setting the same view fills it back in. On its own it just
       // means the view has been panned past the edge of a finite dataset -- which is exactly what
-      // happens on escher.html, whose traced art gives up a few layers from the centre, and is the
-      // whole reason escher-atlas.html exists. The first version of this sweep reported twelve
-      // "blank" findings there, all of them the data honestly running out.
+      // happened on the single-patch Escher page, whose traced art gave up a few layers from the
+      // center, and is the whole reason the atlas version replaced it. The first version of this
+      // sweep reported twelve "blank" findings there, all of them the data honestly running out.
       if (ink < baselineInk * 0.15 && inkAfterReset > ink * 2 + 0.05) {
         findings.push({ step, what, kind: "blank-recovered-by-reset", ink, inkAfterReset, stats });
       }

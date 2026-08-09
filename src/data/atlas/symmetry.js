@@ -11,7 +11,7 @@
 // See notes/tilings.md and docs/MATH.md section 6.
 //
 // The check is deliberately on the RAW drawables in tile-local coordinates: a rotation about the tile
-// centre is an ordinary Euclidean rotation there, so this is exact and needs no geometry.
+// center is an ordinary Euclidean rotation there, so this is exact and needs no geometry.
 
 // A style key: two drawables can only be images of one another if they look the same.
 function styleKey(d) {
@@ -34,7 +34,7 @@ function pointsOf(d) {
 }
 
 // The largest distance by which any point of the artwork fails to land on the artwork after rotating by
-// 2*pi/m about the tile centre. Zero means exactly invariant.
+// 2*pi/m about the tile center. Zero means exactly invariant.
 //
 // Matching is per-drawable and style-aware: a rotated shape must map onto a shape of the SAME color and
 // kind. Matching only the union of points would let a green fish land on a blue one and call the picture
@@ -111,7 +111,7 @@ export function tileSymmetryResidual(drawables, m) {
 // An INFINITE residual is a different finding from a large one, and saying "worst mismatch Infinity"
 // on its own sends people looking for a coordinate that blew up. It means the search found no
 // candidate at all: some shape has no counterpart of the same style and the same number of points
-// anywhere near where the rotation sends it. In practice that is a COLOURING that is less symmetric
+// anywhere near where the rotation sends it. In practice that is a COLORING that is less symmetric
 // than the outlines -- four fish rotate onto each other but are painted four different colors, so a
 // green one is asked to land on a blue one -- or a shape hand-drawn a second time with a different
 // number of nodes instead of being rotated.
@@ -123,8 +123,8 @@ export function tileSymmetryMessage(residual, m, tilingName, offender) {
       `point count lies where the rotation sends them`;
   return (
     `hyperbolic-map: this tile's artwork is not invariant under rotation by 360/${m} degrees about the ` +
-    `tile centre -- ${finding}.\n` +
-    `  ${tilingName} has tile stabiliser C_${m}. This is a LINT, not an error: tile frames are canonical, ` +
+    `tile center -- ${finding}.\n` +
+    `  ${tilingName} has tile stabilizer C_${m}. This is a LINT, not an error: tile frames are canonical, ` +
     `so asymmetric art\n` +
     `  is stable as you scroll, and you only asked to be told because this art is meant to be ` +
     `C_${m}-symmetric.\n` +

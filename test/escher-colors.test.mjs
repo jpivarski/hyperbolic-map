@@ -19,14 +19,14 @@ import {
   FISH_ROLE,
   OVERLAPS,
   PHI_G0,
-  PHI_STABILISER,
+  PHI_STABILIZER,
   escherColorSymmetry,
   overlapRoles,
 } from "../docs/demo/escher-colors.js";
 
 const ART = JSON.parse(readFileSync(new URL("../docs/escher-atlas.json", import.meta.url), "utf8"));
 
-// The four fish. Each is drawn as TWO shapes -- one running through the tile centre and one further out
+// The four fish. Each is drawn as TWO shapes -- one running through the tile center and one further out
 // -- so a fish's outline is the union of both, and its angle is where its inner shape sits.
 const QUARTERS = [
   { shapes: [6, 46], role: 0, deg: 63 },
@@ -68,7 +68,7 @@ function fishPatch(tiling, depth) {
   for (const node of seen.values()) {
     const frame = tiling.globalFrameForTesting(node);
     const perm = tiling.colorPermutation(node);
-    const centre = frame.applyToLocal(0, 0, undefined, [0, 0]).slice();
+    const center = frame.applyToLocal(0, 0, undefined, [0, 0]).slice();
     const fish = QUARTERS.map((q) => {
       const points = [];
       for (const s of q.shapes) {
@@ -76,7 +76,7 @@ function fishPatch(tiling, depth) {
       }
       return { points, color: perm[q.role] };
     });
-    out.push({ id: node.id, cx: centre[0], cy: centre[1], fish });
+    out.push({ id: node.id, cx: center[0], cy: center[1], fish });
   }
   return out;
 }
@@ -154,7 +154,7 @@ test("the artwork's fills map onto four roles, two fish per role and two overlap
   // The eyes must never be permuted: they are the same in every fish.
   for (const c of CONSTANT) assert.equal(roles[c], undefined, `${c} must stay constant`);
 
-  // Two shapes per fish (one through the tile centre, one further out), and the four fish pair up on
+  // Two shapes per fish (one through the tile center, one further out), and the four fish pair up on
   // opposite diagonals, so each of roles 0 and 1 is carried by exactly four shapes.
   const perRole = [0, 0, 0, 0];
   for (const d of ART.drawables) if (roles[d.fill] !== undefined) perRole[roles[d.fill]]++;
@@ -166,7 +166,7 @@ test("opposite fish share a color and adjacent ones do not, which is what phi(P)
   const tiling = makeTiling();
   const perm = tiling.colorPermutation(tiling.originAddress());
   assert.deepEqual(perm, [0, 1, 2, 3], "the origin tile is the prototype");
-  // The user's own specification of the centre octagon: yellow on the (63, -118) diagonal, green on
+  // The user's own specification of the center octagon: yellow on the (63, -118) diagonal, green on
   // the (151, -27) one.
   const colorAt = (deg) => PALETTE[perm[QUARTERS.find((q) => q.deg === deg).role]];
   assert.equal(colorAt(63), colorAt(-118), "opposite fish must match");
@@ -175,8 +175,8 @@ test("opposite fish share a color and adjacent ones do not, which is what phi(P)
   assert.equal(colorAt(63), "#ffeeaa", "yellow at top-right and bottom-left");
   assert.equal(colorAt(151), "#afe9af", "green at top-left and bottom-right");
   // phi(P) swaps them, which is the reason an octagon shows two colors and not four.
-  assert.equal(PHI_STABILISER[0], 1);
-  assert.equal(PHI_STABILISER[1], 0);
+  assert.equal(PHI_STABILIZER[0], 1);
+  assert.equal(PHI_STABILIZER[1], 0);
 });
 
 test("three fish meet at every three-fold vertex and no two of them share a color", () => {
@@ -218,10 +218,10 @@ test("Escher's rule narrows the homomorphisms but does not pick one on its own",
     const gens = new Array(8);
     gens[0] = g0;
     gens[1] = inv(g0);
-    for (let g = 0; g < 6; g++) gens[g + 2] = mul(mul(PHI_STABILISER, gens[g]), inv(PHI_STABILISER));
+    for (let g = 0; g < 6; g++) gens[g + 2] = mul(mul(PHI_STABILIZER, gens[g]), inv(PHI_STABILIZER));
     const tiling = new RegularTiling({
       p: 8, q: 3, frameSymmetry: 4,
-      colorSymmetry: { colors: 4, generators: gens, stabiliser: PHI_STABILISER },
+      colorSymmetry: { colors: 4, generators: gens, stabilizer: PHI_STABILIZER },
     });
     const tiles = fishPatch(tiling, 4);
     const ok = originVertices(tiling).every(([vx, vy]) =>
@@ -235,15 +235,15 @@ test("Escher's rule narrows the homomorphisms but does not pick one on its own",
   // own pixels. See the comment on PHI_G0.
 });
 
-test("each overlap piece takes the color its own neighbour paints that fish", () => {
-  // The four greys are not this octagon's fish: they are parts of four neighbours' fish that fall
-  // inside it, and they have to agree with what that neighbour draws or the pattern tears at the seam.
+test("each overlap piece takes the color its own neighbor paints that fish", () => {
+  // The four grays are not this octagon's fish: they are parts of four neighbors' fish that fall
+  // inside it, and they have to agree with what that neighbor draws or the pattern tears at the seam.
   const tiling = makeTiling();
   const origin = tiling.originAddress();
   const roles = overlapRoles(tiling);
   for (const { fill, generator, role } of OVERLAPS) {
-    const neighbour = tiling.extendAddress(origin, generator);
-    assert.equal(roles[fill], tiling.colorPermutation(neighbour)[role]);
+    const neighbor = tiling.extendAddress(origin, generator);
+    assert.equal(roles[fill], tiling.colorPermutation(neighbor)[role]);
   }
   // And in the prototype they come out as the two colors the octagon does NOT itself show.
   //

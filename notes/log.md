@@ -2171,3 +2171,960 @@ The four overlap wedges are hand-drawn approximations of the neighbours' fish ra
 shapes, so the seams do not line up to the pixel. Harmless — each is clipped to its own octagon — but it
 is why the artwork can never satisfy the symmetry lint, and why the lint is off rather than merely
 loosened.
+
+
+## 2026-08-08-e — Release prep 1/6: the two superseded single-patch demo pages are gone
+
+Issue #4, second box. `docs/escher.html` and `docs/dungeon.html` were the 2012-faithful single-patch
+demos. Both have atlas successors that do the same thing without the defect that motivated them, and
+both pages said so in their own prose: escher's traced art "peters out a few layers from the centre",
+the dungeon's single patch "starts to break down" far from the origin. Keeping two pages per subject,
+one of which is the broken one, is not what a first release should ship.
+
+### Removed
+
+| path | why |
+|---|---|
+| `docs/escher.html` | superseded by `escher-atlas.html` |
+| `docs/dungeon.html` | superseded by `dungeon-man.html` |
+| `docs/escher.json` (8.6 MB) | referenced only by `docs/escher.html` |
+| `docs/dungeon.json` (2.1 MB) | referenced only by `docs/dungeon.html` |
+| `docs/demo/dungeon-rooms.js` | imported only by `docs/dungeon.html` |
+| `attachReadout` in `docs/demo/common.js` | called only by those two pages |
+| `.status, .readout` in `docs/demo/style.css` | the only markup using them went with the pages |
+| `statusEl` parameter of `loadDrawables` | both surviving callers passed one argument |
+
+Jim's call to take the orphaned JSON as well as the pages. It is the recovered 2011 artefact and
+`AGENTS.md` says not to try rebuilding it, but it is in git history and nothing in the tree reads it,
+so a fresh clone and the Pages site are ~11 MB lighter for no loss.
+
+`docs/tiling-diagnostics.html` keeps its own `#readout` — that is an id selector in its own `<style>`
+block, not the class that went.
+
+### Repointed rather than deleted
+
+* `docs/index.html` — the gallery is four examples instead of six.
+* `docs/dungeon-man.html` — two comments cited a measurement made *on* `dungeon.html` (the hero cell's
+  local +y pointing straight down, bearing 179.87 degrees). The measurement still stands and still
+  explains why this page turns the camera by pi, so it is attributed to "the single-patch dungeon page
+  that this one replaced" rather than deleted.
+* `bench/sweep.js` — same treatment for the comment explaining why a blank disk is not automatically a
+  bug. It has no page list of its own; it is injected into whatever page is open.
+* `tools/README.md` — the precision table keeps its `escher.json` and `dungeon.json` rows, daggered and
+  footnoted. They are the widest-extent measurements in the set (extent 13 and 11710) and the whole
+  point of the table is the trend from tile-local art to whole-plane data; deleting the two rows that
+  show the failure would leave a table that no longer makes its own argument.
+* `notes/data-extraction.md` — the `visibleTo: 0.75` sentence moved to past tense.
+
+`notes/log.md` keeps every reference it already had. It is the append-only record of what happened,
+and what happened is that those files existed.
+
+### Verified
+
+`npm run check` ok; `npm test` **179/179**, unchanged — no test read either dataset. `clock.html` and
+`jumping-man.html` (the two callers of the edited `loadDrawables`) load and render with a clean
+console apart from the usual `favicon.ico` 404.
+
+
+## 2026-08-08-f — Release prep 2/6: `escher-atlas.html` is now `escher.html`
+
+Issue #4, third box, and the direct consequence of the previous entry: with the single-patch page
+gone there is only one Escher demo, so the `-atlas` disambiguator names nothing. `git mv` plus three
+repointed references — the page's own "See the code in" self-link, the `docs/index.html` gallery
+entry (its title drops from "Infinite Circle Limit III" back to plain "Circle Limit III"), and one
+comment in `test/anchor.test.mjs` that cites the page as the place a blank-octagon bug showed up.
+
+`docs/escher-atlas.json`, `docs/escher-atlas-drawables.svg` and `docs/demo/escher-colors.js` keep
+their names. Those are the *atlas tile* artefacts, not the page, and the name is still accurate: the
+JSON is one tile of a tiling, and `tools/README.md`, `test/escher-colors.test.mjs` and
+`test/anchor.test.mjs` all refer to it by that name.
+
+Verified in the browser: `index.html` lists four examples and every link resolves; `escher.html`
+renders the full four-colour Circle Limit III with a clean console.
+
+
+## 2026-08-08-g — Release prep 3/6: dead code, and how little of it there was
+
+Issue #4, fourth box. Approach was mechanical first, judgement second: scripted passes over `src/`
+and `docs/demo/` for unused imports, unreferenced top-level declarations, never-called class methods,
+never-read option keys, never-read `stats` fields, unused function parameters, and exports with no
+consumer anywhere in the repo. Worth recording the **negative** result, because it is the more useful
+half: of 49 viewport options every one is read, of every `stats` field every one is read, no method is
+unreferenced, and there is not a single commented-out code block or `TODO`/`FIXME`/`HACK` marker in
+the tree. The list below is all of it.
+
+### Genuinely unreachable, deleted
+
+* `EDGE_HOROCYCLE` in `tiling.js`. Exported, never produced, never consumed — and the comment above it
+  ("the binary tiling needs both") was **false**: `BinaryTiling.boundaryLocal()` returns
+  `kind: "binary-cell"`, a bare string, and `Atlas.clipPathFor` tests for exactly that. Comment
+  rewritten to say what the two kinds actually are.
+* `crosshairLayer` in `docs/demo/layers.js`. Never imported by any page.
+* `import { ViewState }` in `src/input/pointer.js`. Nothing in the file uses it.
+* The `cx` parameter of `calibrateSpin`. Its two siblings in `exactcalib.js` do use their `cx`, so
+  signature symmetry was the only argument for keeping it, and that is not an argument. Two call
+  sites updated.
+* The `let viewport / function build() / build()` wrapper in `docs/escher.html` — a rebuild hook with
+  no rebuilder, left over from when the page had checkboxes. Inlined.
+
+### Inert `export` keywords, demoted to module-private
+
+`package.json`'s `exports` map exposes only `"."`, so a name that is neither in the `src/index.js`
+barrel nor imported by another module is not reachable from outside the package: the `export` is a
+claim about reachability that is not true. Demoted: `Drawable`, `FONT_SCALE`, `BASE_FONT_PX`,
+`RenderStats`, `EDGE_GEODESIC`, and `colourForClass` in the demo diagnostics. `check-bundle` now
+counts 82 exported names instead of 88, which is the honest number.
+
+### Deliberately kept, so this is not re-litigated
+
+* Everything re-exported from `src/index.js`. That *is* the public surface; "the repo does not call
+  it" says nothing.
+* `exactMulCount` / `resetExactMulCount` — they exist precisely to be measured from outside.
+* `normaliseOptionsForTesting`.
+* The nine `check*` exports in `diagnostic-checks.js` and the four `*CompoundScroll` exports. The
+  file's own comment explains why they are individually exported: the whole suite exceeds the
+  MCP protocol timeout and a driver has to run them one at a time. Confirmed the hard way again
+  below.
+* Four unused function parameters that exist to satisfy an interface — `reverseGenerator(address, …)`
+  and `stepFrame(address, …)` on `BinaryTiling` (the {p,q} versions need the address), and
+  `passes(view /* , onReady */)` on `SourceSet`. All three already carry a comment saying so.
+
+### Verified
+
+`npm run check` — 82 exported, 52 top-level, no collisions. `npm test` — **179/179**. `npm run build`.
+All four demo pages render. All ten browser diagnostics pass, run one at a time (2 together still
+times out, and `runAllChecks()` certainly does): ground truth 9.29e-14; translation invariance 45/45
+out to 5,107 hyperbolic units; ownership 6980/6980 and 0 seam pixels; 0 stray pixels beyond the rim;
+address round-trip 9/9; boundedness max|V| 1.0000; picking 14463/14463; smoothness 45/45; hundred-step
+scroll 9/9 tilings within budget.
+
+
+## 2026-08-08-h — Release prep 4/6: American English, including the public API
+
+Issue #4, fifth box. **950 replacements across 60 files.** Not a blind `sed`: a script first
+extracted every distinct case-sensitive token in the tree matching a wide British-spelling pattern,
+and the replacement table is that inventory, hand-mapped entry by entry. That is what keeps
+`analysis`, `realistic` and `checkerboard` — all already American — out of it; a stem rule
+`realis -> realiz` would have produced `realiztic`.
+
+### The public API changed, and it had to change here
+
+Jim's call. Options were already American (`center`, `background`, `colorSymmetry`) while everything
+underneath was British, so the surface was inconsistent with itself. The freeze is the next commit,
+so this was the last chance to make the frozen API the clean one. No aliases and no compatibility
+shims: the package is unpublished, so the old spellings simply cease to exist rather than lingering
+as a second way to say the same thing.
+
+| was | is |
+|---|---|
+| `dataProvider({centre, …})` | `{center, …}` |
+| `tiling.neighbours(address)` | `tiling.neighbors(address)` |
+| `tiling.neighbourGens(address)` | `tiling.neighborGens(address)` |
+| `tiling.neighbourCentresLocal` | `tiling.neighborCentersLocal` |
+| `tiling.metrics.centreSpacing` | `tiling.metrics.centerSpacing` |
+| `tiling.stabiliserOrder` | `tiling.stabilizerOrder` |
+| `colorSymmetry.stabiliser` | `colorSymmetry.stabilizer` |
+| `Isom.centreLocal(out)` | `Isom.centerLocal(out)` |
+| `Anchor.viewCentreLocal(m, out)` | `Anchor.viewCenterLocal(m, out)` |
+| `Anchor.neighbourhood(m, r, n)` | `Anchor.neighborhood(m, r, n)` |
+| tile field `centreRelativeDisk` | `centerRelativeDisk` |
+| `normaliseOptionsForTesting` | `normalizeOptionsForTesting` |
+
+The custom-tiling protocol in README.md moved with them, since `neighbours` and `centreSpacing` are
+things an implementer has to spell.
+
+### The one deliberate exception
+
+**`Arc.anticlockwise` stays British.** It is the name the HTML specification gives the sixth argument
+of `CanvasRenderingContext2D.arc()`, which this field is passed straight into; spelling it the
+American way would make the call site read `ctx.arc(..., arc.counterclockwise)` and hide the
+correspondence. A comment on the class now says so, so the next spelling sweep does not "fix" it.
+
+`inkscape:pagecheckerboard` in two committed SVGs is Inkscape's own attribute and was likewise left.
+
+### Scope
+
+`notes/log.md` was NOT swept. It is the append-only record and rewriting past entries to change their
+spelling is exactly what the house rule forbids; the entries above this one still say "colour" and
+should. Every other note, and `AGENTS.md`, `README.md`, `docs/MATH.md`, `tools/README.md`, the demo
+pages, the Python tools and the two audits, were swept — those describe the code as it is now.
+
+### Verified
+
+* `npm run check`; `npm test` **179/179**; `npm run build`.
+* `dev/audit_atlas_math.py` — **31 passed, 0 failed**. `dev/audit_atlas_numeric.py` — **7 passed, 0
+  failed**. Re-run because the sweep touched `src/core/` and `src/data/atlas/`, as AGENTS.md requires.
+* The two Python tools reproduce their previous output **exactly** (byte-identical SVG apart from the
+  recorded input path; identical JSON), so renaming inside them is behavior-preserving.
+* Browser: `escher.html` renders, console empty, and reports `stabilizerOrder: 4`,
+  `metrics.centerSpacing: 1.5285709194809989`, `neighbors()` returning 8, `colorCount: 12`.
+  `dungeon-man.html` renders, console empty. Diagnostics checks 1, 2 and 9 — the most sensitive —
+  return byte-for-byte the same numbers as before the sweep (ground truth 9.29e-14, invariance 45/45,
+  smoothness 45/45 with an identical per-tiling breakdown).
+
+### Noticed, not fixed here
+
+`tools/README.md` claims the `escher-atlas.json` round trip is "bit-for-bit identical". It is not, and
+was not before this change either: `--coords local` comes back with a worst coordinate delta of 4e-11
+(the tool itself prints "round-trip precision: worst 4.3e-12"). Pre-existing and unrelated to
+spelling; it belongs to the documentation-correctness box later in issue #4.
+
+
+## 2026-08-08-i — Release prep 5/6: `hyperbolic-map-widget` -> `hyperbolic-map`. THE API IS NOW FROZEN.
+
+Issue #4, sixth box. Mechanically small — the identifier appeared in 15 tracked files — but it is the
+point after which the public surface stops moving, so it gets its own commit and its own entry.
+
+Already right and untouched: the bundle filenames (`dist/hyperbolic-map.iife.js`, `.min.js`), the
+browser global `HyperbolicMap`, and all 49 thrown-error prefixes, every one of which already said
+`hyperbolic-map:`.
+
+Changed: `package.json` `name` and `repository.url`; the README heading (`# Hyperbolic Map Widget` ->
+`# Hyperbolic Map`), `npm install` line, `import` line and the GitHub Pages URL; every `<title>` and
+every "See the code in" GitHub link across `docs/*.html`; `docs/index.html`'s `<h1>`; the
+`src/index.js` header; the banner `dev/build.mjs` emits; `bench/bench.mjs`'s printed title;
+`tools/README.md`.
+
+### The part that needed care: the SVG interchange format
+
+`tools/drawables_to_svg.py` and `tools/svg_to_drawables.py` embed the name in three places that are
+part of the on-disk format, not just prose: the XML namespace URI
+`https://github.com/jpivarski/hyperbolic-map`, and the two class names
+`hyperbolic-map-guidelines` and `hyperbolic-map-drawables`. `docs/escher-atlas-drawables.svg` is a
+committed artifact carrying all three, so it was updated in lockstep.
+
+Consequences, both verified rather than assumed:
+
+* the renamed reader still reads the renamed committed SVG **bit-for-bit** back to
+  `docs/escher-atlas.json` — 96 drawables, exactly equal;
+* the renamed reader **refuses** an old-namespace SVG, with the "carries no hyperbolic-map metadata"
+  message and exit code 1. It does not silently guess a coordinate system. Anyone holding an SVG
+  exported before this commit must re-export from JSON; there is no in-place upgrade and, pre-1.0,
+  there should not be one.
+
+### Known-broken until Jim renames the repo
+
+Every `https://github.com/jpivarski/hyperbolic-map...` link and the
+`https://jpivarski.github.io/hyperbolic-map/` demos URL 404 until the GitHub repo itself is renamed,
+which is a later box on the same checklist. GitHub redirects the old name after a rename, so doing it
+in this order is right; doing it the other way round would have left the tree stale instead.
+
+### Not changed: "widget" as an ordinary English noun
+
+`README.md` still says "a widget that fills its column" and "The widget checks for this", and its
+opening sentence still calls the library a map widget. Those are English, not the package name, and
+whether the library should still describe itself that way is a documentation-voice question that
+belongs to the HUMAN read-through box, not to a rename.
+
+### Verified
+
+`npm run check`; `npm test` **179/179**; `npm run build` (both bundles and `docs/lib/` regenerated,
+banner now reads `hyperbolic-map 0.1.0`). `grep -rn hyperbolic-map-widget` finds nothing outside this
+log. Browser: `index.html` — title and `<h1>` read `hyperbolic-map`, all four gallery links and both
+`MATH.md` links return 200; `escher.html` renders with an empty console.
+
+
+## 2026-08-08-j — Release prep 6/6: doubles instead of BigInt where they fit. Naming is 2.4x faster.
+
+Issue #4's last box before the human checkpoint, and its sub-question was specific: "can any BigInt
+operations be replaced with normal integers if all values are within some specified thresholds?"
+**Yes.** The threshold is not a distance in tiles, it is a bound checked per operation, and it is
+worth about 2.4x on tile naming and 2x on the two frames a user actually notices.
+
+Full numbers, with load readings, in `notes/performance.md`. The exactness argument and its
+verification are in `notes/math-audit.md` — put there rather than only here because a later pass
+seeing identity-critical integers held in doubles will want to "fix" it, and that file exists to stop
+exactly that.
+
+### Measured before deciding anything
+
+Coefficients grow ~2 bits per tile step for `{8,3}`, so the small range covers only the first dozen
+tiles from the origin — but that is where every demo sits and where the 250 ms first frame is spent.
+A ring multiply costs 840-1100 ns at 20-bit coefficients and 342 ns for the identical algorithm over
+doubles, so the ceiling was about 3x.
+
+**And a negative result worth as much as the positive one:** micro-optimizing the BigInt
+representation buys nothing. Hoisting `mul`'s scratch buffer (three allocations per multiply gone) and
+skipping the minimal polynomial's zero coefficients measured **1 188 ns against 1 100** — no faster.
+Allocation was never the cost. Recorded in `performance.md` and `open-questions.md` so it is not
+re-derived.
+
+### The change, all inside `src/data/atlas/exactring.js`
+
+An element's coefficients are all Number or all BigInt, never mixed. Born small, **promoted
+permanently** the first time an operation would leave the exactly-integral range, never demoted. The
+invariant is that no stored coefficient exceeds 2^52, which leaves one doubling of headroom, so every
+bail-out inspects a value that is **still exact** — a check placed after the arithmetic had rounded
+would be worthless, and that is the one way this could have been silently wrong.
+
+Because representation is a function of history rather than of value, everything observable had to be
+made representation-independent, and each of those is load-bearing:
+
+* `serialize` — `String(5)` and `String(5n)` are both `"5"`, and a Number coefficient cannot reach the
+  1e21 where exponent notation would start. **This decides the text of every public tile id.**
+* `cmp` — `<` between a Number and a BigInt is defined to compare mathematical values exactly. **This
+  decides which member of a coset is canonical, hence which id every tile gets.** Rewritten to use `<`
+  in both directions rather than `!==` then `<`, because `5 !== 5n`.
+* `equals` / `isZero` — `0` and `0n` are both falsy; mixed pairs fall through to `<`.
+* `toNumber` — `Number()` of either.
+
+A BigInt input still gives a BigInt result, so `ExactRing` — which the barrel exports specifically so
+that the Coxeter relations can be checked from outside — still behaves for a caller writing BigInt
+literals, and `reduce` is BigInt-in/BigInt-out.
+
+Also hoisted `this.mu()` out of `dicksonOfMu`'s loop, which was reallocating it every iteration.
+
+### How it is known not to have renamed a single tile
+
+This is the risk that mattered: an id is a public name that goes into user caches and onto disk.
+
+* **Golden ids, now a committed test.** 380 ids per tiling (300 breadth-first, then an 80-step wander
+  that pushes coefficients past 2^52 and onto the BigInt path) for ten `{p,q}` tilings, hashed. The
+  hashes were generated from the **pre-change** implementation and matched exactly afterwards. The
+  test says in its own text not to update the fixture to match a failing run.
+* A wider one-off comparison of the old and new builds over **4,600 ids across ten tilings**:
+  byte-for-byte identical. Promotion was confirmed to actually occur during it — `{12,3}` at step 26
+  of the wander, `{5,4}` at step 48 — so the far half of that comparison exercised the BigInt path.
+* **Ring-multiply counts identical** tiling by tiling, and 2,907,216 in both runs of the browser pan.
+  Same algorithm, same operations, faster arithmetic.
+* Five new tests in `test/exactring.test.mjs` attack the representation directly: 300 random pairs per
+  ring in all four small/big pairings across every observable; values driven astride the limit; and an
+  assertion that repeated squaring really does cross the boundary, so the test cannot pass vacuously.
+
+### What it bought
+
+| | before | after |
+|---|---|---|
+| naming 609 tiles, `{8,3}` m=4 (node) | 49.5 ms | **19.6 ms** |
+| naming 865 tiles, `{12,3}` (node) | 99.6 ms | **42.2 ms** |
+| `escher.html` first frame (Chrome, 620 px) | 101-125 ms | **46-59 ms** |
+| median naming frame in a 200-frame pan | 42.3 ms | **19.3 ms** |
+| worst naming frame in that pan | 58.3 ms | **28.7 ms** |
+| steady frame (180 of those 200 do zero ring work) | 7.8 ms | 7.9 ms |
+
+Steady state is untouched, as it must be: it does no exact arithmetic at all.
+
+### One thing to be aware of, flagged for Jim
+
+The previous commit froze the API, and this one **widens a value type** on an exported class: an
+`ExactRing` element used to be documented as "a plain array of `deg` BigInts" and is now "a plain array
+of `deg` integers, all Number or all BigInt". Names and signatures did not move, every method behaves
+identically, and code that goes through the ring's own comparisons is unaffected — but code that reads
+coefficients directly and assumes BigInt would break. Exactly one thing in this repository did:
+`logAbsExact` in `test/helpers.mjs`, which widens first now. This commit is separable if that trade is
+not wanted.
+
+### Also added
+
+`npm run bench` grew a naming section — per-tiling build time, time to name 500+ tiles, and the ring
+multiplies each took — so this is re-measurable rather than a number in a file. It inherits the
+existing load-average guard that refuses to report when the machine is busy.
+
+### Verified
+
+`npm run check`; `npm test` **184/184** (179 before, 5 new); `npm run build`;
+`dev/audit_atlas_math.py` **31/31**; `dev/audit_atlas_numeric.py` **7/7**. All ten browser diagnostics
+pass with output **string-identical** to the run before this change, including check 9's full
+per-tiling breakdown and check 10's nine budget lines. Machine idle for every measurement (load
+0.23-0.52 on 16 cores, GPU 31 % / 66 MiB, checked before and after).
+
+
+## 2026-08-08-k — Release prep 7: `docs/index.html` is the documentation site now
+
+Issue #4, after the human checkpoint. `docs/index.html` was a six-item gallery; it is now the
+reference, and the README is the landing page. Everything from `## Options` to just before
+`## Development` **moved** out of README.md — 339 lines of it — rather than being copied, so there is
+one copy of each fact and no chance of the two drifting.
+
+### The conversion
+
+`dev/md_to_html.py`, new, using `mistune` (a local install, not a library dependency). It slices a
+Markdown file between two headings, converts, gives every heading a GitHub-style slug id so in-page
+anchors keep working, and pretty-prints the result: one block element per line, block children
+indented two spaces, inline content never split across lines, `<pre>` passed through untouched, and
+`&quot;` unescaped back to `"` outside tags so a code span reads `"auto"` rather than
+`&quot;auto&quot;`.
+
+It is kept, and it says in its own docstring that it is not part of any build: **the HTML is now the
+main copy and is edited by hand.** The script exists so that "how was that page produced?" has a real
+answer, not so that it can be re-run over a README that no longer has those sections in it.
+
+One thing did not survive the crossing: `$\mathcal{O}(1)$`, which GitHub renders and a plain HTML page
+would not. It became the prose "an O(1) matrix change". The extraction asserts that no other LaTeX is
+left in the slice — carefully enough not to trip over the `${tile.id}` of a template literal inside a
+code fence, which was the first version's false positive.
+
+### README
+
+The moved sections are replaced by a two-link **Documentation** section: "How to use it" to the site,
+"What the mathematics is" to `docs/MATH.md`. The README went 423 lines -> 91. The one cross-reference
+that pointed into the moved text, `[atlas of tiles](#atlas-of-tiles)` in the Quick start, now points
+at `https://jpivarski.github.io/hyperbolic-map/#atlas-of-tiles`, and that anchor exists on the new
+page.
+
+The doc site's own link to `MATH.md` goes to the GitHub blob URL rather than a relative `MATH.md`,
+because what GitHub Pages serves for a bare `.md` depends on whether Jekyll is processing the
+directory, and a link that renders is worth more than a link that is short.
+
+### `docs/demo/style.css` -> `docs/style.css`
+
+It is no longer "styling for the example pages": the documentation page uses it too, and a reference
+page loading its stylesheet out of a `demo/` directory reads like a mistake. Gained rules for `h3`,
+`h4`, `a` and `pre`; lost `.gallery`, whose only markup went with the old index. Code blocks scroll
+horizontally rather than wrapping — these are lines meant to be copied.
+
+### Verified
+
+Every heading has an id and both `#atlas-of-tiles` links resolve. All four demo pages load
+`style.css` (200) and are styled. The page renders: tables, code blocks, lists and nesting all
+correct in Chrome.
+
+
+## 2026-08-08-l — Release prep 8: the demos as a 2x2 grid at the top of the README
+
+Issue #4. "See the demos: <url>" was one line of text at the top of the README; it is now four square
+screenshots in the order Jim asked for — Dungeon Man top-left, Jumping Man top-right, Circle Limit III
+bottom-left, the clock bottom-right — each panel and each caption linking to its own live demo rather
+than to a shared index. Written as a plain `<table>`, which GitHub renders (checked against
+`gh api /markdown` and viewed in Chrome) and which a Markdown table cannot do without a header row.
+
+The two link boxes on the same list were done in the previous commit: **How to use it** to the
+documentation site, **What the mathematics is** to `docs/MATH.md`, in that order, where "Options" used
+to start.
+
+### How the images were made, and why they are not the pages' default views
+
+`dev/capture_server.py` serving `docs/`, with each page's own viewport asked for its canvas pixels via
+`toDataURL` and POSTed to `/__shot/`. That is the tool's whole reason for existing — a browser
+screenshot would carry page chrome and a device-pixel rescale, and these are the renderer's own output
+at 500x500.
+
+Two of the four are framed deliberately rather than captured as-loaded:
+
+* **Dungeon Man** opens at `zoom: 3`, which is one room and reads as a grey grid. Backed out to 0.97
+  so the whole disk, the world-turtle and the star field are in frame.
+* **The clock** at the origin is a nearly empty face: everything interesting — 720 minutes and 43,200
+  seconds — is crushed against the rim. Panned out to hyperbolic distance 1.5, where the hour hand,
+  the hour numerals and the crowd of minute ticks are all visible at once, which is the entire point
+  the demo is making.
+
+Escher and Jumping Man are their default views; they already show what they are.
+
+Quantized to a 256-colour palette and run through `optipng`: **884 KB -> 276 KB** for the four, with
+no visible loss at this size. They live in `docs/img/`, which is outside the npm `files` list, and npm
+rewrites relative README image URLs against `repository`, so they resolve on npmjs.com as well as on
+GitHub.
+
+
+## 2026-08-08-m — Release prep 9: the demo pages point at GitHub, and the docs open with a runnable example
+
+Issue #4, two boxes.
+
+### "← all examples" → "← hyperbolic-map on GitHub"
+
+Consequence of the previous commit: `index.html` is no longer a gallery, so "all examples" pointed at a
+page that no longer lists any. All four demos and the documentation page now carry the same one-line
+`<nav>` back to the repository, which is the landing page and the thing that does show all four
+(as a 2x2 grid).
+
+### A minimal example, at the top of the documentation
+
+Two code fences, `drawables.json` and `index.html`, both complete rather than elided: a square, a
+marker at the origin, one label. **It was written, served and run before being pasted in** — the
+screenshot is of that actual pair of files, not of something reconstructed from the docs.
+
+Deliberately small. Three earlier drafts tried to make the example *teach* hyperbolic geometry as well
+as run — labels at increasing distance, then a second larger square — and both failed on their own
+terms: the outer labels fall below `minTextPx` and vanish, and a side-6 square projects to almost the
+same outline as a side-2 one, so the picture looked like a bug rather than a lesson. The demos are
+where that is shown properly. What the minimal example demonstrates is the one thing visible in a
+five-line file: the square's sides bow inward, because they are geodesics, and straighten again when
+you scroll one of them through the middle. The prose says so and says why.
+
+Notes on the fences themselves: the page uses `fetch`, so it says out loud that `file://` will not
+work; and it names where `hyperbolic-map.iife.js` comes from after `npm install`, because "put the
+bundle beside them" is not an instruction anyone can follow without that.
+
+The page now reads (1) minimal example, (2) options and everything that came from the README, which is
+the order Jim asked for.
+
+### Verified
+
+The example pair runs in Chrome: 500x500 canvas, 154,512 non-white pixels, no console output. The
+documentation page renders both fences, and its `#the-drawable-format` cross-reference resolves. All
+four demo pages load with the new nav and still draw.
+
+
+## 2026-08-08-n — Release prep 10: the documentation sweep, and what it found
+
+Issue #4, two boxes: link every unlinked documentation file or delete it, and check the documentation
+for things that are simply not true. Both done by script rather than by reading, because reading is
+how the errors below survived this long.
+
+### Unlinked files
+
+A reachability pass over every real link (`href`, `src`, markdown `[]()`, `import`, `fetch`) found
+exactly two documentation files that nothing pointed at. Both were linked rather than deleted:
+
+* **`docs/tiling-diagnostics.html`** — nine tilings, four motifs, and the ten self-checks that are the
+  acceptance test for the whole anchored-atlas design. Far too valuable to drop for being unlinked. It
+  now has its own subsection at the end of the atlas chapter, described as what it is: a verification
+  page, and the fastest way to find out whether a *custom* tiling satisfies the contract.
+* **`docs/escher-atlas-drawables.svg`** — the committed output of the `tools/` workflow's first
+  command, and the file the round-trip measurements in `tools/README.md` were taken on. Linked from
+  that workflow section as the worked example.
+
+Everything else the pass flagged is a false positive of the same kind: `clock.json` and
+`relativity.json` arrive through `loadDrawables("...")`, and `stars.jpg`/`turtle.png` through
+`imageLayer({src})`, neither of which is a link syntax. `bench/frames.html` and `bench/stress.html`
+are unlinked on purpose — hand-driven harnesses, described in `notes/performance.md` and
+`notes/canvas-testing.md`.
+
+### Broken links, all in `tools/README.md`
+
+Five. Four were collateral from moving the reference out of the README — `../README.md#path`,
+`#the-drawable-format`, `#regular-tiling`, `#atlas-of-tiles` all now point into `docs/index.html`. The
+fifth, `../notes/tilings.md#the-stabiliser-rule-2026-08-06`, **never matched a heading**; checked
+against `git show 4fb37a1` to be sure the spelling sweep had not caused it. Now points at the section
+that actually exists.
+
+### The real find: the custom-tiling interface was wrong in both directions
+
+A script drove a real atlas over a Proxy that reported every member the library touched, then over an
+object built with `Object.create(null)` carrying *only* the documented members.
+
+* It listed **`addressesAreCanonical`**, which exists nowhere — not on `RegularTiling`, not on
+  `BinaryTiling`, not read anywhere in `src/`. Pure fiction.
+* It omitted **five members the library calls without any guard**: `addressKey`, `neighborGens`,
+  `extendAddress`, `stepFrame` and `stepToward`. A tiling written to the documented interface crashes
+  on the first frame. Not a subtlety — the doc was unusable for its stated purpose.
+* It listed `inverseGenerator`, `reverseGenerator`, `generatorCount` and `selfRotation` as required.
+  They exist on the library's tilings but nothing inside the library calls them, so requiring them of
+  someone else's tiling is over-strict. Now noted as "for callers, not for the renderer".
+* It said nothing about the four **optional** members (`compareForDrawing`, `colorCount`,
+  `colorPermutation`, `colorIndex`), which are guarded and have documented defaults.
+
+Two traps are now written down, because both are silent if you get them wrong: `stepToward` returns an
+index into `neighbors(address)` and **not** a generator index (the two coincide for `{p,q}` and do not
+for the binary tiling's parent step), and `stepFrame` is not `generator` unless `stabilizerOrder` is 1.
+
+**Verified, not asserted:** a tiling object with exactly the new "required" list and no prototype
+drives 60 frames, 3,594 tile passes and 10 re-anchors without the library reaching for anything else.
+
+### Other corrections
+
+* `dungeon-man.html` said intrinsic curvature shows up as "the **area** of a circle being more or less
+  than 2π times the radius". 2πr is the circumference; the area is πr². The hyperbolic statement that
+  is true is the circumference one (2π sinh r), so that is what it says now.
+* `jumping-man.html` had "where there there is less time to traverse".
+* Three places still said the tile ids hold **BigInt** coefficients. Since 2026-08-08-j they hold
+  ordinary numbers while those fit exactly and BigInt beyond, so `docs/index.html`, `docs/MATH.md` and
+  `notes/tilings.md` now say "exact integer coefficients" and explain the split. My own change had
+  made the documentation wrong; this is the sweep catching it.
+* `AGENTS.md` still called `tools/` "a future directory" and did not know about `dev/md_to_html.py`. It
+  also now states that `docs/index.html` is hand-edited and that reference material must not migrate
+  back into the README.
+* Two stragglers from the spelling sweep: a "grey" in a CSS comment and a stale
+  `addressesAreCanonical` mention in a test comment.
+
+An automated pass over every option table also confirmed all 49 options exist with the documented
+defaults, every documented method is on `HyperbolicViewport`, and every hook is a real option.
+
+### Verified
+
+`npm run check`; `npm test` **184/184**; `npm run build`. Every link and anchor in every `.md` and
+`.html` resolves. All six pages load with every link, anchor and image returning 200. Diagnostics
+checks 1 and 2 unchanged.
+
+
+## 2026-08-08-o — Release prep 11: the whole-repo check, and what is left for Jim
+
+Issue #4's last box before it hands back. Everything below that could be fixed without changing
+behaviour or making a judgement call **was** fixed, in this commit or the previous one; everything
+that is a decision is listed at the end and nothing was done to it.
+
+### Fixed here
+
+Three atlas options reach the `Atlas` constructor through `Object.assign({styleSheet}, opts.atlas)`
+and so are fully user-settable, and none of them were documented: `onTileLoad(tile, drawables)`,
+`onTileError(tile, err)` and `tileSymmetryTolerance`. Now in the atlas options block. (`styleSheet` is
+plumbing the viewport fills in and is deliberately not advertised.)
+
+The Options section said flatly "An unrecognized option name raises an error". True at the top level,
+where `normalizeOptions` checks; **not** true inside `atlas`, which is destructured, so
+`atlas: { maxTiels: 5 }` is accepted and ignored. The sentence now says which is which.
+
+### Checked and clean
+
+* **Node 18 floor.** No API newer than it anywhere in `src/` — `structuredClone`, `toSorted`,
+  `findLast`, `Object.groupBy`, `Object.hasOwn` all absent. (`hasOwnData` in `viewport.js` is a local
+  variable that trips a naive grep.)
+* **Packaging.** `npm pack --dry-run` ships exactly `src/`, `dist/`, `README.md`, `LICENSE`,
+  `package.json` and nothing else: no notes, dev, test, bench, docs or tools. No warnings.
+* **Both entry points load.** ESM entry resolves with 55 exports; the IIFE bundle evaluates in a clean
+  `vm` realm and exposes 56.
+* **No `TODO`, `FIXME`, `XXX` or `HACK` anywhere** outside `notes/`.
+* **No duplicate element ids** on any of the six pages; 22 on the documentation page, all unique.
+* Every option in the tables exists with the documented default; every documented method is on
+  `HyperbolicViewport`; every documented hook is a real option.
+* `npm run check`; `npm test` **184/184**; `npm run build`; `audit_atlas_math.py` **31/31**;
+  `audit_atlas_numeric.py` **7/7**. Machine idle throughout (load 0.70 on 16 cores before, 1.46 after,
+  GPU 31 % / 66 MiB).
+
+### FLAGGED FOR JIM — nothing was changed for any of these
+
+1. **`types/index.d.ts` does not exist**, and both `package.json`'s `exports["."].types` and its
+   `files` list name it. A TypeScript consumer resolves the package and finds no types where the
+   manifest promises them. This is already its own box on issue #4 and is left for it.
+2. **`exports["."].script`** is not a condition Node or the bundlers implement; nothing reads it. It
+   is harmless, but if the intent was "give a `<script>` user the IIFE", the field that tools actually
+   honour is `unpkg` or `jsdelivr`. A packaging decision.
+3. **The IIFE global carries `VERSION`; the ESM entry does not.** `dev/build.mjs` injects it and
+   `test/bundle.test.mjs` asserts it, so `HyperbolicMap.VERSION` works while
+   `import { VERSION } from "hyperbolic-map"` does not. The bundle test checks that the bundle is a
+   superset of the ESM surface, so it cannot catch this. Either add it to `src/index.js` or drop it —
+   but it is a public-surface decision, made one commit after the freeze, so it is Jim's.
+4. **A misspelled key inside `atlas` is silently ignored** where a misspelled top-level option throws.
+   Documented as of this commit, but making the atlas strict too would be the better fix and is a
+   behaviour change.
+5. **`tools/README.md`'s "bit-for-bit identical" round-trip claim** does not reproduce for a *freshly
+   generated* SVG: `--coords local`, `disk` and `halfplane` all come back with a worst coordinate
+   delta around 1e-12 to 4e-11, and `drawables_to_svg.py` prints that delta itself. What does hold,
+   and was re-verified after the rename, is the committed artifact: `escher-atlas-drawables.svg` reads
+   back to `escher-atlas.json` byte-for-byte, all 96 drawables. Pre-existing, unrelated to anything in
+   this branch, and the wording is Jim's to choose.
+6. **`docs/relativity.json` is the Jumping Man demo's data.** The name is from the 2011 database and
+   no longer matches the page. Renaming is trivial; leaving it is also fine. Cosmetic.
+7. **`jumping-man.html` opens "In the Dungeon Man demo, we saw…"** — a reading order that the old
+   gallery implied and that nothing enforces now. The README grid does put Dungeon Man first. Prose,
+   so left alone.
+8. **The GitHub URLs 404 until the repo is renamed.** Every `github.com/jpivarski/hyperbolic-map` link
+   and `jpivarski.github.io/hyperbolic-map/` — the README grid, all five page navs, the SVG namespace.
+   That rename is its own box on issue #4.
+
+
+## 2026-08-08-p — Jim's rulings on the four flagged packaging items
+
+All four decided and applied. Numbers refer to the flag list in entry 2026-08-08-o.
+
+### 1 and 2 — `types/index.d.ts` and the `script` condition are gone
+
+There is no TypeScript in this library and no hand-written declarations, so promising types was simply
+false. Both `exports["."].types` and the `"types"` entry in `files` are removed. (If declarations are
+ever written, that is a separate piece of work.) The `script` condition went with them: nothing
+implements it — Node does not, and neither do the bundlers — so it was decoration.
+
+That leaves `import` and `default` both naming the same file, which is what a bare string already
+means, so the whole conditional object collapsed:
+
+```json
+"exports": { ".": "./src/index.js" }
+```
+
+### 3 — one version, checked
+
+`VERSION` was on the browser global and not on the ES module, because `dev/build.mjs` injected it into
+the IIFE from `package.json` and `src/` never knew about it. Now `src/version.js` holds the literal,
+`src/index.js` re-exports it, and the builder injects **nothing** — it comes through the barrel like
+every other public name, so the two surfaces cannot diverge again by construction.
+
+It has to be a literal: `src/` is loaded straight into browsers as ES modules, so nothing can read
+`package.json` at run time, and the bundle is plain concatenation with no substitution step. So there
+are necessarily two copies, and **`dev/check-bundle.mjs` now fails if they disagree** — which runs on
+every `npm run check` and before every `npm run build`. Verified by setting `src/version.js` to 9.9.9
+and watching the build refuse.
+
+`test/bundle.test.mjs` gained the missing direction. It asserted the bundle is a superset of the ESM
+surface, which is exactly why it never noticed; it now asserts equality, and a new test pins
+`esm.VERSION === bundle.VERSION === package.json`.
+
+### 4 — the atlas rejects unknown options, like the viewport always has
+
+`atlas: { maxTiels: 5 }` used to be accepted in silence and draw 256 tiles. It now throws
+`hyperbolic-map: unknown atlas option(s): maxTiels`, naming every unknown key rather than the first.
+
+**This is an API change, made after the freeze, and deliberately.** Jim's reasoning is the right one:
+users will assume it already worked this way, so the old behaviour was the surprise. Nothing that
+previously drew correctly can break — only calls that were already being partly ignored.
+
+No documentation was added, per Jim. Documentation was in fact *removed*: the previous commit had
+qualified "An unrecognized option name raises an error" with a clause explaining that `atlas` was the
+exception. That clause is now false, so the sentence is back to its original plain form.
+
+The allowed set lives next to the destructure it mirrors, and `test/anchor.test.mjs` reads the
+constructor's source to check that **every** destructured name is in it — so adding an option and
+forgetting the set turns the new option into an error rather than a silent default. Verified by adding
+a `brandNewOption` to the destructure and watching the test fail with its name.
+
+### Verified
+
+`npm run check` (20 modules now, `src/version.js` is the new one); `npm test` **186/186**, 2 new;
+`npm run build`. `npm pack --dry-run` mentions `types` zero times. `docs/escher.html` and
+`docs/dungeon-man.html` render with an empty console, report `HyperbolicMap.VERSION === "0.1.0"`, and
+reject a misspelled atlas option from the page's own console. No demo or test passes an atlas key that
+the new check rejects.
+
+## 2026-08-08-q — Release prep 12: `author`, `homepage`, `bugs`
+
+Issue #4's **(HUMAN!)** packaging box has six sub-items. Three of them were already true and only
+needed checking, which `npm pack --dry-run` does directly: LICENSE and README ship; `notes`, `dev`,
+`test`, `bench`, `docs` and `tools` do not (25 files, 209.6 kB); and the version is 0.1.0 in both
+`package.json` and `src/version.js`, which `dev/check-bundle.mjs` ties together. The other three
+fields simply did not exist.
+
+Added, after `license`:
+
+```json
+"author": { "name": "Jim Pivarski", "url": "https://github.com/jpivarski" },
+"homepage": "https://github.com/jpivarski/hyperbolic-map",
+"bugs": { "url": "https://github.com/jpivarski/hyperbolic-map/issues" }
+```
+
+**No email**, by Jim's decision. npm renders the author email on the package page, where it is
+public and scrapeable; `bugs` is the contact channel instead. Jim also chose the GitHub repo over
+`https://jpivarski.github.io/hyperbolic-map/` for `homepage`, so the docs site is reached through the
+README rather than from npm's sidebar.
+
+`repository.url` was already `git+https://github.com/jpivarski/hyperbolic-map.git` and **must stay
+exactly that string**: npm's trusted-publisher check compares it against the configured repository,
+and the provenance attestation reads it. It is no longer just documentation.
+
+The package name is free — `npm view hyperbolic-map` returns 404.
+
+### Verified
+
+`npm pack --dry-run` still lists the same 25 files at the same size; the JSON round-trips.
+
+## 2026-08-08-r — Release prep 13: TypeScript declarations, written by hand
+
+Jim asked for "minimal friction for JavaScript, TypeScript, React, Svelte, etc. users", and floated a
+one-line `.d.ts` if that was all it took. It is not, and the reason is worth recording because the
+obvious shortcut is a trap.
+
+### Why not generate them
+
+`src/` has **zero JSDoc**: 0 occurrences of `/**`, `@param`, `@returns` or `@typedef` across all 20
+files, against 1,681 `//` lines. So `tsc --allowJs --declaration --emitDeclarationOnly` gives:
+
+* every parameter `any` (and under `strict` it *errors* rather than emitting, so it would need
+  `noImplicitAny: false`);
+* `constructor(userOptions: any)` for the viewport, because options are normalized with
+  `Object.assign` plus a `for...of Object.keys()` loop — there is nothing to infer from;
+* and, worst, **actively wrong** types for `DEFAULT_OPTIONS`: it infers `container: null`,
+  `data: null`, `atlas: null`, `maxZoom: null`, `onFrame: null`, because those are the default
+  *values*. A consumer would be told those keys must be null.
+
+The other shortcut, a `declare const x: any; export = x` shim, silences TS7016 and gives nothing
+else: no autocomplete, no checking, and it misdescribes the module format of a `"type": "module"`
+package. Rejected. Jim chose the full hand-written file.
+
+### What is declared
+
+All **56** barrel exports — 15 classes, 24 functions, 17 consts — plus the interfaces the
+documentation already specifies: `ViewportOptions` (38 keys), `AtlasOptions` (11), `ViewInfo` (18),
+`Tiling` (16 required + 8 optional), the `Drawable` union, `Style`, `TileInfo`, `Camera`, `TilePick`,
+`FrameStats`, `ColorSymmetry`. `docs/index.html` was the source of truth; the sources supplied the
+plumbing. 46.6 kB, at `src/index.d.ts`.
+
+Judgement calls, as opposed to transcription:
+
+* **Closed option interfaces, no index signature.** Unknown keys throw at run time, both for the
+  viewport and (since `556fbe2`) for the atlas, so a typo must be a type error too. It is: tsc says
+  `'maxTiels' does not exist in type 'AtlasOptions<any>'. Did you mean to write 'maxTiles'?`
+* **`aspectRatio` and `height` are mutually exclusive at compile time**, as a union of two variants,
+  because they are mutually exclusive at run time.
+* **`Tiling` is an interface, not `typeof RegularTiling`.** The point of the protocol is that a
+  user's own object satisfies it. Both built-in tilings declare `implements Tiling<...>`, so the
+  protocol and the implementations cannot drift; the type test constructs a third from scratch.
+* **`SourceSet`, `TileSymmetryError` and `GestureMode` are declared as TYPES only.** All three are
+  reachable at run time — as `viewport.sources`, as a thrown error, as `onGestureStart`'s argument —
+  but none is exported, so declaring them as classes would be a promise `import` cannot keep.
+* Addresses are typed per tiling: `BinaryAddress` is `{lat: bigint, lon: bigint}` and
+  `RegularAddress` is opaque apart from its `id`, so the two cannot be crossed.
+* Internals are **omitted**, not declared: the `*ForTesting` methods, `Renderer`'s per-shape
+  helpers, `RegularTiling`'s exact-arithmetic plumbing, `Isom.composeInto`. The declaration is the
+  documented surface, not the reachable one.
+
+### Wiring
+
+```json
+"types": "./src/index.d.ts",
+"exports": { ".": { "types": "./src/index.d.ts", "default": "./src/index.js" } }
+```
+
+Both spellings on purpose: `exports` for `node16`/`nodenext`/`bundler`, the top-level `types` for
+consumers still on `node10` resolution. `"types"` must come first inside the condition object, since
+conditions resolve in order — the test asserts that rather than trusting it. `files` already ships
+`src`, so nothing changed there.
+
+It sits at `src/index.d.ts` rather than in a `types/` directory for a third reason beyond those two:
+`walk()` in both `dev/check-bundle.mjs` and `dev/build.mjs` filters on `name.endsWith(".js")`, so a
+`.d.ts` is invisible to the style checker and to the bundler and cannot perturb either. Confirmed by
+running both, and pinned by a test that fails if either filter ever widens.
+
+### The two guards, because a stale declaration file is worse than none
+
+1. **`test/types.test.mjs`**, zero dependencies, in the normal `npm test`. The declared exported
+   *value* names must equal `Object.keys(import("../src/index.js"))` **in both directions** — the
+   one-directional version is exactly how the bundle came to expose a `VERSION` the ESM entry did
+   not (see 2026-08-08-p). It also checks that the three type-only names are not declared as values,
+   that `package.json`'s paths exist and are ordered, and the two `walk()` filters above.
+2. **`npm run typecheck`** — `dev/typecheck/consumer.ts` uses the API as a consumer would under
+   `strict`: both viewport modes, a custom `Tiling` written from scratch, `getCamera`/`setCamera`,
+   the null returns, the exact ring. Its 15 `expect-error` directives are the half that matters,
+   because a declaration file rots in two directions and only a negative test catches LOOSE. tsc
+   fails on an expect-error with no error under it, so each one is a live assertion.
+
+No devDependency and no `node_modules/`: it runs `npx -y --package typescript@5 tsc`, a temporary
+install, per the house rule. Deliberately **not** in `npm test`, which must keep working offline.
+
+### Verified
+
+`npm run check` (20 modules — the `.d.ts` is invisible, as designed); `npm test` **191/191**, 5 new;
+`npm run build`, after which `git diff --exit-code dist/ docs/lib/` is clean; `npm run typecheck`
+clean. Both guards proved to bite: deleting the expect-error over the misspelled atlas option
+produced the TS2561 quoted above, and changing `panToTile(address)` to `panToTile(address, 7)`
+produced TS2345. `npm pack --dry-run` now ships 26 files / 222.5 kB with `src/index.d.ts` present and
+`notes`/`dev`/`test`/`bench`/`docs`/`tools` still absent.
+
+### Left
+
+The declarations are checked in-tree, which does not test the `exports` wiring — a `paths` mapping
+resolves even if `exports` is wrong. Installing the packed tarball into a scratch directory and
+compiling against it under both `bundler` and `nodenext` resolution is the test that does, and it is
+in the verification pass below rather than in CI, since it needs a full `npm pack` and install.
+
+## 2026-08-08-s — Release prep 14: publish from a GitHub release, and run the checks on every push
+
+There was no `.github/` at all, and the 191 tests had never run anywhere but Jim's laptop. Two
+workflows, no secrets.
+
+### `publish.yml` — trusted publishing over OIDC
+
+Triggered by `release: published`. `permissions: id-token: write` mints an OIDC token that npm
+exchanges for a short-lived credential, so there is **no npm token** anywhere: nothing to leak, and
+nothing to rotate.
+
+Constraints that are easy to get wrong, all of them checked against npm's documentation rather than
+assumed:
+
+* **The filename is load-bearing.** npm's trusted-publisher config stores the workflow *filename*
+  (not the path, not the `name:`) and matches case-sensitively. Renaming `publish.yml` breaks
+  releases until it is re-registered. Said so in the file, and in `AGENTS.md`.
+* Needs **npm >= 11.5.1** and **Node >= 22.14.0**, and GitHub-*hosted* runners only — OIDC from a
+  self-hosted runner is refused. Node 24; npm is upgraded only when the bundled one is too old,
+  rather than pulling `npm@latest` on every run.
+* **`repository.url` must match** the configured repository, which is why 2026-08-08-q left it
+  alone.
+* **No `environment:`.** If one is ever registered on npm's side, this workflow must declare an
+  identically-named environment or every publish fails. Both blank keeps them consistent.
+* `--provenance` is passed **explicitly**. npm documents it as automatic for a public package from a
+  public repo over OIDC, but it has been reported not to fire on its own; passing it makes
+  "published with no attestation" a failed build rather than a silent outcome.
+
+Three gates run before `npm publish`, because an npm version number is immutable and cannot be
+reused after unpublishing, so a broken release has to fail *first*:
+
+1. **the release tag must equal `package.json`'s version** (`v` prefix optional). `npm run check`
+   already ties `package.json` to `src/version.js`; this ties in the tag, so a release tagged
+   `v0.1.2` cannot publish `0.1.1`.
+2. the full suite: check, test, build, typecheck, smoke.
+3. **`git diff --exit-code dist/ docs/lib/`** after rebuilding. `dist/` is a committed artifact and
+   `npm publish` ships it, so this is what stops a stale bundle reaching npm.
+
+### `ci.yml` — and an honest note about the engines floor
+
+Node 22 and 24 run the full suite. **Not 18**, and the reason is worth writing down: the test script
+is `node --test "test/**/*.test.mjs"`, and the runner's glob support arrived in Node 22, so on 18 the
+suite fails for tooling reasons that say nothing about the library. Putting 18 in the matrix would
+have produced a red build and taught nothing.
+
+So `engines: {"node": ">=18"}` was an **untested claim**. Rather than drop it or ignore it, there is
+now a separate `engines` job on Node 18 running `dev/smoke.mjs`, which uses no test framework at all
+— a floor check that depends on the floor's own tooling is not a floor check. It asserts the ES
+module loads, that importing it touches no DOM global (which is what makes the package safe to
+import from a Next.js or SvelteKit server render), that the geometry kernel and the far-field
+recentring case are right, that a 40-step {8,3} walk names a tile and the binary tiling's BigInt
+addressing works, and that the bundle evaluates in a bare realm and agrees with the module.
+
+No `npm install` or `npm ci` step anywhere: there is no lockfile and no dependencies, and adding one
+would fail. `npm run typecheck` fetches tsc with `npx -y` where it is needed, and runs once rather
+than per Node version.
+
+### Verified
+
+Both files parse as YAML with the expected triggers, permissions and jobs, and both `actions/*@v7`
+tags resolve (`checkout` 3d3c42e5aac5, `setup-node` 820762786026). Every `run:` step was executed
+locally, including the ones that are supposed to fail:
+
+* the npm-version comparison across 10.9.0 / 11.5.0 / **11.5.1** / 11.16.0 / 12.0.0 — correct on
+  both sides of the boundary and at it;
+* the tag gate accepting `v0.1.0` and `0.1.0` and refusing `v0.1.1` and `v1.0.0`;
+* the stale-bundle gate, by appending a line to `dist/hyperbolic-map.iife.js` and watching it fire,
+  then reverting and watching it pass.
+
+`npm run smoke` passes on Node 26 locally; Node 18 is exercised by CI on the first push.
+
+### Left for Jim, in order
+
+1. Merge, so the workflows exist on `main` — the `release` trigger reads them from the default branch.
+2. `npm publish --access public` by hand for 0.1.0, authenticating the 2FA prompt with his **passkey**
+   at the `npmjs.com/login/<uuid>` URL npm prints. No authenticator app is needed; npm no longer
+   offers TOTP enrollment to new accounts. The first publish cannot use OIDC, because npm's
+   trusted-publisher settings live on a package page that does not exist yet.
+3. Register the trusted publisher: user `jpivarski`, repo `hyperbolic-map`, workflow `publish.yml`,
+   environment blank, action `npm publish`.
+4. Optionally set Publishing access to "require 2FA and disallow tokens" — that affects token
+   authentication only, and the trusted publisher keeps working because it uses OIDC.
+5. Bump both `package.json` and `src/version.js` to 0.1.1 (a mismatch is a build failure by design),
+   rebuild so the banner in `dist/` matches, and cut a `v0.1.1` release to exercise the workflow.
+
+## 2026-08-08-t — Release prep 15: the declarations verified through a real install
+
+2026-08-08-r left one thing open: checking `src/index.d.ts` in-tree does not test the `exports`
+wiring, because `dev/typecheck/`'s `paths` mapping resolves the declaration file directly and would
+go on resolving it if `package.json` were wrong. Closed now.
+
+`npm pack`, then `npm install ./hyperbolic-map-0.1.0.tgz` into a scratch project outside the repo,
+then compile a consumer against the **installed** package. The tarball unpacks to exactly `dist`,
+`src`, `LICENSE`, `README.md`, `package.json` — nothing else — and Node resolves `hyperbolic-map` to
+it and names a tile with it.
+
+TypeScript resolves the types under **all four** resolution modes, clean under `strict`:
+
+| moduleResolution | reads | result |
+|---|---|---|
+| `bundler` (Vite, most React/Svelte setups) | `exports["."].types` | clean |
+| `nodenext` | `exports["."].types` | clean |
+| `node16` | `exports["."].types` | clean |
+| `node10` (older setups) | the top-level `types` | clean |
+
+That is why both spellings are present; each mode above exercises one of them.
+
+Proved to be doing something rather than merely resolving: with the expect-error removed, a
+misspelled option in the consumer produces
+
+```
+error TS2561: Object literal may only specify known properties, but 'maxZom' does not exist
+in type 'ViewportOptions'. Did you mean to write 'maxZoom'?
+```
+
+and the *same* diagnostic appears for a plain `.js` consumer under `// @ts-check` with `checkJs` —
+which is the React/Svelte-without-TypeScript path, and the one Jim's "minimal friction" ask was
+really about.
+
+### Browser, unchanged as expected
+
+Nothing in the last three commits touches runtime code, and `git diff dist/` confirms the bundle is
+byte-identical, but checked anyway: `docs/escher.html` renders (704x704, 381 distinct sampled
+colors) with an **empty console**, reports `HyperbolicMap.VERSION === "0.1.0"` and 56 names on the
+global, and rejects `{ maxTiels: 5 }` from the page's own console.
+
+### Final state
+
+`npm run check` 20 modules; `npm test` **191/191**; `npm run smoke` ok; `npm run typecheck` clean;
+`npm run build` then `git diff --exit-code dist/ docs/lib/` clean; `npm pack --dry-run` 26 files /
+222.5 kB. Working tree clean, nothing pushed.
+
+Everything on issue #4 that can be done from this directory is done. What is left is Jim's, and it
+is listed at the end of 2026-08-08-s.

@@ -12,7 +12,7 @@
 // GEOMETRY, matching the library's conventions exactly (RegularTiling puts vertices at angles
 // pi/p + 2*pi*k/p, so edge MIDPOINTS land on 2*pi*k/p and edge 0's midpoint is on the +x axis):
 //
-//     mirror a = the x-axis                  (through the centre O and the edge-0 midpoint M)
+//     mirror a = the x-axis                  (through the center O and the edge-0 midpoint M)
 //     mirror b = the line at angle pi/p      (through O and vertex V0)
 //     mirror c = the edge-0 geodesic         (through M and V0)
 //
@@ -149,9 +149,9 @@ export function serializeExactMatrix(R, A, p, q, m) {
 
 // THE PUBLIC TILE ID, so its shape is fixed forever. Same prefix, then three entries.
 //
-// The id is the serialized TILE CENTRE v = F.v_O, not the whole frame F. Three ring elements instead
+// The id is the serialized TILE CENTER v = F.v_O, not the whole frame F. Three ring elements instead
 // of nine is a third of the memory and a third of the work, and nothing is lost: P fixes v_O, so every
-// frame in a tile's coset gives the SAME vector, and distinct tiles have distinct centres. The id is
+// frame in a tile's coset gives the SAME vector, and distinct tiles have distinct centers. The id is
 // therefore canonical automatically -- it does not depend on the coset tie-break at all, which is why
 // the round-trip tests below check the canonical FRAME separately rather than inferring it from the id.
 export function serializeExactVector(R, v, p, q, m) {
@@ -183,7 +183,7 @@ export function buildExactCoxeter(p, q) {
   const vM = [lambdaP, two, lambdaQ];
   const vV = [R.sub(four, R.mul(lambdaQ, lambdaQ)), R.mul(two, lambdaP), R.mul(lambdaP, lambdaQ)];
 
-  // rho = Sb.Sa is the rotation by +2*pi/p about the tile centre (counter-clockwise in the disk).
+  // rho = Sb.Sa is the rotation by +2*pi/p about the tile center (counter-clockwise in the disk).
   // Verified in calibration rather than trusted here.
   const rho = exactMatMul(R, Sb, Sa);
 

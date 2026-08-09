@@ -110,13 +110,13 @@ test("+M and -M are the same isometry (the double cover)", () => {
   assert.ok(Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-15);
 });
 
-test("REGRESSION: recentring on a far point puts it exactly at the disk centre", () => {
+test("REGRESSION: recentring on a far point puts it exactly at the disk center", () => {
   // Ledger: the dungeon reaches (0, 11711.92), d ~ 20.1. Expanding the projection into a polynomial
   // in the offset lands this on the boundary instead -- 310 px wrong on a 620 px canvas -- because
   // the terms that must cancel are each of order y^2 while their difference is O(1).
   //
-  // The centre assertion is exact at any magnitude: the recentred point is a fixed point, so there
-  // is nothing left to cancel. The neighbour assertion is where the conditioning shows, and it is
+  // The center assertion is exact at any magnitude: the recentered point is a fixed point, so there
+  // is nothing left to cancel. The neighbor assertion is where the conditioning shows, and it is
   // checked against the LAW rather than a flat tolerance -- error ~ eps * w^2, where w = cosh(d/2)
   // is the largest matrix entry. That is the whole reason single-patch mode has a usable range at
   // all (it runs out near w ~ 1e8, where the products reach 1e16 and the answer is 0/0), and the
@@ -130,7 +130,7 @@ test("REGRESSION: recentring on a far point puts it exactly at the disk centre",
     const out = m.applyToLocal(x, y, undefined, [0, 0]);
     assert.ok(
       Math.hypot(out[0], out[1]) < 1e-9,
-      `recentred on (${x}, ${y}) but it landed at radius ${Math.hypot(out[0], out[1])}`,
+      `recentered on (${x}, ${y}) but it landed at radius ${Math.hypot(out[0], out[1])}`,
     );
 
     // And it is genuinely the isometry that moved it, not a collapse of everything onto the origin:
@@ -143,7 +143,7 @@ test("REGRESSION: recentring on a far point puts it exactly at the disk centre",
     const tol = Math.max(1e-12, 4 * EPS * w2);
     assert.ok(
       Math.abs(r - Math.tanh(0.5)) < tol,
-      `at (${x}, ${y}) a unit-distance neighbour landed at radius ${r}, ` +
+      `at (${x}, ${y}) a unit-distance neighbor landed at radius ${r}, ` +
         `expected ${Math.tanh(0.5)} to within ${tol}`,
     );
   }
@@ -263,7 +263,7 @@ test("the in-disk visibility test is exact", () => {
     const px = uni(r, -0.99, 0.99);
     const py = uni(r, -0.99, 0.99);
     if (Math.hypot(px, py) >= 0.99) continue;
-    // ground truth: move the view centre to the origin, then compare |z| with tau
+    // ground truth: move the view center to the origin, then compare |z| with tau
     const view = Isom.translationToDisk(cx, cy).inverse();
     const z = view.applyToDisk(px, py, [0, 0]);
     const truth = Math.hypot(z[0], z[1]) < tau;
@@ -330,9 +330,9 @@ test("normalize is stable across the whole representable range", () => {
   // if that ever changes, scale by max(|dr|, |di|) before dividing.
   for (const d of [0, 1e-8, 1, 10, 20, 37, 40, 100, 400, 700]) {
     const m = Isom.translation(d, 0.7).mul(Isom.rotation(0.3));
-    const beforeCentre = m.applyToDisk(0.2, -0.1, [0, 0]);
+    const beforeCenter = m.applyToDisk(0.2, -0.1, [0, 0]);
     m.normalize();
-    const afterCentre = m.applyToDisk(0.2, -0.1, [0, 0]);
+    const afterCenter = m.applyToDisk(0.2, -0.1, [0, 0]);
     assert.ok(Number.isFinite(m.ar) && Number.isFinite(m.br), `not finite at d = ${d}`);
     const modA = Math.hypot(m.ar, m.ai);
     const modB = Math.hypot(m.br, m.bi);
@@ -341,7 +341,7 @@ test("normalize is stable across the whole representable range", () => {
     assert.ok(rel < 1e-15, `off-manifold by ${rel} at d = ${d}`);
     // And the action must not have moved.
     assert.ok(
-      Math.hypot(beforeCentre[0] - afterCentre[0], beforeCentre[1] - afterCentre[1]) < 1e-12,
+      Math.hypot(beforeCenter[0] - afterCenter[0], beforeCenter[1] - afterCenter[1]) < 1e-12,
       `normalize changed the action at d = ${d}`,
     );
     if (d > 0) assert.ok(Math.abs(m.distanceMoved() - d) / d < 1e-9, `distance drifted at d = ${d}`);

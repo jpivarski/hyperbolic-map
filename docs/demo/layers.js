@@ -43,7 +43,7 @@ export function imageLayer(spec) {
   // while the dungeon itself stays perfectly smooth across the same boundary. Feeding that straight
   // to ctx.rotate makes the shell snap while the world it is supposedly carrying does not.
   //
-  // So the jump is cancelled: when the anchor changes, absorb the difference into an offset and keep
+  // So the jump is canceled: when the anchor changes, absorb the difference into an offset and keep
   // drawing at the angle we were already at. Between re-anchors this is exactly `view.rotation`, so a
   // rim drag turns the shell by precisely the angle swept.
   //
@@ -106,25 +106,6 @@ export function imageLayer(spec) {
       // whole visual joke, and it costs one line.
       if (rotateWithDisk) ctx.rotate(-turn);
       ctx.drawImage(img, -w / 2, -h / 2, w, h);
-      ctx.restore();
-    },
-  };
-}
-
-// A small "you are here" crosshair drawn on top, to show an overlay layer (z >= 0).
-export function crosshairLayer({ z = 10, colour = "rgba(0,0,0,0.35)", size = 8 } = {}) {
-  return {
-    z,
-    draw(ctx, view) {
-      ctx.save();
-      ctx.strokeStyle = colour;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(view.cx - size, view.cy);
-      ctx.lineTo(view.cx + size, view.cy);
-      ctx.moveTo(view.cx, view.cy - size);
-      ctx.lineTo(view.cx, view.cy + size);
-      ctx.stroke();
       ctx.restore();
     },
   };

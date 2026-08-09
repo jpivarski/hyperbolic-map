@@ -47,7 +47,7 @@ export class ViewState {
     this.gesture = null;
   }
 
-  // Re-express the view in a NEIGHBOURING tile's frame. `shift` is the generator carrying the new
+  // Re-express the view in a NEIGHBORING tile's frame. `shift` is the generator carrying the new
   // frame's coordinates into the old one's, so the matrices gain it on the right and everything stored
   // in the frame's DOMAIN has to be pulled back through its inverse.
   //
@@ -139,8 +139,8 @@ export class ViewState {
 
     if (this.rotationMode === ROTATION_COMPASS) {
       // Hold the compass target at the bearing it had when the gesture started. This necessarily
-      // gives up pinning the grabbed point: a rotation about the screen centre moves it. That
-      // trade-off is inherent to compass mode and matches the 2011 behaviour.
+      // gives up pinning the grabbed point: a rotation about the screen center moves it. That
+      // trade-off is inherent to compass mode and matches the 2011 behavior.
       const correction = g.bearing - this.northOf(moved);
       this.liveMatrix = Isom.rotation(correction).mul(moved);
     } else {

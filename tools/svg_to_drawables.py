@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert an SVG edited in Inkscape back into hyperbolic-map-widget drawables.
+"""Convert an SVG edited in Inkscape back into hyperbolic-map drawables.
 
     python3 svg_to_drawables.py FROM-FILE TO-FILE JSON-PATH
 
@@ -10,7 +10,7 @@ This OVERWRITES that array in TO-FILE.  Copy the file first if you want to keep 
 
 No --coords option: `drawables_to_svg.py` records the coordinate system it used in the SVG, and this
 script reads it back and inverts the projection accordingly.  The
-`class="hyperbolic-map-widget-guidelines"` group is recognised and ignored.
+`class="hyperbolic-map-guidelines"` group is recognized and ignored.
 
 Standard library only, and deliberately standalone -- users of this library have Python available but
 no environment in which to install anything.  See tools/README.md.
@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 # --------------------------------------------------------------------------------------------------
 # KEEP IN SYNC.  `resolve_json_path` below is duplicated VERBATIM in drawables_to_svg.py and
 # svg_to_drawables.py.  The two scripts are deliberately standalone -- there is no shared module to
-# install -- so the only defence against the copies drifting apart is that they are, and remain,
+# install -- so the only defense against the copies drifting apart is that they are, and remain,
 # character-for-character identical.  If you change one, change the other.
 # --------------------------------------------------------------------------------------------------
 
@@ -92,10 +92,10 @@ def resolve_json_path(document, json_path):
 # End of the shared region.
 # --------------------------------------------------------------------------------------------------
 
-NAMESPACE = "https://github.com/jpivarski/hyperbolic-map-widget"
+NAMESPACE = "https://github.com/jpivarski/hyperbolic-map"
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 
-GUIDELINES_CLASS = "hyperbolic-map-widget-guidelines"
+GUIDELINES_CLASS = "hyperbolic-map-guidelines"
 
 # The library's own defaults, from DEFAULT_STYLE in src/data/drawable.js (plus `closed`, which
 # defaults to true, and `radius`, which falls back to markerRadius).  A field is written into the JSON
@@ -170,7 +170,7 @@ def warn(message):
 
 # --------------------------------------------------------------------------------------------------
 # Coordinates.  Ported from src/core/coords.js; the half-plane conversion is the CORRECTED form,
-# whose comments there explain what the cancelling version broke.
+# whose comments there explain what the canceling version broke.
 # --------------------------------------------------------------------------------------------------
 
 
@@ -295,8 +295,8 @@ def parse_transform(text):
 # presentation attributes, so both have to be read.
 # --------------------------------------------------------------------------------------------------
 
-HEX_COLOUR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
-RGB_COLOUR = re.compile(r"^rgb\(\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*\)$")
+HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+RGB_COLOR = re.compile(r"^rgb\(\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*\)$")
 
 STYLE_PROPERTIES = ("fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
                     "stroke-miterlimit", "fill-opacity", "stroke-opacity", "opacity", "display",
@@ -333,26 +333,26 @@ def element_style(element, inherited):
     return style
 
 
-def colour_with_opacity(colour, opacity):
-    """Fold an opacity into the colour, since the drawable format has no separate opacity field.
+def color_with_opacity(color, opacity):
+    """Fold an opacity into the color, since the drawable format has no separate opacity field.
 
-    `fill`/`stroke` strings go straight to a canvas context, so any CSS colour works -- including
+    `fill`/`stroke` strings go straight to a canvas context, so any CSS color works -- including
     `rgba(...)`.  Only hex and `rgb()` can be rewritten; anything else keeps its opacity dropped
     rather than being mangled.
     """
-    if colour is None or colour == "none" or opacity is None or opacity >= 0.999:
-        return colour
-    match = HEX_COLOUR.match(colour)
+    if color is None or color == "none" or opacity is None or opacity >= 0.999:
+        return color
+    match = HEX_COLOR.match(color)
     if match:
-        digits = colour[1:]
+        digits = color[1:]
         if len(digits) == 3:
             digits = "".join(c * 2 for c in digits)
         red, green, blue = (int(digits[i:i + 2], 16) for i in (0, 2, 4))
     else:
-        match = RGB_COLOUR.match(colour)
+        match = RGB_COLOR.match(color)
         if not match:
-            warn("cannot apply opacity {} to colour {!r}; dropping the opacity".format(opacity, colour))
-            return colour
+            warn("cannot apply opacity {} to color {!r}; dropping the opacity".format(opacity, color))
+            return color
         channels = []
         for group in match.groups():
             if group.endswith("%"):
@@ -444,8 +444,8 @@ def resolved_paint(style):
     overall = as_float(style.get("opacity"), 1.0)
     fill = style.get("fill", "#000000")
     stroke = style.get("stroke", "none")
-    fill = colour_with_opacity(fill, as_float(style.get("fill-opacity"), 1.0) * overall)
-    stroke = colour_with_opacity(stroke, as_float(style.get("stroke-opacity"), 1.0) * overall)
+    fill = color_with_opacity(fill, as_float(style.get("fill-opacity"), 1.0) * overall)
+    stroke = color_with_opacity(stroke, as_float(style.get("stroke-opacity"), 1.0) * overall)
     return fill, stroke
 
 
@@ -674,7 +674,7 @@ class Converter:
             )
         )
 
-    def add_marker(self, element, style, centre, radius_svg):
+    def add_marker(self, element, style, center, radius_svg):
         source = self.source(element)
         decided = {}
         radius = as_float(element.get(hmw("radius")), None)
@@ -684,7 +684,7 @@ class Converter:
         fill, _ = resolved_paint(style)
         decide(decided, "markerFill", fill, source)
         self.carried_over(decided, source)
-        at = self.round_point(*self.to_local(*centre))
+        at = self.round_point(*self.to_local(*center))
         self.drawables.append(
             assemble(self.key_order(element, "marker"), decided, {"type": "marker", "at": at})
         )
@@ -869,7 +869,7 @@ def read_params(root, filename):
         return params
 
     raise SystemExit(
-        "error: {} carries no hyperbolic-map-widget metadata, so the coordinate system is "
+        "error: {} carries no hyperbolic-map metadata, so the coordinate system is "
         "unknown.\n       Only SVGs produced by drawables_to_svg.py can be converted back; if "
         "Inkscape stripped\n       the metadata, re-export from JSON and re-apply your edits.".format(
             filename
@@ -879,7 +879,7 @@ def read_params(root, filename):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Convert an SVG edited in Inkscape back into hyperbolic-map-widget drawables.",
+        description="Convert an SVG edited in Inkscape back into hyperbolic-map drawables.",
         epilog="This OVERWRITES the array at JSON-path in to-file.  Copy the file first if you want "
         "to keep the original.",
     )
