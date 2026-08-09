@@ -4,4 +4,4 @@
 // `package.json` at run time, and the browser bundle is plain concatenation with nothing to
 // substitute. The copy in `package.json` is what npm publishes, so there are necessarily two, and
 // `dev/check-bundle.mjs` fails the build if they ever disagree.
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
