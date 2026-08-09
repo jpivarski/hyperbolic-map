@@ -2863,3 +2863,34 @@ a `brandNewOption` to the destructure and watching the test fail with its name.
 `docs/dungeon-man.html` render with an empty console, report `HyperbolicMap.VERSION === "0.1.0"`, and
 reject a misspelled atlas option from the page's own console. No demo or test passes an atlas key that
 the new check rejects.
+
+## 2026-08-08-q — Release prep 12: `author`, `homepage`, `bugs`
+
+Issue #4's **(HUMAN!)** packaging box has six sub-items. Three of them were already true and only
+needed checking, which `npm pack --dry-run` does directly: LICENSE and README ship; `notes`, `dev`,
+`test`, `bench`, `docs` and `tools` do not (25 files, 209.6 kB); and the version is 0.1.0 in both
+`package.json` and `src/version.js`, which `dev/check-bundle.mjs` ties together. The other three
+fields simply did not exist.
+
+Added, after `license`:
+
+```json
+"author": { "name": "Jim Pivarski", "url": "https://github.com/jpivarski" },
+"homepage": "https://github.com/jpivarski/hyperbolic-map",
+"bugs": { "url": "https://github.com/jpivarski/hyperbolic-map/issues" }
+```
+
+**No email**, by Jim's decision. npm renders the author email on the package page, where it is
+public and scrapeable; `bugs` is the contact channel instead. Jim also chose the GitHub repo over
+`https://jpivarski.github.io/hyperbolic-map/` for `homepage`, so the docs site is reached through the
+README rather than from npm's sidebar.
+
+`repository.url` was already `git+https://github.com/jpivarski/hyperbolic-map.git` and **must stay
+exactly that string**: npm's trusted-publisher check compares it against the configured repository,
+and the provenance attestation reads it. It is no longer just documentation.
+
+The package name is free — `npm view hyperbolic-map` returns 404.
+
+### Verified
+
+`npm pack --dry-run` still lists the same 25 files at the same size; the JSON round-trips.

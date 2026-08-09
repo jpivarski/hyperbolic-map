@@ -13,6 +13,14 @@
     "escher"
   ],
   "license": "BSD-3-Clause",
+  "author": {
+    "name": "Jim Pivarski",
+    "url": "https://github.com/jpivarski"
+  },
+  "homepage": "https://github.com/jpivarski/hyperbolic-map",
+  "bugs": {
+    "url": "https://github.com/jpivarski/hyperbolic-map/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
