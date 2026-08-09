@@ -2,20 +2,22 @@
 
 A JavaScript map widget that draws vector graphics on [the hyperbolic plane](https://en.wikipedia.org/wiki/Hyperbolic_geometry), projected as [a Poincaré disk](https://en.wikipedia.org/wiki/Poincar%C3%A9_disk_model). Think of it like Google Earth for a negatively curved surface, rather than a sphere, which is positively curved.
 
+Use it like a normal web-based map: scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers (or dragging the outer ring with a mouse).
+
+The library is pure JavaScript (ES2020) without any runtime dependencies. It has been modernized and packaged from my 2012 blog post, [Lost in Hyperbolia](http://coffeeshopphysics.com/articles/2012-12/22_lost_in_hyperbolia/) (with associated [GitHub repo](https://github.com/jpivarski/hyperbolic-storage-space)).
+
+## Examples
+
 <table>
-<tr>
+<tr style="background: white;">
 <td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/dungeon-man.html"><img src="docs/img/demo-dungeon-man.png" alt="Dungeon Man: a video-game dungeon whose rooms have five doors each, on the back of a world-turtle" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/dungeon-man.html">Dungeon Man</a></td>
 <td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/jumping-man.html"><img src="docs/img/demo-jumping-man.png" alt="Jumping Man: a jump plotted with time across and altitude up, on a hyperbolic plane" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/jumping-man.html">Jumping Man</a></td>
 </tr>
-<tr>
+<tr style="background: white;">
 <td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/escher.html"><img src="docs/img/demo-escher.png" alt="M.C. Escher's Circle Limit III: interlocking fish in four colors on an {8,3} tiling" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/escher.html">Circle Limit III</a></td>
 <td align="center" width="50%"><a href="https://jpivarski.github.io/hyperbolic-map/clock.html"><img src="docs/img/demo-clock.png" alt="A one-handed clock with all 12 hours, 720 minutes and 43,200 seconds on one face" width="100%"></a><br><a href="https://jpivarski.github.io/hyperbolic-map/clock.html">Hyperbolic clock</a></td>
 </tr>
 </table>
-
-Scroll by dragging one finger or the mouse, pinch or mouse wheel to zoom, and rotate by twisting two fingers or dragging the outer ring with a mouse.
-
-The library is pure JavaScript (ES2020) without any runtime dependencies. It has been modernized and packaged from my 2012 blog post, [Lost in Hyperbolia](http://coffeeshopphysics.com/articles/2012-12/22_lost_in_hyperbolia/) (with associated [GitHub repo](https://github.com/jpivarski/hyperbolic-storage-space)).
 
 ## Install
 
@@ -65,11 +67,9 @@ The coordinates $(x, y)$ are projected onto the screen as $(\frac{x}{w}, \frac{y
 
 ## Documentation
 
-**[How to use it](https://jpivarski.github.io/hyperbolic-map/)** — every option, every method, the
-drawable format, and atlases of tiles.
+**[Software reference:](https://jpivarski.github.io/hyperbolic-map/)** options, method, JSON graphics format, and infinite tiling.
 
-**[What the mathematics is](docs/MATH.md)** — the projection, the isometries, and which transformation
-is actually being applied to your coordinates.
+**[Mathematical reference:](docs/MATH.md)** projections, isometries, and transformations.
 
 ## Development
 
