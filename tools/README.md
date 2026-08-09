@@ -9,10 +9,6 @@ python3 tools/drawables_to_svg.py  FROM-FILE  TO-FILE  JSON-PATH  [--coords ...]
 python3 tools/svg_to_drawables.py  FROM-FILE  TO-FILE  JSON-PATH
 ```
 
-They need **Python 3 and nothing else** — no third-party packages, no virtual environment, no install
-step. Each is a single self-contained file, which is why the JSON-path helper is duplicated in both
-rather than shared (see [Maintaining the pair](#maintaining-the-pair)).
-
 ## The workflow
 
 ```bash
@@ -26,18 +22,12 @@ inkscape art.svg                                 # draw; save as Inkscape SVG or
 python3 tools/svg_to_drawables.py art.svg my-atlas.json drawables
 ```
 
-The second step's `--coords`/`--guidelines` are recorded **inside the SVG**, so the last step needs no
+The second step's `--coords`/`--guidelines` are recorded inside the SVG, so the last step needs no
 options: it reads them back and inverts the projection itself.
-
-[`docs/escher-atlas-drawables.svg`](../docs/escher-atlas-drawables.svg) is the result of exactly that
-first command, kept in the repository as the worked example: it is the Circle Limit III octagon with
-its `{8,3}` guidelines, and it is the file the round-trip measurements below were taken on. Open it in
-Inkscape to see what an editable tile looks like, or read its `<hmw:params>` to see what the scripts
-record.
 
 ## `JSON-PATH`
 
-Drawables are usually a *part* of a JSON file, so both scripts take a dotted path to the array:
+Drawables are usually a part of a JSON file, so both scripts take a dotted path to the array:
 
 | file | path | what it selects |
 |---|---|---|
@@ -47,7 +37,7 @@ Drawables are usually a *part* of a JSON file, so both scripts take a dotted pat
 | — | `layers.3.shapes` | an integer step indexes an array |
 | — | `""` or `.` | the whole document, when it is a bare array |
 
-At each step the name is a key if the current node is a JSON object, and an **integer index** if it is
+At each step the name is a key if the current node is a JSON object, and an integer index if it is
 an array. The target must be an array of drawable objects; anything else is an error that names the
 path so far and lists what was actually available.
 
@@ -63,7 +53,7 @@ Which coordinate system the SVG is drawn in. Default `local`.
 | `halfplane` | the Poincaré upper half-plane. Some 2011 source art was authored here, and the binary tiling is defined here. |
 | `disk` | the Poincaré disk — **the same coordinates the map viewer presents**, so this is the WYSIWYG choice. |
 
-In all three the y axis points **up**, matching the renderer's own `sy = -y * scale + cy`, so the SVG
+In all three the y axis points up, matching the renderer's own `sy = -y * scale + cy`, so the SVG
 reads the same way up as the widget does.
 
 The page is auto-fitted: the content's longer side becomes 1000 user units with a 4 % margin. The exact
@@ -71,24 +61,15 @@ affine is recorded in the metadata, so `svg_to_drawables.py` reads the inverse r
 
 ### `--guidelines "SPEC"`
 
-Adds light gray tile borders **beneath** the art, as one `<g class="hyperbolic-map-guidelines">`
+Adds light gray tile borders beneath the art, as one `<g class="hyperbolic-map-guidelines">`
 that `svg_to_drawables.py` recognizes and ignores. Omit it and no guidelines are added.
-
-Everything in the group is sampled along the **true hyperbolic curve** — 48 segments per tile edge, 16
-per letter stroke — because tile edges bow in every one of the three coordinate systems. Drawing an
-`{8,3}` octagon as eight straight lines between its vertices would be off by 5.5 px on a 1000-unit
-page; the sampled borders are within 0.003 px.
 
 **`"RegularTiling(p, q, frameSymmetry)"`** — `frameSymmetry` is optional and defaults to `p`, as in
 [`RegularTiling`](../docs/index.html#regular-tiling). You get:
 
 - the base tile's border, in `#bbbbbb`;
 - one ring of neighbors, in `#dddddd`;
-- a large letter **R** in each neighbor, showing **the orientation that neighbor is placed in**.
-  There is no R in the center tile, where it is implied upright and unflipped. This is the thing worth
-  looking at: the walk group's generators rotate each neighbor, and if your art is not invariant under
-  rotation by `2π/frameSymmetry` the pattern will tear along exactly these seams — see
-  [THE STABILIZER RULE](../notes/tilings.md#the-stabilizer-and-what-it-does-and-does-not-constrain).
+- a large letter **R** in each neighbor, showing the orientation that neighbor is placed in.
 
 > The neighbors drawn are the ones the tiling's own generators reach. For `frameSymmetry = p` that is
 > all `p` of them; for `frameSymmetry < p` there are `2 × frameSymmetry` generators, so when
@@ -101,28 +82,13 @@ horocycles and two are geodesics, meeting at right angles.
 > whether the cell is a left or a right child, and a prototype cell has no longitude — so both parent
 > variants are shown, and only one of them is a real neighbor of any given cell.
 
-**In addition**, for any non-empty `--guidelines`: `--coords disk` also draws the unit boundary circle,
+In addition, for any non-empty `--guidelines`: `--coords disk` also draws the unit boundary circle,
 and `--coords halfplane` also draws the horizontal axis, spanning only as wide as the other guidelines.
-
-To see the guidelines *over* your art instead of under it, drag the group above the drawables group in
-Inkscape's XML editor or Objects panel.
-
-### Output
-
-```
-wrote art.svg: 233 drawables in disk coordinates, 1080 x 1080 units
-guidelines: RegularTiling(8, 3, 4), 8 neighboring tiles
-round-trip precision: worst 1.2e-12 local units of 0.4346 (drawable 225, point 0)
-```
-
-The last line is measured, not estimated: every point is pushed through the very text the file will
-carry and back again. See [Precision](#precision).
 
 ## `svg_to_drawables.py`
 
 **This overwrites the array at `JSON-PATH` in `TO-FILE`.** `TO-FILE` must already exist and already have
-something at that path. Copy your JSON first if you want to keep the original — the script deliberately
-does not do it for you.
+something at that path. Copy your JSON first if you want to keep the original.
 
 There is no `--coords`: the SVG says which one was used.
 
@@ -158,7 +124,7 @@ only ever affected the stroke.
 
 Per-point [stroke flags](../docs/index.html#path) are stored in `hmw:flags`, always — including when every
 one is empty, since a path with no `"L"` anywhere strokes nothing however its `stroke` is set. If the
-attribute is absent (a shape you drew in Inkscape) or no longer matches the point count (you added or
+attribute is absent or no longer matches the point count (you added or
 removed nodes), the flags are re-inferred: every edge is stroked when the shape has a stroke and none
 is when it does not, which is how all the shipped data is written.
 
@@ -171,18 +137,12 @@ flagged shape is previewed with its whole outline drawn. The flags themselves su
 `hmw:source` (the original field values) and `hmw:keys` (their original order). So `svg_to_drawables.py`
 can tell the difference between a field you edited and one you did not, and:
 
-- **a shape you did not touch comes back byte-identical** — the same fields in the same order, and
-  `lineWidth: 2` does not become `2.0`;
+- a shape you did not touch is passed through unchanged (the same fields in the same order, and
+  `lineWidth: 2` does not become `2.0`);
 - fields the SVG cannot express at all — `class`, `visibleTo`, `withinTile`, anything a future version
   adds — survive rather than being dropped;
-- fields you *did* edit are written from the SVG, and omitted when they merely restate a library
+- fields you did edit are written from the SVG, and omitted when they merely restate a library
   default, so the JSON does not inflate into a fully expanded style block.
-
-Verified: `drawables` of `docs/escher-atlas.json`, and `critters.fairy` and `room` of
-`docs/dungeon-atlas.json`, are **bit-for-bit identical** after a round trip in all three coordinate
-systems — including after being re-saved by Inkscape 1.1.2 in between. Compiling the result with the
-library's own `compileDrawables` gives identical point arrays, identical flags and *identity-identical*
-interned style objects, for those and for `docs/relativity.json` and `docs/clock.json` too.
 
 ### Not preserved
 
@@ -201,51 +161,9 @@ per unit, which is about what `view.radius` comes to on a 620 px canvas at zoom 
 conversion in the metadata. So `lineWidth: 2` becomes a proportionate `stroke-width`, and a shape you
 draw fresh in Inkscape gets a proportionate `lineWidth` back.
 
-## Straight lines here, geodesics there
-
-**The SVG has one node per drawable point, joined by straight lines. The viewer joins the same points
-with geodesics.** So a long edge you draw straight in Inkscape will bow slightly in the widget.
-
-This is the deliberate trade: one SVG node per JSON point means dragging a node moves exactly that
-point and the round trip is exact, which is what makes hand-editing predictable. Measured on
-`docs/escher-atlas.json` at a 500 px disk radius, 99 % of edges bow less than 0.35 px and the worst
-bows 6 px. If an edge matters, add points along it — and note that the guidelines *are* drawn as true
-curves, so they show you where the tiling really is.
-
-## Precision
-
-An SVG stores every coordinate to the same fraction of the page, so its precision is **absolute**.
-Local coordinates grow like `sinh(d/2)`. Data spanning a large hyperbolic distance therefore cannot
-survive being squeezed onto one page — this is the conditioning limit in
-[docs/MATH.md §6](../docs/MATH.md), not something a tool can work around.
-
-`drawables_to_svg.py` measures the actual cost and warns when it is coarse. Measured worst error, in
-local units:
-
-| dataset | extent | `local` | `disk` | `halfplane` |
-|---|---|---|---|---|
-| `escher-atlas.json` `drawables` | 0.43 | 4e-12 | 5e-12 | 1e-11 |
-| `dungeon-atlas.json` `critters.fairy` | 0.11 | 7e-13 | 8e-13 | 6e-13 |
-| `escher.json` `drawables` † | 13 | 1e-10 | 2e-8 | 9e-7 |
-| `clock.json` `drawables` | 31 | 3e-10 | 3e-7 | **1e-3** |
-| `relativity.json` `drawables` | 77 | 4e-10 | 8e-8 | 2e-6 |
-| `dungeon.json` `drawables` † | 11710 | 6e-8 | **0.13** | **200** |
-
-† `escher.json` and `dungeon.json` were the 2011 single-patch demo datasets, removed before the 0.1.0
-release along with the pages that used them. Their rows stay because they are the widest-extent
-measurements in the set and the point of the table is the trend, not the files.
-
-The bold cells get a warning. If you see one: use `--coords local`, which is the best conditioned of
-the three, or split the data into an [atlas of tiles](../docs/index.html#atlas-of-tiles) and convert one tile
-at a time. Tile-local art — what these scripts are really for — is small by construction and lands in
-the top two rows.
-
-Coordinates are written back at the shortest decimal that is faithful to the value, so the JSON keeps
-the shape it had instead of gaining ten digits of float noise on every point.
-
 ## Metadata
 
-The projection parameters are stored **twice**: as an `hmw:params` attribute on the root `<svg>`, and as
+The projection parameters are stored twice: as an `hmw:params` attribute on the root `<svg>`, and as
 an `<hmw:params>` element inside `<metadata>`, both in the namespace
 `https://github.com/jpivarski/hyperbolic-map`. Inkscape 1.1.2 was verified to preserve both
 through a save; two copies means a future Inkscape dropping one is a warning rather than a broken round
@@ -253,28 +171,3 @@ trip. If both are gone, `svg_to_drawables.py` says so and stops rather than gues
 
 An SVG that was not produced by `drawables_to_svg.py` cannot be converted, because nothing says what
 its coordinates mean.
-
-## Maintaining the pair
-
-`resolve_json_path` is duplicated **verbatim** in both scripts, between the two `KEEP IN SYNC` comment
-banners. The scripts have to be individually self-contained — the point is that a JavaScript developer
-with no Python environment can run either one directly — so there is no module to share, and the only
-defense against the copies drifting is that they stay character-for-character identical:
-
-```bash
-python3 - <<'EOF'
-def region(path):
-    text = open(path).read()
-    return text[text.index("# KEEP IN SYNC"):text.index("# End of the shared region.")]
-assert region("tools/drawables_to_svg.py") == region("tools/svg_to_drawables.py")
-print("in sync")
-EOF
-```
-
-Other things that must agree, but are not textually shared: the coordinate conversions ported from
-`src/core/coords.js`, the library defaults from `DEFAULT_STYLE` in `src/data/drawable.js`, the
-`FONT_SCALE`/`BASE_FONT_PX` pair from `src/render/renderer.js`, the nominal viewer scale, and the
-`align`/`baseline` maps, which are inverses of each other.
-
-The guideline geometry is **only** in `drawables_to_svg.py` — the reader just skips the group — so the
-tiling formulas ported from `src/data/atlas/tiling.js` need no counterpart.
