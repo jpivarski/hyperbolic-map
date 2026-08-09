@@ -18,6 +18,7 @@ import { Anchor } from "../src/data/atlas/anchor.js";
 import { Atlas } from "../src/data/atlas/atlas.js";
 import { tileSymmetryResidual, tileSymmetryMessage } from "../src/data/atlas/symmetry.js";
 import { normalizeOptionsForTesting } from "../src/viewport.js";
+import { readFileSync } from "node:fs";
 
 const REGULARS = [
   { p: 8, q: 3, frameSymmetry: 4 },
@@ -1065,4 +1066,39 @@ test("the atlas hands a tile its color-symmetry element, and tiles sharing one s
     },
   });
   assert.ok(plain.passes({ matrix: Isom.identity(), effectiveRadius: 0.4, radius: 200 }, () => {}).length > 0);
+});
+
+test("a misspelled atlas option is an error, not a silently ignored one", () => {
+  // The viewport has always rejected unknown top-level options; the atlas destructured its own and so
+  // accepted anything. `atlas: { maxTiels: 5 }` therefore drew 256 tiles instead of 5 and said nothing.
+  const tiling = new RegularTiling({ p: 8, q: 3, frameSymmetry: 4 });
+  const tileData = () => ({ version: 1, coordinates: "local", drawables: [] });
+
+  assert.throws(
+    () => new Atlas({ tiling, tileData, maxTiels: 5 }),
+    /unknown atlas option\(s\): maxTiels/,
+    "a typo must be rejected",
+  );
+  assert.throws(
+    () => new Atlas({ tiling, tileData, clip: "always", lodPixels: 8, cachesize: 4 }),
+    /unknown atlas option\(s\): lodPixels, cachesize/,
+    "every unknown key is named, not just the first",
+  );
+
+  // And every option the constructor actually destructures must still be accepted. Reading them back
+  // out of the source is what keeps this test honest when someone adds an option: a new destructured
+  // name that was not added to the allowed set turns into an error the moment anyone passes it.
+  const src = readFileSync(new URL("../src/data/atlas/atlas.js", import.meta.url), "utf8");
+  const block = src.slice(src.indexOf("constructor(options = {}) {"), src.indexOf("if (!tiling)"));
+  const destructured = [...block.matchAll(/^\s{6}([a-zA-Z][\w]*)\s*(?:=|,)/gm)].map((m) => m[1]);
+  assert.ok(destructured.length >= 11, `only found ${destructured.length} destructured options`);
+  for (const name of destructured) {
+    // The key goes in FIRST so that `tiling` and `tileData` still land on real values: the point here
+    // is only whether the name is accepted, and those two have their own checks below the allowed-set
+    // one.
+    assert.doesNotThrow(
+      () => new Atlas({ [name]: undefined, tiling, tileData }),
+      `the constructor destructures "${name}" but the allowed set rejects it`,
+    );
+  }
 });

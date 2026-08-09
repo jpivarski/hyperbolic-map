@@ -2801,3 +2801,65 @@ where `normalizeOptions` checks; **not** true inside `atlas`, which is destructu
 8. **The GitHub URLs 404 until the repo is renamed.** Every `github.com/jpivarski/hyperbolic-map` link
    and `jpivarski.github.io/hyperbolic-map/` — the README grid, all five page navs, the SVG namespace.
    That rename is its own box on issue #4.
+
+
+## 2026-08-08-p — Jim's rulings on the four flagged packaging items
+
+All four decided and applied. Numbers refer to the flag list in entry 2026-08-08-o.
+
+### 1 and 2 — `types/index.d.ts` and the `script` condition are gone
+
+There is no TypeScript in this library and no hand-written declarations, so promising types was simply
+false. Both `exports["."].types` and the `"types"` entry in `files` are removed. (If declarations are
+ever written, that is a separate piece of work.) The `script` condition went with them: nothing
+implements it — Node does not, and neither do the bundlers — so it was decoration.
+
+That leaves `import` and `default` both naming the same file, which is what a bare string already
+means, so the whole conditional object collapsed:
+
+```json
+"exports": { ".": "./src/index.js" }
+```
+
+### 3 — one version, checked
+
+`VERSION` was on the browser global and not on the ES module, because `dev/build.mjs` injected it into
+the IIFE from `package.json` and `src/` never knew about it. Now `src/version.js` holds the literal,
+`src/index.js` re-exports it, and the builder injects **nothing** — it comes through the barrel like
+every other public name, so the two surfaces cannot diverge again by construction.
+
+It has to be a literal: `src/` is loaded straight into browsers as ES modules, so nothing can read
+`package.json` at run time, and the bundle is plain concatenation with no substitution step. So there
+are necessarily two copies, and **`dev/check-bundle.mjs` now fails if they disagree** — which runs on
+every `npm run check` and before every `npm run build`. Verified by setting `src/version.js` to 9.9.9
+and watching the build refuse.
+
+`test/bundle.test.mjs` gained the missing direction. It asserted the bundle is a superset of the ESM
+surface, which is exactly why it never noticed; it now asserts equality, and a new test pins
+`esm.VERSION === bundle.VERSION === package.json`.
+
+### 4 — the atlas rejects unknown options, like the viewport always has
+
+`atlas: { maxTiels: 5 }` used to be accepted in silence and draw 256 tiles. It now throws
+`hyperbolic-map: unknown atlas option(s): maxTiels`, naming every unknown key rather than the first.
+
+**This is an API change, made after the freeze, and deliberately.** Jim's reasoning is the right one:
+users will assume it already worked this way, so the old behaviour was the surprise. Nothing that
+previously drew correctly can break — only calls that were already being partly ignored.
+
+No documentation was added, per Jim. Documentation was in fact *removed*: the previous commit had
+qualified "An unrecognized option name raises an error" with a clause explaining that `atlas` was the
+exception. That clause is now false, so the sentence is back to its original plain form.
+
+The allowed set lives next to the destructure it mirrors, and `test/anchor.test.mjs` reads the
+constructor's source to check that **every** destructured name is in it — so adding an option and
+forgetting the set turns the new option into an error rather than a silent default. Verified by adding
+a `brandNewOption` to the destructure and watching the test fail with its name.
+
+### Verified
+
+`npm run check` (20 modules now, `src/version.js` is the new one); `npm test` **186/186**, 2 new;
+`npm run build`. `npm pack --dry-run` mentions `types` zero times. `docs/escher.html` and
+`docs/dungeon-man.html` render with an empty console, report `HyperbolicMap.VERSION === "0.1.0"`, and
+reject a misspelled atlas option from the page's own console. No demo or test passes an atlas key that
+the new check rejects.

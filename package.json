@@ -16,17 +16,11 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": {
-      "types": "./types/index.d.ts",
-      "script": "./dist/hyperbolic-map.iife.js",
-      "import": "./src/index.js",
-      "default": "./src/index.js"
-    }
+    ".": "./src/index.js"
   },
   "files": [
     "src",
     "dist",
-    "types",
     "README.md",
     "LICENSE"
   ],

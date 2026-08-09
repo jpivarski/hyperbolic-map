@@ -30,6 +30,23 @@ export const CLIP_NEVER = "never";
 
 const atlasArc = new Arc();
 
+// Every key the constructor destructures below. Kept beside it, and asserted against it by
+// test/anchor.test.mjs, so that adding an option there without adding it here turns the new option
+// into an error rather than into a default.
+const ATLAS_OPTIONS = new Set([
+  "tiling",
+  "tileData",
+  "clip",
+  "cacheSize",
+  "maxTiles",
+  "styleSheet",
+  "onTileLoad",
+  "onTileError",
+  "checkTileSymmetry",
+  "tileSymmetryTolerance",
+  "lodPx",
+]);
+
 export class Atlas {
   constructor(options = {}) {
     const {
@@ -53,6 +70,13 @@ export class Atlas {
       // art, if it supplied any. See passes().
       lodPx = 11,
     } = options;
+    // Typos are an error here for the same reason they are for the viewport's own options: a
+    // destructure silently ignores what it does not recognize, so `maxTiels: 5` would leave the
+    // default in place and the only symptom would be "why is this not working".
+    const unknown = Object.keys(options).filter((k) => !ATLAS_OPTIONS.has(k));
+    if (unknown.length) {
+      throw new Error(`hyperbolic-map: unknown atlas option(s): ${unknown.join(", ")}`);
+    }
     if (!tiling) throw new Error("hyperbolic-map: atlas needs a tiling");
     if (typeof tileData !== "function") throw new Error("hyperbolic-map: atlas needs a tileData callback");
 

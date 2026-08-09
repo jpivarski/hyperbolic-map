@@ -5,6 +5,15 @@
 (function (global) {
 "use strict";
 
+// ===== src/version.js =====
+// The library's version, as a literal.
+//
+// It has to be a literal: `src/` is loaded directly by browsers as ES modules, so it cannot read
+// `package.json` at run time, and the browser bundle is plain concatenation with nothing to
+// substitute. The copy in `package.json` is what npm publishes, so there are necessarily two, and
+// `dev/check-bundle.mjs` fails the build if they ever disagree.
+const VERSION = "0.1.0";
+
 // ===== src/core/isom.js =====
 // Orientation-preserving isometries of the hyperbolic plane, as SU(1,1) matrices.
 //
@@ -2715,6 +2724,23 @@ const CLIP_NEVER = "never";
 
 const atlasArc = new Arc();
 
+// Every key the constructor destructures below. Kept beside it, and asserted against it by
+// test/anchor.test.mjs, so that adding an option there without adding it here turns the new option
+// into an error rather than into a default.
+const ATLAS_OPTIONS = new Set([
+  "tiling",
+  "tileData",
+  "clip",
+  "cacheSize",
+  "maxTiles",
+  "styleSheet",
+  "onTileLoad",
+  "onTileError",
+  "checkTileSymmetry",
+  "tileSymmetryTolerance",
+  "lodPx",
+]);
+
 class Atlas {
   constructor(options = {}) {
     const {
@@ -2738,6 +2764,13 @@ class Atlas {
       // art, if it supplied any. See passes().
       lodPx = 11,
     } = options;
+    // Typos are an error here for the same reason they are for the viewport's own options: a
+    // destructure silently ignores what it does not recognize, so `maxTiels: 5` would leave the
+    // default in place and the only symptom would be "why is this not working".
+    const unknown = Object.keys(options).filter((k) => !ATLAS_OPTIONS.has(k));
+    if (unknown.length) {
+      throw new Error(`hyperbolic-map: unknown atlas option(s): ${unknown.join(", ")}`);
+    }
     if (!tiling) throw new Error("hyperbolic-map: atlas needs a tiling");
     if (typeof tileData !== "function") throw new Error("hyperbolic-map: atlas needs a tileData callback");
 
@@ -5958,6 +5991,7 @@ class BinaryTiling {
 // a rendered frame, which is the assertion that no exact arithmetic happens per frame.
 
 global.HyperbolicMap = {
+  VERSION: VERSION,
   Isom: Isom,
   localCompanion: localCompanion,
   movePointToPoint: movePointToPoint,
@@ -6013,6 +6047,5 @@ global.HyperbolicMap = {
   resetExactMulCount: resetExactMulCount,
   buildExactCoxeter: buildExactCoxeter,
   serializeExactVector: serializeExactVector,
-  VERSION: "0.1.0",
 };
 })(typeof globalThis !== "undefined" ? globalThis : self);

@@ -111,9 +111,12 @@ for (const file of order) {
   parts.push(`\n// ===== ${relative(ROOT, file)} =====`);
   parts.push(modules.get(file).body.replace(/\n{3,}/g, "\n\n").trim());
 }
+// `VERSION` is NOT injected here. It used to be, and that is exactly how the bundle came to expose a
+// name the ES module did not: the global had a version and `import { VERSION }` did not resolve. It
+// now comes from `src/version.js` through the barrel like every other public name, so the two
+// surfaces cannot drift apart again.
 parts.push(`\nglobal.${GLOBAL_NAME} = {`);
 parts.push(publicNames.map((n) => `  ${n}: ${n},`).join("\n"));
-parts.push(`  VERSION: ${JSON.stringify(version)},`);
 parts.push(`};`);
 parts.push(`})(typeof globalThis !== "undefined" ? globalThis : self);`);
 
