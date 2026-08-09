@@ -23,8 +23,12 @@
   },
   "type": "module",
   "sideEffects": false,
+  "types": "./src/index.d.ts",
   "exports": {
-    ".": "./src/index.js"
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
   },
   "files": [
     "src",
@@ -36,6 +40,7 @@
     "check": "node dev/check-bundle.mjs",
     "build": "node dev/check-bundle.mjs && node dev/build.mjs && node -e \"require('fs').copyFileSync('dist/hyperbolic-map.iife.js','docs/lib/hyperbolic-map.iife.js')\"",
     "test": "node --test \"test/**/*.test.mjs\"",
+    "typecheck": "npx -y --package typescript@5 tsc --noEmit -p dev/typecheck/tsconfig.json",
     "bench": "node bench/bench.mjs",
     "serve": "python3 -m http.server --directory docs 8000"
   },

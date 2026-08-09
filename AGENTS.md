@@ -48,6 +48,16 @@ anything mathematical.
 - **`docs/index.html` is the documentation**, hand-edited HTML rather than generated from anything.
   `README.md` is the landing page and links to it. Do not move reference material back into the
   README: there is one copy of each fact, deliberately.
+- **`src/index.d.ts` is hand-written and must track the barrel.** There is no JSDoc in `src/`, so
+  generating it produces `any` everywhere and infers the *defaults* as the types — do not try. Add
+  an export to `src/index.js` and you must declare it there too; `test/types.test.mjs` fails by name
+  if you do not, and `npm run typecheck` (`dev/typecheck/`, needs the network because it fetches
+  `tsc` with `npx -y`) checks that the declarations still reject what they should. It is
+  deliberately not part of `npm test`, which must keep working offline.
+- **`.github/workflows/publish.yml` cannot be renamed.** npm's trusted-publisher configuration
+  stores the workflow *filename*, case-sensitively, and matches on it; renaming the file breaks
+  publishing until it is re-registered on npmjs.com. `ci.yml` beside it runs the checks on every
+  push, including that the committed `dist/` matches a fresh build.
 
 ## Notes index
 

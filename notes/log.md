@@ -2894,3 +2894,102 @@ The package name is free — `npm view hyperbolic-map` returns 404.
 ### Verified
 
 `npm pack --dry-run` still lists the same 25 files at the same size; the JSON round-trips.
+
+## 2026-08-08-r — Release prep 13: TypeScript declarations, written by hand
+
+Jim asked for "minimal friction for JavaScript, TypeScript, React, Svelte, etc. users", and floated a
+one-line `.d.ts` if that was all it took. It is not, and the reason is worth recording because the
+obvious shortcut is a trap.
+
+### Why not generate them
+
+`src/` has **zero JSDoc**: 0 occurrences of `/**`, `@param`, `@returns` or `@typedef` across all 20
+files, against 1,681 `//` lines. So `tsc --allowJs --declaration --emitDeclarationOnly` gives:
+
+* every parameter `any` (and under `strict` it *errors* rather than emitting, so it would need
+  `noImplicitAny: false`);
+* `constructor(userOptions: any)` for the viewport, because options are normalized with
+  `Object.assign` plus a `for...of Object.keys()` loop — there is nothing to infer from;
+* and, worst, **actively wrong** types for `DEFAULT_OPTIONS`: it infers `container: null`,
+  `data: null`, `atlas: null`, `maxZoom: null`, `onFrame: null`, because those are the default
+  *values*. A consumer would be told those keys must be null.
+
+The other shortcut, a `declare const x: any; export = x` shim, silences TS7016 and gives nothing
+else: no autocomplete, no checking, and it misdescribes the module format of a `"type": "module"`
+package. Rejected. Jim chose the full hand-written file.
+
+### What is declared
+
+All **56** barrel exports — 15 classes, 24 functions, 17 consts — plus the interfaces the
+documentation already specifies: `ViewportOptions` (38 keys), `AtlasOptions` (11), `ViewInfo` (18),
+`Tiling` (16 required + 8 optional), the `Drawable` union, `Style`, `TileInfo`, `Camera`, `TilePick`,
+`FrameStats`, `ColorSymmetry`. `docs/index.html` was the source of truth; the sources supplied the
+plumbing. 46.6 kB, at `src/index.d.ts`.
+
+Judgement calls, as opposed to transcription:
+
+* **Closed option interfaces, no index signature.** Unknown keys throw at run time, both for the
+  viewport and (since `556fbe2`) for the atlas, so a typo must be a type error too. It is: tsc says
+  `'maxTiels' does not exist in type 'AtlasOptions<any>'. Did you mean to write 'maxTiles'?`
+* **`aspectRatio` and `height` are mutually exclusive at compile time**, as a union of two variants,
+  because they are mutually exclusive at run time.
+* **`Tiling` is an interface, not `typeof RegularTiling`.** The point of the protocol is that a
+  user's own object satisfies it. Both built-in tilings declare `implements Tiling<...>`, so the
+  protocol and the implementations cannot drift; the type test constructs a third from scratch.
+* **`SourceSet`, `TileSymmetryError` and `GestureMode` are declared as TYPES only.** All three are
+  reachable at run time — as `viewport.sources`, as a thrown error, as `onGestureStart`'s argument —
+  but none is exported, so declaring them as classes would be a promise `import` cannot keep.
+* Addresses are typed per tiling: `BinaryAddress` is `{lat: bigint, lon: bigint}` and
+  `RegularAddress` is opaque apart from its `id`, so the two cannot be crossed.
+* Internals are **omitted**, not declared: the `*ForTesting` methods, `Renderer`'s per-shape
+  helpers, `RegularTiling`'s exact-arithmetic plumbing, `Isom.composeInto`. The declaration is the
+  documented surface, not the reachable one.
+
+### Wiring
+
+```json
+"types": "./src/index.d.ts",
+"exports": { ".": { "types": "./src/index.d.ts", "default": "./src/index.js" } }
+```
+
+Both spellings on purpose: `exports` for `node16`/`nodenext`/`bundler`, the top-level `types` for
+consumers still on `node10` resolution. `"types"` must come first inside the condition object, since
+conditions resolve in order — the test asserts that rather than trusting it. `files` already ships
+`src`, so nothing changed there.
+
+It sits at `src/index.d.ts` rather than in a `types/` directory for a third reason beyond those two:
+`walk()` in both `dev/check-bundle.mjs` and `dev/build.mjs` filters on `name.endsWith(".js")`, so a
+`.d.ts` is invisible to the style checker and to the bundler and cannot perturb either. Confirmed by
+running both, and pinned by a test that fails if either filter ever widens.
+
+### The two guards, because a stale declaration file is worse than none
+
+1. **`test/types.test.mjs`**, zero dependencies, in the normal `npm test`. The declared exported
+   *value* names must equal `Object.keys(import("../src/index.js"))` **in both directions** — the
+   one-directional version is exactly how the bundle came to expose a `VERSION` the ESM entry did
+   not (see 2026-08-08-p). It also checks that the three type-only names are not declared as values,
+   that `package.json`'s paths exist and are ordered, and the two `walk()` filters above.
+2. **`npm run typecheck`** — `dev/typecheck/consumer.ts` uses the API as a consumer would under
+   `strict`: both viewport modes, a custom `Tiling` written from scratch, `getCamera`/`setCamera`,
+   the null returns, the exact ring. Its 15 `expect-error` directives are the half that matters,
+   because a declaration file rots in two directions and only a negative test catches LOOSE. tsc
+   fails on an expect-error with no error under it, so each one is a live assertion.
+
+No devDependency and no `node_modules/`: it runs `npx -y --package typescript@5 tsc`, a temporary
+install, per the house rule. Deliberately **not** in `npm test`, which must keep working offline.
+
+### Verified
+
+`npm run check` (20 modules — the `.d.ts` is invisible, as designed); `npm test` **191/191**, 5 new;
+`npm run build`, after which `git diff --exit-code dist/ docs/lib/` is clean; `npm run typecheck`
+clean. Both guards proved to bite: deleting the expect-error over the misspelled atlas option
+produced the TS2561 quoted above, and changing `panToTile(address)` to `panToTile(address, 7)`
+produced TS2345. `npm pack --dry-run` now ships 26 files / 222.5 kB with `src/index.d.ts` present and
+`notes`/`dev`/`test`/`bench`/`docs`/`tools` still absent.
+
+### Left
+
+The declarations are checked in-tree, which does not test the `exports` wiring — a `paths` mapping
+resolves even if `exports` is wrong. Installing the packed tarball into a scratch directory and
+compiling against it under both `bundler` and `nodenext` resolution is the test that does, and it is
+in the verification pass below rather than in CI, since it needs a full `npm pack` and install.

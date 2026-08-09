@@ -1,0 +1,27 @@
+{
+  "// why": [
+    "Type-checks src/index.d.ts by USING it, the way a consumer would. Not part of any build, and",
+    "not part of `npm test`: it needs `npx -y typescript`, and `npm test` must keep working with no",
+    "network and no installs. Run it with `npm run typecheck`; CI runs it on every push.",
+    "",
+    "`paths` maps the package name onto the declaration file so consumer.ts can write the real",
+    "import specifier. That is deliberately NOT a test of the package.json exports wiring -- a",
+    "mapped path would resolve even if `exports` were wrong. The tarball install in the release",
+    "checklist is what tests the wiring; this tests the declarations."
+  ],
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": false,
+    "exactOptionalPropertyTypes": false,
+    "baseUrl": ".",
+    "paths": {
+      "hyperbolic-map": ["../../src/index.d.ts"]
+    }
+  },
+  "files": ["consumer.ts"]
+}
